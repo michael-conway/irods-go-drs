@@ -6,17 +6,24 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Provides configuration for drs behaviors
+// DrsConfig Provides configuration for drs behaviors
 type DrsConfig struct {
-	DrsIdAvuValue string
-	DrsAvuUnit    string
-	DrsLogLevel   string //info, debug
+	DrsIdAvuValue          string
+	DrsAvuUnit             string
+	DrsLogLevel            string //info, debug
+	IrodsHost              string
+	IrodsPort              int
+	IrodsZone              string
+	IrodsDrsAdminUser      string
+	IrodsDrsAdminPassword  string
+	IrodsDrsAdminLoginType string
+	IrodsDefaultLoginType  string
 }
 
 const DefaultConfigName = "drs-config"
 const DefaultConfigType = "yaml"
 
-// Read the configuration for DRS behaviors in irods
+// ReadDrsConfig reads the configuration for DRS behaviors in irods
 // can take a number of paths that will be prefixed in the searh path, or defaults
 // may be accepted, blank params for name and type defaut to irods-drs.yaml
 func ReadDrsConfig(configName string, configType string, configPaths []string) (*DrsConfig, error) {
@@ -32,7 +39,7 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	} else {
 		viper.SetConfigType(configType)
 	}
-	
+
 	for _, path := range configPaths {
 		viper.AddConfigPath(path)
 	}
@@ -54,9 +61,9 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	return &C, nil
 }
 
-func InitializeLogging(drsConfig *DrsConfig) {
+func (d *DrsConfig) InitializeLogging() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	switch drsConfig.DrsLogLevel {
+	switch d.DrsLogLevel {
 	case "debug":
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	case "info":

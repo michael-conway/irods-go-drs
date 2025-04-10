@@ -1,14 +1,27 @@
 package test
 
 import (
-	"github.com/cyverse/go-irodsclient/irods/connection"
-	"github.com/cyverse/go-irodsclient/irods/fs"
 	"github.com/michael-conway/irods-go-drs/drs-support"
-	"github.com/stretchr/testify/assert"
 	"testing"
-	"time"
 )
 
-func ReadDrsConfig(t *testing.T) {
-	actual, err = ReadDrsConfig()
+func TestReadDrsConfig(t *testing.T) {
+	var confs = [1]string{"./resources/"}
+	actual, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
+	if err != nil {
+		t.Errorf("error reading drs config: %s", err)
+	}
+	if actual.DrsIdAvuValue != "drs-id" {
+		t.Fail()
+	}
+}
+
+func TestSetLogLevel(t *testing.T) {
+	var confs = [1]string{"./resources/"}
+	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
+	if err != nil {
+		t.Errorf("error reading drs config: %s", err)
+	}
+	config.InitializeLogging()
+
 }
