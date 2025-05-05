@@ -2,22 +2,52 @@ package drs_support
 
 import (
 	"fmt"
+	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 )
 
 // DrsConfig Provides configuration for drs behaviors
 type DrsConfig struct {
-	DrsIdAvuValue          string
-	DrsAvuUnit             string
-	DrsLogLevel            string //info, debug
-	IrodsHost              string
-	IrodsPort              int
-	IrodsZone              string
-	IrodsDrsAdminUser      string
-	IrodsDrsAdminPassword  string
-	IrodsDrsAdminLoginType string
-	IrodsDefaultLoginType  string
+	DrsIdAvuValue            string
+	DrsAvuUnit               string
+	DrsLogLevel              string //info, debug
+	IrodsHost                string
+	IrodsPort                int
+	IrodsZone                string
+	IrodsDrsAdminUser        string
+	IrodsDrsAdminPassword    string
+	IrodsDrsAdminLoginType   string
+	IrodsDefaultLoginType    string
+	IrodsAuthScheme          string
+	IrodsNegotiationPolicy   string
+	IrodsNegotiationRequired bool
+	IrodsDefaultResource     string
+}
+
+func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
+	authScheme := types.GetAuthScheme(cfg.IrodsAuthScheme)
+
+	negotiationPolicy := types.GetCSNegotiationPolicyRequest(cfg.IrodsNegotiationPolicy)
+	negotiation := types.GetCSNegotiation(cfg.IrodsNegotiationPolicy)
+
+	account := types.IRODSAccount{
+		AuthenticationScheme:    authScheme,
+		ClientServerNegotiation: negotiation.IsNegotiationRequired(),
+		CSNegotiationPolicy:     negotiationPolicy,
+		Host:                    cfg.IrodsHost,
+		Port:                    cfg.IrodsPort,
+		ClientUser:              cfg.IrodsDrsAdminUser,
+		ClientZone:              cfg.IrodsZone,
+		ProxyUser:               cfg.IrodsDrsAdminUser,
+		ProxyZone:               cfg.IrodsZone,
+		Password:                cfg.IrodsDrsAdminPassword,
+		DefaultResource:         cfg.IrodsDefaultResource,
+	}
+
+	account.FixAuthConfiguration()
+
+	return account
 }
 
 const DefaultConfigName = "drs-config"
