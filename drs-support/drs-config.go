@@ -9,20 +9,17 @@ import (
 
 // DrsConfig Provides configuration for drs behaviors
 type DrsConfig struct {
-	DrsIdAvuValue            string
-	DrsAvuUnit               string
-	DrsLogLevel              string //info, debug
-	IrodsHost                string
-	IrodsPort                int
-	IrodsZone                string
-	IrodsDrsAdminUser        string
-	IrodsDrsAdminPassword    string
-	IrodsDrsAdminLoginType   string
-	IrodsDefaultLoginType    string
-	IrodsAuthScheme          string
-	IrodsNegotiationPolicy   string
-	IrodsNegotiationRequired bool
-	IrodsDefaultResource     string
+	DrsIdAvuValue          string
+	DrsAvuUnit             string
+	DrsLogLevel            string //info, debug
+	IrodsHost              string
+	IrodsPort              int
+	IrodsZone              string
+	IrodsDrsAdminUser      string
+	IrodsDrsAdminPassword  string
+	IrodsAuthScheme        string
+	IrodsNegotiationPolicy string
+	IrodsDefaultResource   string
 }
 
 func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {

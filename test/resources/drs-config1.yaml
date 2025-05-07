@@ -1,11 +1,11 @@
 DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
-IrodsHost:
-IrodsPort:
-IrodsZone:
-IrodsDrsAdminUser:
-IrodsDrsAdminPassword:
-IrodsDrsAdminLoginType:
-IrodsDefaultLoginType:
-  
+IrodsHost: localhost
+IrodsPort: 1247
+IrodsZone: tempZone
+IrodsDrsAdminUser: rods
+IrodsDrsAdminPassword: rods
+IrodsAuthScheme: native
+IrodsNegotiationPolicy: native
+IrodsDefaultResource:

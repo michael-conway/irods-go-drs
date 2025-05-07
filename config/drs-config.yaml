@@ -7,5 +7,8 @@ IrodsZone:
 IrodsDrsAdminUser:
 IrodsDrsAdminPassword:
 IrodsDrsAdminLoginType:
-IrodsDefaultLoginType:
+IrodsAuthScheme:
+IrodsNegotiationPolicy: native
+IrodsDefaultResource:
+
   
