@@ -7,8 +7,15 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/cyverse/go-irodsclient/config"
+	"github.com/cyverse/go-irodsclient/types"
+
 	"github.com/urfave/cli/v3"
 )
+
+var envManager *config.ICommandsEnvironmentManager
+
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 func init() {
 	cli.RootCommandHelpTemplate += "\niRODS Extended Command Tool\n"
@@ -53,16 +60,24 @@ func init() {
 		fmt.Fprintf(cmd.Root().Writer, "version=%s\n", cmd.Root().Version)
 	}
 
+	// set up context to pick up user creds
+
+	myManager, error := config.NewICommandsEnvironmentManager()
+	if error != nil {
+		logger.Error("error loading environment manager %v", error.Error())
+	}
+
+	envManager = myManager
+
 }
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	cmd := &cli.Command{
 		Name:  "init",
 		Usage: "init user:password@host:port/zone",
 		Action: func(context.Context, *cli.Command) error {
-			fmt.Println("initializing...")
+			fmt.Println("initializing irods session info")
 			return nil
 		},
 	}
