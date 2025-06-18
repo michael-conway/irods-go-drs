@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/cyverse/go-irodsclient/irods/types"
+	"google.golang.org/genproto/googleapis/cloud/aiplatform/v1"
+	aiplatform "google.golang.org/genproto/googleapis/cloud/aiplatform/v1beta1"
 	"io"
 	"log/slog"
 	"os"
 
 	"github.com/cyverse/go-irodsclient/config"
-	"github.com/cyverse/go-irodsclient/types"
-
 	"github.com/urfave/cli/v3"
 )
 
@@ -73,12 +74,91 @@ func init() {
 
 func main() {
 
+	var auth_type string
+	var zone string
+	var host string
+	var port string
+	var user string
+
 	cmd := &cli.Command{
-		Name:  "init",
-		Usage: "init user:password@host:port/zone",
-		Action: func(context.Context, *cli.Command) error {
-			fmt.Println("initializing irods session info")
-			return nil
+		Commands: []*cli.Command{
+			{
+				Name:  "iinit",
+				Usage: "initialize a connection to iRODS and save as an iRODS Environment for later use",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:        "t",
+						Value:       "native",
+						Usage:       "auth type",
+						Destination: &auth_type,
+					},
+					&cli.StringFlag{
+						Name:        "z",
+						Value:       "",
+						Usage:       "zone",
+						Destination: &zone,
+					},
+					&cli.StringFlag{
+						Name:        "h",
+						Value:       "",
+						Usage:       "host",
+						Destination: &host,
+					},
+					&cli.StringFlag{
+						Name:        "o",
+						Value:       "1247",
+						Usage:       "port",
+						Destination: &port,
+					},
+					&cli.StringFlag{
+						Name:        "u",
+						Value:       "",
+						Usage:       "user name",
+						Destination: &user,
+					},
+					&cli.StringFlag{
+						Name:  "p",
+						Value: "",
+						Usage: "password",
+					},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					fmt.Println("added task: ", cmd.Args().First())
+					return nil
+				},
+			},
+			{
+				Name:    "complete",
+				Aliases: []string{"c"},
+				Usage:   "complete a task on the list",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					fmt.Println("completed task: ", cmd.Args().First())
+					return nil
+				},
+			},
+			{
+				Name:    "template",
+				Aliases: []string{"t"},
+				Usage:   "options for task templates",
+				Commands: []*cli.Command{
+					{
+						Name:  "add",
+						Usage: "add a new template",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							fmt.Println("new task template: ", cmd.Args().First())
+							return nil
+						},
+					},
+					{
+						Name:  "remove",
+						Usage: "remove an existing template",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							fmt.Println("removed task template: ", cmd.Args().First())
+							return nil
+						},
+					},
+				},
+			},
 		},
 	}
 
