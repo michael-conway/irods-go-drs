@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/cyverse/go-irodsclient/irods/types"
-	"google.golang.org/genproto/googleapis/cloud/aiplatform/v1"
-	aiplatform "google.golang.org/genproto/googleapis/cloud/aiplatform/v1beta1"
 	"io"
 	"log/slog"
 	"os"
@@ -20,8 +17,6 @@ var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 func init() {
 	cli.RootCommandHelpTemplate += "\niRODS Extended Command Tool\n"
-	cli.CommandHelpTemplate += "\nYMMV\n"
-	cli.SubcommandHelpTemplate += "\nor something\n"
 
 	cli.HelpFlag = &cli.BoolFlag{Name: "help"}
 	cli.VersionFlag = &cli.BoolFlag{Name: "print-version", Aliases: []string{"V"}}
@@ -124,6 +119,11 @@ func main() {
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					fmt.Println("added task: ", cmd.Args().First())
+					for i := 0; i < len(cmd.Flags); i++ {
+						flag := cmd.Flags[i]
+						logger.Info("name", flag.Names()[0], "value", flag.Get())
+
+					}
 					return nil
 				},
 			},
