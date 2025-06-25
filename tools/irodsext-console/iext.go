@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cyverse/go-irodsclient/config"
+	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/urfave/cli/v3"
 	"io"
@@ -14,6 +15,8 @@ import (
 var envManager *config.ICommandsEnvironmentManager
 
 var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+const APP_NAME = "iext"
 
 func init() {
 	cli.RootCommandHelpTemplate += "\niRODS Extended Command Tool\n"
@@ -128,7 +131,7 @@ func main() {
 						ClientZone:           zone,
 						Password:             password,
 					}
-					logger.Info("iinit with irodsAccount:", irodsAccount)
+
 					envManager.FromIRODSAccount(&irodsAccount)
 					err := envManager.SaveEnvironment()
 					if err != nil {
@@ -137,6 +140,48 @@ func main() {
 					}
 
 					fmt.Fprintf(cmd.Writer, "saved iRODS environment to %s\n", envManager.EnvironmentFilePath)
+					return nil
+
+				},
+			},
+
+			{
+				Name:  "imiscsvrinfo",
+				Usage: "Connect to the server and retrieve some basic server information.\nCan be used as a simple test for connecting to the server.",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					err := envManager.Load()
+
+					if err != nil {
+						logger.Error("error getting irodsAccount out of environment", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
+					}
+
+					irodsAccount, err := envManager.ToIRODSAccount()
+
+					if err != nil {
+						logger.Error("error getting irods account", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
+					}
+
+					filesystem, err := fs.NewFileSystemWithDefault(irodsAccount, APP_NAME)
+
+					defer filesystem.Release()
+
+					if err != nil {
+						logger.Error("error connecting to irods", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+					}
+
+					version, err := filesystem.GetServerVersion()
+
+					if err != nil {
+						logger.Error("error connecting to irods", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+					}
+
+					fmt.Fprintf(cmd.Writer, "irods version: %s\n", version.ReleaseVersion)
+					fmt.Fprintf(cmd.Writer, "api version: %s\n", version.APIVersion)
 					return nil
 
 				},
