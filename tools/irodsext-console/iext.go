@@ -3,13 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/urfave/cli/v3"
 	"io"
 	"log/slog"
 	"os"
-
-	"github.com/cyverse/go-irodsclient/config"
-	"github.com/urfave/cli/v3"
 )
 
 var envManager *config.ICommandsEnvironmentManager
@@ -130,7 +129,16 @@ func main() {
 						Password:             password,
 					}
 					logger.Info("iinit with irodsAccount:", irodsAccount)
+					envManager.FromIRODSAccount(&irodsAccount)
+					err := envManager.SaveEnvironment()
+					if err != nil {
+						logger.Error("error saving iRODS environment", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
+					}
+
+					fmt.Fprintf(cmd.Writer, "saved iRODS environment to %s\n", envManager.EnvironmentFilePath)
 					return nil
+
 				},
 			},
 		},
