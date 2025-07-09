@@ -10,6 +10,7 @@ import (
 	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/fatih/color"
 	"github.com/urfave/cli/v3"
 )
 
@@ -18,6 +19,7 @@ var envManager *config.ICommandsEnvironmentManager
 var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 const APP_NAME = "iext"
+const IEXT_CWD = "IEXT_CWD"
 
 func init() {
 
@@ -35,7 +37,7 @@ func init() {
 		fmt.Fprintf(w, "\t------- session managment --------\n\n")
 
 		fmt.Fprintf(w, "\tinit - initialize a connection\n")
-		fmt.Fprintf(w, "\texit - initialize a connection\n")
+		fmt.Fprintf(w, "\texit - terminaterr a connection\n")
 
 		fmt.Fprintf(w, "\n\n")
 
@@ -69,6 +71,36 @@ func init() {
 	}
 
 	envManager = myManager
+	error = envManager.Load()
+
+	if error != nil {
+		logger.Error("error loading environment manager %v", error.Error())
+	}
+
+}
+
+// Resolve the current working directory, which is stashed in the environment. If not available,
+// set to the users working directory.
+func resolveCwd() (string, error) {
+	cwd := os.Getenv(IEXT_CWD)
+
+	if cwd == "" {
+		irodsAccount, err := obtainIrodsAccount()
+
+		if err != nil {
+			logger.Error("unable to set environment variable %s", IEXT_CWD)
+			return "", err
+		}
+
+		cwd = fmt.Sprintf("/%s/home/%s", irodsAccount.ClientZone, irodsAccount.ClientUser)
+		err = os.Setenv(IEXT_CWD, cwd)
+		if err != nil {
+			logger.Error("unable to set environment variable %s", IEXT_CWD)
+			return "", err
+		}
+	}
+
+	return cwd, nil
 
 }
 
@@ -80,6 +112,7 @@ func main() {
 	var port int
 	var user string
 	var password string
+	var longFormat bool
 
 	cmd := &cli.Command{
 		Commands: []*cli.Command{
@@ -123,6 +156,12 @@ func main() {
 						Usage:       "password",
 						Destination: &password,
 					},
+					&cli.BoolFlag{
+						Name:        "l",
+						Value:       true,
+						Usage:       "long format",
+						Destination: &longFormat,
+					},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					irodsAccount := types.IRODSAccount{
@@ -147,34 +186,21 @@ func main() {
 				},
 			},
 
+			// imiscsvrinfo
+
 			{
 				Name:  "imiscsvrinfo",
 				Usage: "Connect to the server and retrieve some basic server information.\nCan be used as a simple test for connecting to the server.",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 
-					err := envManager.Load()
-
-					if err != nil {
-						logger.Error("error getting irodsAccount out of environment", err.Error())
-						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
-					}
-
-					irodsAccount, err := envManager.ToIRODSAccount()
-
-					if err != nil {
-						logger.Error("error getting irods account", err.Error())
-						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
-					}
-
-					filesystem, err := fs.NewFileSystemWithDefault(irodsAccount, APP_NAME)
-
-					defer filesystem.Release()
+					filesystem, _, err := obtainFilesystem(cmd)
 
 					if err != nil {
 						logger.Error("error connecting to irods", err.Error())
 						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
 					}
 
+					defer filesystem.Release()
 					version, err := filesystem.GetServerVersion()
 
 					if err != nil {
@@ -188,10 +214,123 @@ func main() {
 
 				},
 			},
+
+			// ipwd
+
+			{
+				Name:  "ipwd",
+				Usage: "Connect to the server and retrieve some basic server information.\nCan be used as a simple test for connecting to the server.",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					filesystem, _, err := obtainFilesystem(cmd)
+
+					if err != nil {
+						logger.Error("error connecting to irods", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+					}
+
+					defer filesystem.Release()
+
+					cwd, err := resolveCwd()
+
+					if err != nil {
+						logger.Error("error resolving cwd", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error resolving cwd\n")
+					}
+
+					fmt.Fprintf(cmd.Writer, "%s\n", cwd)
+					return nil
+
+				},
+			},
+
+			// ils
+
+			/*Options are:
+			-A  ACL (access control list) and inheritance format
+			-d  List collections themselves, not their contents
+			-l  long format
+			-L  very long format
+			-r  recursive - show subcollections
+			-t  ticket - use a read (or write) ticket to access collection information
+			-v  verbose
+			-V  Very verbose
+			-h  this help
+			--bundle - list the subfiles in the bundle file (usually stored in the
+			/myZone/bundle collection) created by iphybun command.*/
+
+			{
+				Name:  "ils",
+				Usage: "Display data objects and collections stored in iRODS.",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					cwd, err := resolveCwd()
+
+					if err != nil {
+						logger.Error("error resolving cwd", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error resolving cwd\n")
+					}
+
+					filesystem, _, err := obtainFilesystem(cmd)
+
+					defer filesystem.Release()
+
+					entries, err := filesystem.List(cwd)
+					if err != nil {
+						logger.Error("error listing filesystem", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error listing filesystem\n")
+					}
+
+					if len(entries) == 0 {
+						fmt.Printf("\n")
+					} else {
+						for _, entry := range entries {
+							if entry.Type == fs.FileEntry {
+								fmt.Printf("%s\n", entry.Name)
+							} else {
+								color.Blue(entry.Name)
+							}
+
+						}
+					}
+
+					return nil
+
+				},
+			},
 		},
 	}
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		logger.Error("error:%v", err.Error())
 	}
+}
+
+// Code to obtain login information from the environment and connect to irods
+// it is incumbent on the caller to close the underlying filesystem
+func obtainFilesystem(cmd *cli.Command) (*fs.FileSystem, *types.IRODSAccount, error) {
+
+	irodsAccount, err := obtainIrodsAccount()
+
+	if err != nil {
+		logger.Error("error getting irodsAccount out of environment", err.Error())
+		fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
+	}
+
+	filesystem, err := fs.NewFileSystemWithDefault(irodsAccount, APP_NAME)
+	return filesystem, irodsAccount, err
+}
+
+// Load the env Manager
+func obtainIrodsAccount() (*types.IRODSAccount, error) {
+
+	irodsAccount, err := envManager.ToIRODSAccount()
+
+	if err != nil {
+		logger.Error("error obtaining iRODS account from manager", err.Error())
+		return nil, err
+	}
+
+	return irodsAccount, nil
+
 }
