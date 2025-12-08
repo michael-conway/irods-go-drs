@@ -16,32 +16,6 @@ services:
       #- "5432:5432"
       #- "20000-21999"
 
-  maven:
-    container_name: maven
-    build:
-        context: .
-        dockerfile: Dockerfile.testbuild
-    volumes:
-      - ../..:/usr/src/jargon
-      - ../../settings.xml:/root/.m2/settings.xml
-    networks:
-      irodsnet:
-        aliases:
-          - maven.example.org
-
-  irods-catalog-consumer-resource1:
-    container_name: irods-catalog-consumer-resource1
-    build:
-        context: .
-        dockerfile: Dockerfile.consumer
-    hostname: resource1.example.org
-    networks:
-      irodsnet:
-        aliases:
-          - resource1.example.org
-    depends_on:
-      - irods-catalog-provider
-
 networks:
    irodsnet:
     driver: bridge
