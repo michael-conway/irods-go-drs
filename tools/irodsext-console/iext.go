@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
+	"os"
+
 	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/urfave/cli/v3"
-	"io"
-	"log/slog"
-	"os"
 )
 
 var envManager *config.ICommandsEnvironmentManager
@@ -19,6 +20,7 @@ var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 const APP_NAME = "iext"
 
 func init() {
+
 	cli.RootCommandHelpTemplate += "\niRODS Extended Command Tool\n"
 
 	cli.HelpFlag = &cli.BoolFlag{Name: "help"}
