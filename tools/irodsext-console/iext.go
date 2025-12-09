@@ -298,6 +298,78 @@ func main() {
 
 				},
 			},
+			// icd
+			/*
+
+				Change the current working collection.
+
+				Usage: icd [-vVh] [COLLECTION]
+
+				If invoked without any arguments, the current working collection is set
+				back to your home collection as defined in your irods_environment.json
+				file.
+
+				If COLLECTION matches "..", the current working collection is set to the
+				parent collection.
+
+				If COLLECTION begins with a forward slash, the path is treated as an absolute
+				path.
+
+				Upon success, the current working collection is stored in
+				irods_environment.json.PID where PID matches the shell's PID number. This
+				allows multiple terminal sessions to exist within the same environment.
+
+				If the inclusion of the PID isn't sufficient, this behavior can be overridden
+				by setting the environment variable, IRODS_ENVIRONMENT_FILE, to the absolute
+				path of a file that will serve as the new session file. This may require
+				re-running iinit. Setting the environment variable causes icd to replace the
+				".PID" extension with ".cwd".
+
+				Options:
+				 -v  Verbose.
+				 -V  Very verbose.
+				 -h  Show this message.
+
+			*/
+			{
+				Name:  "icd",
+				Usage: "Change the current working collection.",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					cwd, err := resolveCwd()
+
+					if err != nil {
+						logger.Error("error resolving cwd", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error resolving cwd\n")
+					}
+
+					filesystem, _, err := obtainFilesystem(cmd)
+
+					defer filesystem.Release()
+
+					entries, err := filesystem.List(cwd)
+					if err != nil {
+						logger.Error("error listing filesystem", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error listing filesystem\n")
+					}
+
+					if len(entries) == 0 {
+						fmt.Printf("\n")
+					} else {
+						for _, entry := range entries {
+							if entry.Type == fs.FileEntry {
+								fmt.Printf("%s\n", entry.Name)
+							} else {
+								color.Blue(entry.Name)
+							}
+
+						}
+					}
+
+					return nil
+
+				},
+			},
 		},
 	}
 
@@ -331,6 +403,17 @@ func obtainIrodsAccount() (*types.IRODSAccount, error) {
 		return nil, err
 	}
 
+	processId, err = obtainCurrentProcessId()
+	
+	logger.Info()
+
 	return irodsAccount, nil
 
+}
+
+// get the current process id
+func obtainCurrentProcessId() (int, error) {
+	processId := os.Getpid()
+	logger.Info(fmt.Sprintf("current process id: %d", process_id))
+	return processId, nil
 }
