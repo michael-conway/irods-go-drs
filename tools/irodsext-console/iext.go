@@ -20,6 +20,7 @@ var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 const APP_NAME = "iext"
 const IEXT_CWD = "IEXT_CWD"
+const ENV_IRODS_CWD = "IRODS_CWD"
 
 func init() {
 
@@ -370,6 +371,45 @@ func main() {
 
 				},
 			},
+			{
+				Name:  "icd",
+				Usage: "Change the current working collection.",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					cwd, err := resolveCwd()
+
+					if err != nil {
+						logger.Error("error resolving cwd", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error resolving cwd\n")
+					}
+
+					filesystem, _, err := obtainFilesystem(cmd)
+
+					defer filesystem.Release()
+
+					entries, err := filesystem.List(cwd)
+					if err != nil {
+						logger.Error("error listing filesystem", err.Error())
+						fmt.Fprintf(cmd.ErrWriter, "error listing filesystem\n")
+					}
+
+					if len(entries) == 0 {
+						fmt.Printf("\n")
+					} else {
+						for _, entry := range entries {
+							if entry.Type == fs.FileEntry {
+								fmt.Printf("%s\n", entry.Name)
+							} else {
+								color.Blue(entry.Name)
+							}
+
+						}
+					}
+
+					return nil
+
+				},
+			},
 		},
 	}
 
@@ -403,10 +443,6 @@ func obtainIrodsAccount() (*types.IRODSAccount, error) {
 		return nil, err
 	}
 
-	processId, err = obtainCurrentProcessId()
-	
-	logger.Info()
-
 	return irodsAccount, nil
 
 }
@@ -416,4 +452,20 @@ func obtainCurrentProcessId() (int, error) {
 	processId := os.Getpid()
 	logger.Info(fmt.Sprintf("current process id: %d", process_id))
 	return processId, nil
+}
+
+func obtainCwd(irodsAccount *types.IRODSAccount) (string, error) {
+
+	env := os.Getenv(ENV_IRODS_CWD)
+	var cwd string
+
+	if env == "" {
+		cwd = irodsAccount.GetHomeDirPath()
+		err := os.Setenv(ENV_IRODS_CWD, cwd)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return "", nil
 }
