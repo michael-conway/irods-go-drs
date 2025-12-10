@@ -348,25 +348,6 @@ func main() {
 
 					defer filesystem.Release()
 
-					entries, err := filesystem.List(cwd)
-					if err != nil {
-						logger.Error("error listing filesystem", err.Error())
-						fmt.Fprintf(cmd.ErrWriter, "error listing filesystem\n")
-					}
-
-					if len(entries) == 0 {
-						fmt.Printf("\n")
-					} else {
-						for _, entry := range entries {
-							if entry.Type == fs.FileEntry {
-								fmt.Printf("%s\n", entry.Name)
-							} else {
-								color.Blue(entry.Name)
-							}
-
-						}
-					}
-
 					return nil
 
 				},
@@ -382,6 +363,7 @@ func main() {
 						logger.Error("error resolving cwd", err.Error())
 						fmt.Fprintf(cmd.ErrWriter, "error resolving cwd\n")
 					}
+					// check if a new cwd is provided in the command.
 
 					filesystem, _, err := obtainFilesystem(cmd)
 
