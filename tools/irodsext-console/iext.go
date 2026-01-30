@@ -220,7 +220,7 @@ func main() {
 
 			{
 				Name:  "ipwd",
-				Usage: "Connect to the server and retrieve some basic server information.\nCan be used as a simple test for connecting to the server.",
+				Usage: "Show the current working directory",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 
 					filesystem, _, err := obtainFilesystem(cmd)
@@ -332,26 +332,7 @@ func main() {
 				 -h  Show this message.
 
 			*/
-			{
-				Name:  "icd",
-				Usage: "Change the current working collection.",
-				Action: func(ctx context.Context, cmd *cli.Command) error {
 
-					cwd, err := resolveCwd()
-
-					if err != nil {
-						logger.Error("error resolving cwd", err.Error())
-						fmt.Fprintf(cmd.ErrWriter, "error resolving cwd\n")
-					}
-
-					filesystem, _, err := obtainFilesystem(cmd)
-
-					defer filesystem.Release()
-
-					return nil
-
-				},
-			},
 			{
 				Name:  "icd",
 				Usage: "Change the current working collection.",
@@ -432,7 +413,7 @@ func obtainIrodsAccount() (*types.IRODSAccount, error) {
 // get the current process id
 func obtainCurrentProcessId() (int, error) {
 	processId := os.Getpid()
-	logger.Info(fmt.Sprintf("current process id: %d", process_id))
+	logger.Info(fmt.Sprintf("current process id: %d", processId))
 	return processId, nil
 }
 
@@ -450,4 +431,17 @@ func obtainCwd(irodsAccount *types.IRODSAccount) (string, error) {
 	}
 
 	return "", nil
+}
+
+func checkIfPathIsRelative(string path, irodsAccount *types.IRODSAccount) (string, error) {
+	env := os.Getenv(ENV_IRODS_CWD)
+	var string cwd
+
+	if env == "" {
+		cwd = irodsAccount.GetHomeDirPath()
+		err := os.Setenv(ENV_IRODS_CWD, cwd)
+		if err != nil {
+			return "", err
+		}
+	}
 }
