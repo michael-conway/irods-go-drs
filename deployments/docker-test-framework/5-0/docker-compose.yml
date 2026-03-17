@@ -19,7 +19,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.provider
-    image: irods-provider:4.3.4-ubuntu-jammy
+    image: irods-provider:5.0.3-ubuntu-noble
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,16 +43,16 @@ services:
     cap_add:
       - SYS_ADMIN
 
-  # Optional: lightweight icommands client container for testing / iput/ils
+  # lightweight icommands client container for testing
   icommands:
-    image: ubuntu:22.04
+    image: ubuntu:24.04
     platform: linux/amd64
     depends_on:
       - irods-provider
     entrypoint: ["/bin/bash", "-c"]
     command: |
       apt-get update && \
-      apt-get install -y wget gnupg lsb-release && \
+      apt-get install -y wget gnupg lsb-release ca-certificates && \
       wget -qO - https://packages.irods.org/irods-signing-key.asc | apt-key add - && \
       echo "deb [arch=amd64] https://packages.irods.org/apt/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/renci-irods.list && \
       apt-get update && apt-get install -y irods-icommands && \
