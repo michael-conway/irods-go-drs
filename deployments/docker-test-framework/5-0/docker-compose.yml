@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:15
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: irods
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  irods-provider:
+    hostname: irods-provider
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.provider
+    image: irods-provider:5.0.3-ubuntu-noble
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      IRODS_ZONE: tempZone
+      IRODS_ADMIN_USER: rods
+      IRODS_ADMIN_PASSWORD: rods
+      IRODS_DB_HOST: postgres
+      IRODS_DB_PORT: 5432
+      IRODS_DB_NAME: ICAT
+      IRODS_DB_USER: irods
+      IRODS_DB_PASSWORD: testpassword
+      IRODS_VAULT_DIR: /var/lib/irods/iRODS/Vault
+    volumes:
+      - irods_data:/var/lib/irods
+      - irods_etc:/etc/irods
+    ports:
+      - "1247:1247"
+      - "1248:1248"
+      - "20000-20199:20000-20199"  # TCP range for data connections
+    cap_add:
+      - SYS_ADMIN
+
+volumes:
+  pgdata:
+  irods_data:
+  irods_etc:
