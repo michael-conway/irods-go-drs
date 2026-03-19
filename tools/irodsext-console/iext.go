@@ -192,6 +192,52 @@ func getCommand() *cli.Command {
 
 				},
 			},
+			{
+				Name:  "ipwd",
+				Usage: "Print the current working directory",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					err := envManager.Load()
+
+					if err != nil {
+						logger.Error("error getting irodsAccount out of environment", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
+					}
+
+					irodsAccount, err := envManager.ToIRODSAccount()
+
+					if err != nil {
+						logger.Error("error getting irods account", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
+					}
+
+					filesystem, err := fs.NewFileSystemWithDefault(irodsAccount, APP_NAME)
+
+					if err != nil {
+						logger.Error("error connecting to irods", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+						return err
+					}
+					defer filesystem.Release()
+
+					cwd := envManager.Environment.CurrentWorkingDir
+
+					if cwd == "" {
+						cwd = filesystem.GetHomeDirPath()
+						envManager.Environment.CurrentWorkingDir = cwd
+
+						err = envManager.SaveEnvironment()
+						if err != nil {
+							logger.Error("error connecting to irods-server", "error", err)
+							return err
+						}
+					}
+
+					fmt.Fprintf(cmd.Writer, "> %s\n", cwd)
+					return nil
+
+				},
+			},
 		},
 	}
 }
