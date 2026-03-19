@@ -4,17 +4,18 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     environment:
-      POSTGRES_USER: irods
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: irods
-      POSTGRES_DB: ICAT
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U irods -d ICAT"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       retries: 10
 
   irods-provider:
+    hostname: irods-provider
     platform: linux/amd64
     build:
       context: .
@@ -31,7 +32,7 @@ services:
       IRODS_DB_PORT: 5432
       IRODS_DB_NAME: ICAT
       IRODS_DB_USER: irods
-      IRODS_DB_PASSWORD: irods
+      IRODS_DB_PASSWORD: testpassword
       IRODS_VAULT_DIR: /var/lib/irods/iRODS/Vault
     volumes:
       - irods_data:/var/lib/irods
@@ -42,21 +43,6 @@ services:
       - "20000-20199:20000-20199"  # TCP range for data connections
     cap_add:
       - SYS_ADMIN
-
-  # lightweight icommands client container for testing
-  icommands:
-    image: ubuntu:24.04
-    platform: linux/amd64
-    depends_on:
-      - irods-provider
-    entrypoint: ["/bin/bash", "-c"]
-    command: |
-      apt-get update && \
-      apt-get install -y wget gnupg lsb-release ca-certificates && \
-      wget -qO - https://packages.irods.org/irods-signing-key.asc | apt-key add - && \
-      echo "deb [arch=amd64] https://packages.irods.org/apt/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/renci-irods.list && \
-      apt-get update && apt-get install -y irods-icommands && \
-      echo "You can now run iCommands from this container. Example: ils" && bash
 
 volumes:
   pgdata:
