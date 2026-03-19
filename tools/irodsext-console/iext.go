@@ -435,7 +435,7 @@ func obtainCwd(irodsAccount *types.IRODSAccount) (string, error) {
 
 func checkIfPathIsRelative(string path, irodsAccount *types.IRODSAccount) (string, error) {
 	env := os.Getenv(ENV_IRODS_CWD)
-	var string cwd
+	var cwd string
 
 	if env == "" {
 		cwd = irodsAccount.GetHomeDirPath()
