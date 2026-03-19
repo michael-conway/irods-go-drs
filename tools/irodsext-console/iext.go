@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
+	"os"
+
 	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/urfave/cli/v3"
-	"io"
-	"log/slog"
-	"os"
 )
 
 var envManager *config.ICommandsEnvironmentManager
@@ -19,6 +20,11 @@ var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 const APP_NAME = "iext"
 
 func init() {
+	setupCLI()
+	setupEnvironment()
+}
+
+func setupCLI() {
 	cli.RootCommandHelpTemplate += "\niRODS Extended Command Tool\n"
 
 	cli.HelpFlag = &cli.BoolFlag{Name: "help"}
@@ -44,7 +50,6 @@ func init() {
 		fmt.Fprintf(w, "\tpwd - print working directory \n")
 		fmt.Fprintf(w, "\tmkdir - make a directory \n")
 		fmt.Fprintf(w, "\trm - remove a directory \n")
-		fmt.Fprintf(w, "\tpwd - print working directory \n")
 
 		fmt.Fprintf(w, "\n\n")
 
@@ -58,20 +63,20 @@ func init() {
 	cli.VersionPrinter = func(cmd *cli.Command) {
 		fmt.Fprintf(cmd.Root().Writer, "version=%s\n", cmd.Root().Version)
 	}
+}
 
+func setupEnvironment() {
 	// set up context to pick up user creds
 
-	myManager, error := config.NewICommandsEnvironmentManager()
-	if error != nil {
-		logger.Error("error loading environment manager %v", error.Error())
+	myManager, err := config.NewICommandsEnvironmentManager()
+	if err != nil {
+		logger.Error("error loading environment manager", "error", err)
 	}
 
 	envManager = myManager
-
 }
 
-func main() {
-
+func getCommand() *cli.Command {
 	var auth_type string
 	var zone string
 	var host string
@@ -79,7 +84,7 @@ func main() {
 	var user string
 	var password string
 
-	cmd := &cli.Command{
+	return &cli.Command{
 		Commands: []*cli.Command{
 			{
 				Name:  "iinit",
@@ -135,7 +140,7 @@ func main() {
 					envManager.FromIRODSAccount(&irodsAccount)
 					err := envManager.SaveEnvironment()
 					if err != nil {
-						logger.Error("error saving iRODS environment", err.Error())
+						logger.Error("error saving iRODS environment", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
 					}
 
@@ -153,31 +158,32 @@ func main() {
 					err := envManager.Load()
 
 					if err != nil {
-						logger.Error("error getting irodsAccount out of environment", err.Error())
+						logger.Error("error getting irodsAccount out of environment", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
 					}
 
 					irodsAccount, err := envManager.ToIRODSAccount()
 
 					if err != nil {
-						logger.Error("error getting irods account", err.Error())
+						logger.Error("error getting irods account", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
 					}
 
 					filesystem, err := fs.NewFileSystemWithDefault(irodsAccount, APP_NAME)
 
-					defer filesystem.Release()
-
 					if err != nil {
-						logger.Error("error connecting to irods", err.Error())
+						logger.Error("error connecting to irods", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+						return err
 					}
+					defer filesystem.Release()
 
 					version, err := filesystem.GetServerVersion()
 
 					if err != nil {
-						logger.Error("error connecting to irods", err.Error())
+						logger.Error("error connecting to irods", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+						return err
 					}
 
 					fmt.Fprintf(cmd.Writer, "irods version: %s\n", version.ReleaseVersion)
@@ -188,8 +194,12 @@ func main() {
 			},
 		},
 	}
+}
+
+func main() {
+	cmd := getCommand()
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		logger.Error("error:%v", err.Error())
+		logger.Error("error", "error", err)
 	}
 }
