@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"path/filepath"
 
 	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
@@ -296,6 +297,10 @@ func getCommand() *cli.Command {
 
 					cwd := envManager.Environment.CurrentWorkingDir
 
+					if cwd == "" {
+						cwd = filesystem.GetHomeDirPath()
+					}
+
 					logger.Info("info", "cwd", cwd)
 					argLen := cmd.Args().Len()
 
@@ -326,7 +331,7 @@ func getCommand() *cli.Command {
 					}
 
 					// TODO: utilize https://pkg.go.dev/path/filepath
-					cleaned_path := path.Clean(newPath)
+					cleaned_path := filepath.Clean(newPath)
 					logger.Info("debug", "newPath", newPath, "cleaned_path", cleaned_path)
 
 					// check if path exists

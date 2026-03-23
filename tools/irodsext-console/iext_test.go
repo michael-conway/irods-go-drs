@@ -313,13 +313,14 @@ func TestIcd(t *testing.T) {
 		expectedCwd string
 		expectError bool
 	}{
-		{[]string{"iext", "icd"}, homeDir, false},                                // empty -> home
-		{[]string{"iext", "icd", "/tempZone/sub"}, "/tempZone/sub", false},       // absolute
-		{[]string{"iext", "icd", "sub"}, "/testZone/home/testuser/sub", false},   // relative
-		{[]string{"iext", "icd", "./sub"}, "/testZone/home/testuser/sub", false}, // dot-relative
-		{[]string{"iext", "icd", ".."}, "/testZone/home", false},                 // double-dot relative
-		{[]string{"iext", "icd", "nonexistent"}, cwd, true},                      // nonexistent
-		{[]string{"iext", "icd", "file"}, cwd, true},                             // file not dir
+		{[]string{"iext", "icd"}, homeDir, false},                                                  // empty -> home
+		{[]string{"iext", "icd", "/tempZone/sub"}, "/tempZone/sub", false},                         // absolute
+		{[]string{"iext", "icd", "sub"}, "/testZone/home/testuser/sub", false},                     // relative
+		{[]string{"iext", "icd", "./sub"}, "/testZone/home/testuser/sub", false},                   // dot-relative
+		{[]string{"iext", "icd", "../../home/testuser/sub"}, "/testZone/home/testuser/sub", false}, // dot-relative
+		{[]string{"iext", "icd", ".."}, "/testZone/home", false},                                   // double-dot relative
+		{[]string{"iext", "icd", "nonexistent"}, cwd, true},                                        // nonexistent
+		{[]string{"iext", "icd", "file"}, cwd, true},                                               // file not dir
 	}
 
 	for _, tc := range testCases {
