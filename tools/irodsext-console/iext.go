@@ -6,12 +6,39 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path"
 
 	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/urfave/cli/v3"
 )
+
+type FileSystem interface {
+	GetHomeDirPath() string
+	Stat(irodsPath string) (*fs.Entry, error)
+	Release()
+}
+
+type realFileSystem struct {
+	*fs.FileSystem
+}
+
+func (f *realFileSystem) Stat(irodsPath string) (*fs.Entry, error) {
+	return f.FileSystem.Stat(irodsPath)
+}
+
+func (f *realFileSystem) Release() {
+	f.FileSystem.Release()
+}
+
+var createFileSystem = func(account *types.IRODSAccount, applicationName string) (FileSystem, error) {
+	filesystem, err := fs.NewFileSystemWithDefault(account, applicationName)
+	if err != nil {
+		return nil, err
+	}
+	return &realFileSystem{filesystem}, nil
+}
 
 var envManager *config.ICommandsEnvironmentManager
 
@@ -169,7 +196,7 @@ func getCommand() *cli.Command {
 						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
 					}
 
-					filesystem, err := fs.NewFileSystemWithDefault(irodsAccount, APP_NAME)
+					filesystem, err := createFileSystem(irodsAccount, APP_NAME)
 
 					if err != nil {
 						logger.Error("error connecting to irods", "error", err)
@@ -178,7 +205,7 @@ func getCommand() *cli.Command {
 					}
 					defer filesystem.Release()
 
-					version, err := filesystem.GetServerVersion()
+					version, err := filesystem.(*realFileSystem).FileSystem.GetServerVersion()
 
 					if err != nil {
 						logger.Error("error connecting to irods", "error", err)
@@ -211,7 +238,7 @@ func getCommand() *cli.Command {
 						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
 					}
 
-					filesystem, err := fs.NewFileSystemWithDefault(irodsAccount, APP_NAME)
+					filesystem, err := createFileSystem(irodsAccount, APP_NAME)
 
 					if err != nil {
 						logger.Error("error connecting to irods", "error", err)
@@ -236,6 +263,96 @@ func getCommand() *cli.Command {
 					fmt.Fprintf(cmd.Writer, "> %s\n", cwd)
 					return nil
 
+				},
+			},
+
+			{
+				Name:  "icd",
+				Usage: "Change to the indicated directory",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					err := envManager.Load()
+
+					if err != nil {
+						logger.Error("error getting irodsAccount out of environment", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
+					}
+
+					irodsAccount, err := envManager.ToIRODSAccount()
+
+					if err != nil {
+						logger.Error("error getting irods account", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
+					}
+
+					filesystem, err := createFileSystem(irodsAccount, APP_NAME)
+
+					if err != nil {
+						logger.Error("error connecting to irods", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+						return err
+					}
+					defer filesystem.Release()
+
+					cwd := envManager.Environment.CurrentWorkingDir
+
+					logger.Info("info", "cwd", cwd)
+					argLen := cmd.Args().Len()
+
+					// TODO: path munging may be something that is of general use
+					var newPath string
+
+					if argLen == 0 {
+						logger.Info("no directory specified")
+						newPath = filesystem.GetHomeDirPath()
+					} else {
+						logger.Info("directory specified")
+						inputPath := cmd.Args().First()
+
+						logger.Info("input path", "inputPath", inputPath)
+
+						if path.IsAbs(inputPath) {
+							newPath = inputPath
+						} else {
+							// Relative path
+							if len(inputPath) > 0 && inputPath[0] == '.' && (len(inputPath) == 1 || inputPath[1] != '.') {
+								// remove the dot and append to the cwd
+								newPath = path.Join(cwd, inputPath[1:])
+							} else {
+								// append new path to cwd
+								newPath = path.Join(cwd, inputPath)
+							}
+						}
+					}
+
+					// TODO: utilize https://pkg.go.dev/path/filepath
+					cleaned_path := path.Clean(newPath)
+					logger.Info("debug", "newPath", newPath, "cleaned_path", cleaned_path)
+
+					// check if path exists
+					entry, err := filesystem.Stat(cleaned_path)
+
+					if err != nil {
+						fmt.Fprintf(cmd.ErrWriter, "error: path %s does not exist\n", cleaned_path)
+						return err
+					}
+
+					if !entry.IsDir() {
+						fmt.Fprintf(cmd.ErrWriter, "error: %s is not a directory\n", cleaned_path)
+						return fmt.Errorf("%s is not a directory", cleaned_path)
+					}
+
+					envManager.Environment.CurrentWorkingDir = cleaned_path
+					err = envManager.SaveEnvironment()
+
+					if err != nil {
+						logger.Error("error saving environment", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error saving environment\n")
+						return err
+					}
+
+					fmt.Fprintf(cmd.Writer, "> %s\n", cleaned_path)
+					return nil
 				},
 			},
 		},
