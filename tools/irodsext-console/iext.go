@@ -3,14 +3,43 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path"
+	"path/filepath"
+
 	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/urfave/cli/v3"
-	"io"
-	"log/slog"
-	"os"
 )
+
+type FileSystem interface {
+	GetHomeDirPath() string
+	Stat(irodsPath string) (*fs.Entry, error)
+	Release()
+}
+
+type realFileSystem struct {
+	*fs.FileSystem
+}
+
+func (f *realFileSystem) Stat(irodsPath string) (*fs.Entry, error) {
+	return f.FileSystem.Stat(irodsPath)
+}
+
+func (f *realFileSystem) Release() {
+	f.FileSystem.Release()
+}
+
+var createFileSystem = func(account *types.IRODSAccount, applicationName string) (FileSystem, error) {
+	filesystem, err := fs.NewFileSystemWithDefault(account, applicationName)
+	if err != nil {
+		return nil, err
+	}
+	return &realFileSystem{filesystem}, nil
+}
 
 var envManager *config.ICommandsEnvironmentManager
 
@@ -19,6 +48,11 @@ var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 const APP_NAME = "iext"
 
 func init() {
+	setupCLI()
+	setupEnvironment()
+}
+
+func setupCLI() {
 	cli.RootCommandHelpTemplate += "\niRODS Extended Command Tool\n"
 
 	cli.HelpFlag = &cli.BoolFlag{Name: "help"}
@@ -44,7 +78,6 @@ func init() {
 		fmt.Fprintf(w, "\tpwd - print working directory \n")
 		fmt.Fprintf(w, "\tmkdir - make a directory \n")
 		fmt.Fprintf(w, "\trm - remove a directory \n")
-		fmt.Fprintf(w, "\tpwd - print working directory \n")
 
 		fmt.Fprintf(w, "\n\n")
 
@@ -58,20 +91,20 @@ func init() {
 	cli.VersionPrinter = func(cmd *cli.Command) {
 		fmt.Fprintf(cmd.Root().Writer, "version=%s\n", cmd.Root().Version)
 	}
+}
 
+func setupEnvironment() {
 	// set up context to pick up user creds
 
-	myManager, error := config.NewICommandsEnvironmentManager()
-	if error != nil {
-		logger.Error("error loading environment manager %v", error.Error())
+	myManager, err := config.NewICommandsEnvironmentManager()
+	if err != nil {
+		logger.Error("error loading environment manager", "error", err)
 	}
 
 	envManager = myManager
-
 }
 
-func main() {
-
+func getCommand() *cli.Command {
 	var auth_type string
 	var zone string
 	var host string
@@ -79,7 +112,7 @@ func main() {
 	var user string
 	var password string
 
-	cmd := &cli.Command{
+	return &cli.Command{
 		Commands: []*cli.Command{
 			{
 				Name:  "iinit",
@@ -135,7 +168,7 @@ func main() {
 					envManager.FromIRODSAccount(&irodsAccount)
 					err := envManager.SaveEnvironment()
 					if err != nil {
-						logger.Error("error saving iRODS environment", err.Error())
+						logger.Error("error saving iRODS environment", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
 					}
 
@@ -153,31 +186,32 @@ func main() {
 					err := envManager.Load()
 
 					if err != nil {
-						logger.Error("error getting irodsAccount out of environment", err.Error())
+						logger.Error("error getting irodsAccount out of environment", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
 					}
 
 					irodsAccount, err := envManager.ToIRODSAccount()
 
 					if err != nil {
-						logger.Error("error getting irods account", err.Error())
+						logger.Error("error getting irods account", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
 					}
 
-					filesystem, err := fs.NewFileSystemWithDefault(irodsAccount, APP_NAME)
+					filesystem, err := createFileSystem(irodsAccount, APP_NAME)
 
+					if err != nil {
+						logger.Error("error connecting to irods", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+						return err
+					}
 					defer filesystem.Release()
 
-					if err != nil {
-						logger.Error("error connecting to irods", err.Error())
-						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
-					}
-
-					version, err := filesystem.GetServerVersion()
+					version, err := filesystem.(*realFileSystem).FileSystem.GetServerVersion()
 
 					if err != nil {
-						logger.Error("error connecting to irods", err.Error())
+						logger.Error("error connecting to irods", "error", err)
 						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+						return err
 					}
 
 					fmt.Fprintf(cmd.Writer, "irods version: %s\n", version.ReleaseVersion)
@@ -186,10 +220,154 @@ func main() {
 
 				},
 			},
+			{
+				Name:  "ipwd",
+				Usage: "Print the current working directory",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					err := envManager.Load()
+
+					if err != nil {
+						logger.Error("error getting irodsAccount out of environment", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
+					}
+
+					irodsAccount, err := envManager.ToIRODSAccount()
+
+					if err != nil {
+						logger.Error("error getting irods account", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
+					}
+
+					filesystem, err := createFileSystem(irodsAccount, APP_NAME)
+
+					if err != nil {
+						logger.Error("error connecting to irods", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+						return err
+					}
+					defer filesystem.Release()
+
+					cwd := envManager.Environment.CurrentWorkingDir
+
+					if cwd == "" {
+						cwd = filesystem.GetHomeDirPath()
+						envManager.Environment.CurrentWorkingDir = cwd
+
+						err = envManager.SaveEnvironment()
+						if err != nil {
+							logger.Error("error connecting to irods-server", "error", err)
+							return err
+						}
+					}
+
+					fmt.Fprintf(cmd.Writer, "> %s\n", cwd)
+					return nil
+
+				},
+			},
+
+			{
+				Name:  "icd",
+				Usage: "Change to the indicated directory",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+
+					err := envManager.Load()
+
+					if err != nil {
+						logger.Error("error getting irodsAccount out of environment", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error saving iRODS environment\n")
+					}
+
+					irodsAccount, err := envManager.ToIRODSAccount()
+
+					if err != nil {
+						logger.Error("error getting irods account", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error getting irods account\n")
+					}
+
+					filesystem, err := createFileSystem(irodsAccount, APP_NAME)
+
+					if err != nil {
+						logger.Error("error connecting to irods", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error connecting to irods\n")
+						return err
+					}
+					defer filesystem.Release()
+
+					cwd := envManager.Environment.CurrentWorkingDir
+
+					if cwd == "" {
+						cwd = filesystem.GetHomeDirPath()
+					}
+
+					logger.Info("info", "cwd", cwd)
+					argLen := cmd.Args().Len()
+
+					// TODO: path munging may be something that is of general use
+					var newPath string
+
+					if argLen == 0 {
+						logger.Info("no directory specified")
+						newPath = filesystem.GetHomeDirPath()
+					} else {
+						logger.Info("directory specified")
+						inputPath := cmd.Args().First()
+
+						logger.Info("input path", "inputPath", inputPath)
+
+						if path.IsAbs(inputPath) {
+							newPath = inputPath
+						} else {
+							// Relative path
+							if len(inputPath) > 0 && inputPath[0] == '.' && (len(inputPath) == 1 || inputPath[1] != '.') {
+								// remove the dot and append to the cwd
+								newPath = path.Join(cwd, inputPath[1:])
+							} else {
+								// append new path to cwd
+								newPath = path.Join(cwd, inputPath)
+							}
+						}
+					}
+
+					// TODO: utilize https://pkg.go.dev/path/filepath
+					cleaned_path := filepath.Clean(newPath)
+					logger.Info("debug", "newPath", newPath, "cleaned_path", cleaned_path)
+
+					// check if path exists
+					entry, err := filesystem.Stat(cleaned_path)
+
+					if err != nil {
+						fmt.Fprintf(cmd.ErrWriter, "error: path %s does not exist\n", cleaned_path)
+						return err
+					}
+
+					if !entry.IsDir() {
+						fmt.Fprintf(cmd.ErrWriter, "error: %s is not a directory\n", cleaned_path)
+						return fmt.Errorf("%s is not a directory", cleaned_path)
+					}
+
+					envManager.Environment.CurrentWorkingDir = cleaned_path
+					err = envManager.SaveEnvironment()
+
+					if err != nil {
+						logger.Error("error saving environment", "error", err)
+						fmt.Fprintf(cmd.ErrWriter, "error saving environment\n")
+						return err
+					}
+
+					fmt.Fprintf(cmd.Writer, "> %s\n", cleaned_path)
+					return nil
+				},
+			},
 		},
 	}
+}
+
+func main() {
+	cmd := getCommand()
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		logger.Error("error:%v", err.Error())
+		logger.Error("error", "error", err)
 	}
 }
