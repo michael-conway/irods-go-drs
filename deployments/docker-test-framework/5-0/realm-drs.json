@@ -1,0 +1,28 @@
+{
+  "realm": "drs",
+  "enabled": true,
+  "displayName": "DRS",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "identityProviders": [
+    {
+      "alias": "google",
+      "providerId": "google",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "defaultScope": "openid profile email",
+        "clientId": "${GOOGLE_OIDC_CLIENT_ID}",
+        "clientSecret": "${GOOGLE_OIDC_CLIENT_SECRET}",
+        "prompt": "select_account",
+        "syncMode": "IMPORT"
+      }
+    }
+  ]
+}
