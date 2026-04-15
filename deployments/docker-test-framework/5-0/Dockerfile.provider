@@ -7,7 +7,7 @@ ENV IRODS_VERSION=5.0.3
 # install prerequisites and add iRODS apt repo
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      wget gnupg ca-certificates lsb-release netcat-openbsd iproute2 procps tzdata python3-pip python3-setuptools python3-psycopg2 sudo curl && \
+      wget gnupg ca-certificates lsb-release netcat-openbsd iproute2 procps tzdata python3-pip python3-setuptools python3-psycopg2 sudo curl net-tools && \
     # Create irods user and group before installation
     groupadd -r irods && \
     useradd -r -g irods -m -d /var/lib/irods -s /bin/bash irods && \
