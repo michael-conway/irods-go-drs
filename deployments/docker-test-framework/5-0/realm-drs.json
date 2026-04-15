@@ -9,7 +9,7 @@
   "identityProviders": [
     {
       "alias": "google",
-      "providerId": "oidc",
+      "providerId": "google",
       "enabled": true,
       "trustEmail": true,
       "storeToken": false,
@@ -17,17 +17,10 @@
       "authenticateByDefault": false,
       "firstBrokerLoginFlowAlias": "first broker login",
       "config": {
-        "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth",
-        "tokenUrl": "https://oauth2.googleapis.com/token",
-        "logoutUrl": "https://accounts.google.com/o/oauth2/revoke",
-        "userInfoUrl": "https://openidconnect.googleapis.com/v1/userinfo",
-        "jwksUrl": "https://www.googleapis.com/oauth2/v3/certs",
-        "issuer": "https://accounts.google.com",
         "defaultScope": "openid profile email",
         "clientId": "${GOOGLE_OIDC_CLIENT_ID}",
         "clientSecret": "${GOOGLE_OIDC_CLIENT_SECRET}",
-        "useJwksUrl": "true",
-        "hideOnLoginPage": "false",
+        "prompt": "select_account",
         "syncMode": "IMPORT"
       }
     }
