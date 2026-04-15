@@ -1,6 +1,6 @@
 module github.com/michael-conway/irods-go-drs
 
-go 1.25.5
+go 1.24.9
 
 require (
 	github.com/cyverse/go-irodsclient v0.19.0
