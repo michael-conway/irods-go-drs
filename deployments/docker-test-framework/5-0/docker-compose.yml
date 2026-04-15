@@ -50,7 +50,7 @@ services:
       context: .
       dockerfile: Dockerfile-keycloak
     env_file:
-      - keycloak.env
+      - ${KEYCLOAK_ENV_FILE:-./keycloak.env}
     depends_on:
       postgres:
         condition: service_healthy
