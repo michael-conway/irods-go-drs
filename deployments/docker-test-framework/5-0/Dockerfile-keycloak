@@ -16,10 +16,11 @@ RUN keytool -genkeypair -storepass password -storetype PKCS12 -keyalg RSA -keysi
 
 FROM quay.io/keycloak/keycloak:latest
 COPY --from=builder /opt/keycloak/ /opt/keycloak/
+COPY realm-drs.json /opt/keycloak/data/import/realm-drs.json
 
 # change these values to point to a running postgres instance
 # ENV variables will be picked up from compose env_file or environment block at runtime
 RUN /opt/keycloak/bin/kc.sh show-config
 
-ENTRYPOINT ["/opt/keycloak/bin/kc.sh", "start-dev"]
+ENTRYPOINT ["/opt/keycloak/bin/kc.sh", "start-dev", "--import-realm"]
 #CMD ["tail", "-f", "/dev/null"]
