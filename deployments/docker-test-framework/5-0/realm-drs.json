@@ -24,5 +24,22 @@
         "syncMode": "IMPORT"
       }
     }
+  ],
+  "clients": [
+    {
+      "clientId": "drs-api",
+      "name": "DRS API",
+      "description": "Client for DRS API bearer token validation",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "protocolMappers": []
+    }
   ]
 }
