@@ -80,8 +80,13 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	viper.AddConfigPath("/etc/irods-ext/")  // path to look for the config file in
 	viper.AddConfigPath("$HOME/.irods-drs") // call multiple times to add many search paths
 	viper.AddConfigPath(".")                // optionally look for config in the working directory
-	err := viper.ReadInConfig()             // Find and read the config file
-	if err != nil {                         // Handle errors reading the config file
+
+	// Enable environment variable support with prefix DRS_
+	viper.SetEnvPrefix("DRS")
+	viper.AutomaticEnv()
+
+	err := viper.ReadInConfig() // Find and read the config file
+	if err != nil {             // Handle errors reading the config file
 		panic(fmt.Errorf("fatal error config file: %w", err))
 	}
 	var C DrsConfig

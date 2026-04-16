@@ -5,15 +5,15 @@ import (
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
-type keycloak struct {
+type Keycloak struct {
 	gocloak      *gocloak.GoCloak // keycloak client
 	clientId     string           // clientId specified in Keycloak
 	clientSecret string           // client secret specified in Keycloak
 	realm        string           // realm specified in Keycloak
 }
 
-func newKeycloak(drsConfig drs_support.DrsConfig) *keycloak {
-	return &keycloak{
+func NewKeycloak(drsConfig *drs_support.DrsConfig) *Keycloak {
+	return &Keycloak{
 		gocloak:      gocloak.NewClient(drsConfig.OidcUrl),
 		clientId:     drsConfig.OidcClientId,
 		clientSecret: drsConfig.OidcClientSecret,
