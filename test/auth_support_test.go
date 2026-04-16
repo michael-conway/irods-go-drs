@@ -1,0 +1,14 @@
+package test
+
+import drs_support "github.com/michael-conway/irods-go-drs/drs-support"
+
+func TestNewKeycloak(t *testing.T) {
+	var confs = [1]string{"./resources/"}
+	actual, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
+	if err != nil {
+		t.Errorf("error reading drs config: %s", err)
+	}
+	if actual.DrsIdAvuValue != "drs-id" {
+		t.Fail()
+	}
+}

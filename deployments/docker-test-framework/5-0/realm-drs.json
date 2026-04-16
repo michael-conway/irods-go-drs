@@ -27,12 +27,13 @@
   ],
   "clients": [
     {
-      "clientId": "drs-api",
-      "name": "DRS API",
-      "description": "Client for DRS API bearer token validation",
+      "clientId": "${DRS_API_CLIENT_ID}",
+      "name": "DRS API Resource Server",
+      "description": "Bearer-only client used by the DRS REST API as a protected resource server",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
+      "secret": "${DRS_API_CLIENT_SECRET}",
       "bearerOnly": true,
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,

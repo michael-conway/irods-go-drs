@@ -10,5 +10,9 @@ IrodsDrsAdminLoginType:
 IrodsAuthScheme:
 IrodsNegotiationPolicy: native
 IrodsDefaultResource:
-
+OidcUrl:
+OidcClientId:
+OidcClientSecret:
+OidcRealm:
+OidcScope: openid profile email
   

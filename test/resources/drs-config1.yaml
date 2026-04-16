@@ -9,3 +9,9 @@ IrodsDrsAdminPassword: rods
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: native
 IrodsDefaultResource:
+OidcUrl: https://localhost:8443
+OidcClientId:
+OidcClientSecret:
+OidcRealm:
+OidcScope: openid profile email
+

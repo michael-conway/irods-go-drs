@@ -2,6 +2,7 @@ package drs_support
 
 import (
 	"fmt"
+
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
@@ -20,6 +21,11 @@ type DrsConfig struct {
 	IrodsAuthScheme        string
 	IrodsNegotiationPolicy string
 	IrodsDefaultResource   string
+	OidcUrl                string
+	OidcClientId           string
+	OidcClientSecret       string
+	OidcRealm              string
+	OidcScope              string
 }
 
 func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
@@ -52,7 +58,7 @@ const DefaultConfigType = "yaml"
 
 // ReadDrsConfig reads the configuration for DRS behaviors in irods
 // can take a number of paths that will be prefixed in the searh path, or defaults
-// may be accepted, blank params for name and type defaut to irods-drs.yaml
+// may be accepted, blank params for name and type default to irods-drs.yaml
 func ReadDrsConfig(configName string, configType string, configPaths []string) (*DrsConfig, error) {
 
 	if configName == "" {
@@ -71,11 +77,11 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 		viper.AddConfigPath(path)
 	}
 
-	viper.AddConfigPath("/etc/irods-ext/") // path to look for the config file in
-	viper.AddConfigPath("$HOME/.appname")  // call multiple times to add many search paths
-	viper.AddConfigPath(".")               // optionally look for config in the working directory
-	err := viper.ReadInConfig()            // Find and read the config file
-	if err != nil {                        // Handle errors reading the config file
+	viper.AddConfigPath("/etc/irods-ext/")  // path to look for the config file in
+	viper.AddConfigPath("$HOME/.irods-drs") // call multiple times to add many search paths
+	viper.AddConfigPath(".")                // optionally look for config in the working directory
+	err := viper.ReadInConfig()             // Find and read the config file
+	if err != nil {                         // Handle errors reading the config file
 		panic(fmt.Errorf("fatal error config file: %w", err))
 	}
 	var C DrsConfig
