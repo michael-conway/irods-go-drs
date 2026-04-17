@@ -18,19 +18,25 @@ import (
 )
 
 type Route struct {
-	Name        string
-	Method      string
-	Pattern     string
-	HandlerFunc http.HandlerFunc
+	Name         string
+	Method       string
+	Pattern      string
+	HandlerFunc  http.HandlerFunc
+	RequiresAuth bool
 }
 
 type Routes []Route
 
 func NewRouter() *mux.Router {
 	router := mux.NewRouter().StrictSlash(true)
+	authMiddleware := NewDefaultRouteAuthMiddleware()
+
 	for _, route := range routes {
 		var handler http.Handler
 		handler = route.HandlerFunc
+		if route.RequiresAuth && authMiddleware != nil {
+			handler = authMiddleware(handler)
+		}
 		handler = Logger(handler, route.Name)
 
 		router.
@@ -53,6 +59,7 @@ var routes = Routes{
 		"GET",
 		"/ga4gh/drs/v1/",
 		Index,
+		false,
 	},
 
 	Route{
@@ -60,6 +67,7 @@ var routes = Routes{
 		strings.ToUpper("Get"),
 		"/ga4gh/drs/v1/objects/{object_id}/access/{access_id}",
 		GetAccessURL,
+		true,
 	},
 
 	Route{
@@ -67,6 +75,7 @@ var routes = Routes{
 		strings.ToUpper("Post"),
 		"/ga4gh/drs/v1/objects/access",
 		GetBulkAccessURL,
+		true,
 	},
 
 	Route{
@@ -74,6 +83,7 @@ var routes = Routes{
 		strings.ToUpper("Post"),
 		"/ga4gh/drs/v1/objects",
 		GetBulkObjects,
+		true,
 	},
 
 	Route{
@@ -81,6 +91,7 @@ var routes = Routes{
 		strings.ToUpper("Get"),
 		"/ga4gh/drs/v1/objects/{object_id}",
 		GetObject,
+		true,
 	},
 
 	Route{
@@ -88,6 +99,7 @@ var routes = Routes{
 		strings.ToUpper("Options"),
 		"/ga4gh/drs/v1/objects",
 		OptionsBulkObject,
+		false,
 	},
 
 	Route{
@@ -95,6 +107,7 @@ var routes = Routes{
 		strings.ToUpper("Options"),
 		"/ga4gh/drs/v1/objects/{object_id}",
 		OptionsObject,
+		false,
 	},
 
 	Route{
@@ -102,6 +115,7 @@ var routes = Routes{
 		strings.ToUpper("Post"),
 		"/ga4gh/drs/v1/objects/{object_id}/access/{access_id}",
 		PostAccessURL,
+		true,
 	},
 
 	Route{
@@ -109,6 +123,7 @@ var routes = Routes{
 		strings.ToUpper("Post"),
 		"/ga4gh/drs/v1/objects/{object_id}",
 		PostObject,
+		true,
 	},
 
 	Route{
@@ -116,5 +131,6 @@ var routes = Routes{
 		strings.ToUpper("Get"),
 		"/ga4gh/drs/v1/service-info",
 		GetServiceInfo,
+		false,
 	},
 }
