@@ -6,6 +6,7 @@ IrodsPort:
 IrodsZone:
 IrodsDrsAdminUser:
 IrodsDrsAdminPassword:
+IrodsDrsAdminPasswordFile:
 IrodsDrsAdminLoginType:
 IrodsAuthScheme:
 IrodsNegotiationPolicy: native
@@ -13,6 +14,7 @@ IrodsDefaultResource:
 OidcUrl:
 OidcClientId:
 OidcClientSecret:
+OidcClientSecretFile:
 OidcRealm:
 OidcScope: openid profile email
   
