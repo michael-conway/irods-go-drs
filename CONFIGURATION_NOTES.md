@@ -4,7 +4,8 @@
 
 The docker compose framework is in the [deployments](./deployments/docker-test-framework/5-0) directory.
 
-Configuration files in that directory should be set up in a private area.
+Configuration files in that directory should be set up in a private area. This docker compose framework is not meant to
+be a production deployment, it is a harness for development and integration testing.
 
 ### keycloak.env
 
@@ -37,3 +38,67 @@ configuration points.
 The drs-config.yaml file is used to provide configuration to the DRS implementation itself. This includes configuration
 of iRODS connections and behaviors, configuration of Authn/Authz (i.e. Keycloak bits for auth), as well as tuning of the 
 behavior of the DRS api.
+
+The loader supports three configuration layers:
+
+1. A YAML configuration file such as `drs-config.yaml`
+2. Environment variable overrides with the `DRS_` prefix
+3. File-backed secrets for sensitive values
+
+If you want to point the service at one specific config file and skip all search paths, set:
+
+```bash
+DRS_CONFIG_FILE=/path/to/drs-config.yaml
+```
+
+When `DRS_CONFIG_FILE` is set, it overrides the default config search locations and that exact file is used.
+
+If `DRS_CONFIG_FILE` is not set, the loader looks for `drs-config.yaml` using its normal search paths and then applies
+environment variable overrides on top of the file values.
+
+Examples of supported environment variable overrides:
+
+```bash
+DRS_IRODS_HOST=irods-provider
+DRS_IRODS_PORT=1247
+DRS_IRODS_ZONE=tempZone
+DRS_IRODS_DRS_ADMIN_USER=rods
+DRS_OIDC_URL=https://keycloak.example.org
+DRS_OIDC_REALM=drs
+DRS_OIDC_CLIENT_ID=irods-go-drs
+DRS_DRS_LOG_LEVEL=debug
+```
+
+For secrets, prefer file-backed values over putting secrets directly in YAML or plain environment variables.
+
+The loader supports:
+
+```yaml
+IrodsDrsAdminPasswordFile: /path/to/irods-admin-password.txt
+OidcClientSecretFile: /path/to/oidc-client-secret.txt
+```
+
+and the matching environment variables:
+
+```bash
+DRS_IRODS_DRS_ADMIN_PASSWORD_FILE=/path/to/irods-admin-password.txt
+DRS_OIDC_CLIENT_SECRET_FILE=/path/to/oidc-client-secret.txt
+```
+
+Direct secret values are still supported, but the effective precedence is:
+
+1. Explicit secret value from environment or YAML
+2. Secret file path from environment or YAML
+3. Empty value if neither is provided
+
+The following test fixtures show the expected file layout for file-backed secrets:
+
+```text
+drs-config-secret-files.yaml
+irods-admin-password.txt
+oidc-client-secret.txt
+```
+
+The `drs-config-secret-files.yaml` fixture points at `irods-admin-password.txt` and `oidc-client-secret.txt`, and the
+loader reads and trims those files at startup. This is the preferred pattern for Docker or Kubernetes-style mounted
+secrets.

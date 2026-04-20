@@ -41,6 +41,31 @@
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": false,
       "protocolMappers": []
+    },
+    {
+      "clientId": "${IRODS_REST_WEB_CLIENT_ID}",
+      "name": "iRODS REST Web Login",
+      "description": "OIDC client used by irods-go-rest for browser-based login and callback handling",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${IRODS_REST_WEB_CLIENT_SECRET}",
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "http://localhost:8080/web/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:8080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": []
     }
   ]
 }

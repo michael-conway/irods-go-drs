@@ -60,34 +60,6 @@ services:
     cap_add:
       - SYS_ADMIN
 
-  irods-go-rest:
-    hostname: irods-go-rest
-    platform: linux/amd64
-    build:
-      context: ../../../../irods-go-rest
-      dockerfile: Dockerfile
-    image: ghcr.io/michael-conway/irods-go-rest:develop
-    depends_on:
-      irods-provider:
-        condition: service_started
-      keycloak:
-        condition: service_started
-    environment:
-      IRODS_REST_ADDR: :8080
-      IRODS_REST_PUBLIC_URL: http://irods-go-rest:8080
-      IRODS_REST_ENV: docker
-      IRODS_ZONE: tempZone
-      IRODS_HOST: irods-provider
-      IRODS_PORT: 1247
-      IRODS_DEFAULT_RESOURCE: demoResc
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: drs
-      KEYCLOAK_CLIENT_ID: irods-go-rest
-      KEYCLOAK_CLIENT_SECRET: ""
-    ports:
-      - "8081:8080"
-
-
 volumes:
   pgdata:
   irods_data:

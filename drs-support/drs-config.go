@@ -59,6 +59,7 @@ func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
 
 const DefaultConfigName = "drs-config"
 const DefaultConfigType = "yaml"
+const ConfigFileEnvVar = "DRS_CONFIG_FILE"
 
 func bindEnvVars(v *viper.Viper) error {
 	envBindings := map[string][]string{
@@ -115,25 +116,29 @@ func resolveSecret(secret string, secretFile string, secretName string) (string,
 func ReadDrsConfig(configName string, configType string, configPaths []string) (*DrsConfig, error) {
 	v := viper.New()
 
-	if configName == "" {
-		v.SetConfigName(DefaultConfigName) // name of config file (without extension)
+	if configFilePath := os.Getenv(ConfigFileEnvVar); configFilePath != "" {
+		v.SetConfigFile(configFilePath)
 	} else {
-		v.SetConfigName(configName)
-	}
+		if configName == "" {
+			v.SetConfigName(DefaultConfigName) // name of config file (without extension)
+		} else {
+			v.SetConfigName(configName)
+		}
 
-	if configType == "" {
-		v.SetConfigType(DefaultConfigType) // REQUIRED if the config file does not have the extension in the name
-	} else {
-		v.SetConfigType(configType)
-	}
+		if configType == "" {
+			v.SetConfigType(DefaultConfigType) // REQUIRED if the config file does not have the extension in the name
+		} else {
+			v.SetConfigType(configType)
+		}
 
-	for _, path := range configPaths {
-		v.AddConfigPath(path)
-	}
+		for _, path := range configPaths {
+			v.AddConfigPath(path)
+		}
 
-	v.AddConfigPath("/etc/irods-ext/")  // path to look for the config file in
-	v.AddConfigPath("$HOME/.irods-drs") // call multiple times to add many search paths
-	v.AddConfigPath(".")                // optionally look for config in the working directory
+		v.AddConfigPath("/etc/irods-ext/")  // path to look for the config file in
+		v.AddConfigPath("$HOME/.irods-drs") // call multiple times to add many search paths
+		v.AddConfigPath(".")                // optionally look for config in the working directory
+	}
 
 	if err := bindEnvVars(v); err != nil {
 		return nil, err
