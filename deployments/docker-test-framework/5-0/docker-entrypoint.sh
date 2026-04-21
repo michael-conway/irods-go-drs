@@ -41,11 +41,21 @@ start_irods() {
   hostname -f || true
   ip addr show || true
 
-  # Before starting, check if database is actually initialized if it's a provider
-  if [ -f /etc/irods/server_config.json ]; then
-      # We could check if ICAT tables exist, but setup_irods.py should have done that
-      :
-  fi
+    # iRODS 5.x requires server_port_range_start and server_port_range_end in server_config.json
+    if [ -f /etc/irods/server_config.json ]; then
+        if ! grep -q "server_port_range_start" /etc/irods/server_config.json; then
+            echo "Patching /etc/irods/server_config.json with port ranges..."
+            # Insert after "schema_version": "v5", and ensure it is valid JSON
+            sed -i 's/"schema_version": "v5",/"schema_version": "v5",\n        "server_port_range_start": 20000,\n        "server_port_range_end": 20199,/' /etc/irods/server_config.json
+        fi
+        
+        # Validate that properties are correctly inserted
+        if grep -q "server_port_range_start" /etc/irods/server_config.json; then
+            echo "Patching successful"
+        else
+            echo "Patching failed!"
+        fi
+    fi
 
   # Prioritize python module in 5.x
   if python3 -c "import irods_control" >/dev/null 2>&1; then
@@ -230,12 +240,10 @@ EOF
   # Still try to run testsetup if it hasn't run yet
   echo "Checking if testsetup-consortium.sh needs to run..."
   chmod +x /var/lib/irods/testsetup-consortium.sh
-  if ! su - irods -c "iadmin lu test1" >/dev/null 2>&1; then
-      echo "Running testsetup-consortium.sh..."
-      su - irods -c "/var/lib/irods/testsetup-consortium.sh"
-  else
-      echo "testsetup-consortium.sh already run."
-  fi
+  # Always run the script, as it is now idempotent and handles its own waiting.
+  # This ensures that even if test1 existed, other missing components are created.
+  echo "Running testsetup-consortium.sh..."
+  su - irods -c "IRODS_HOSTNAME=$IRODS_HOSTNAME /var/lib/irods/testsetup-consortium.sh"
 
   tail_logs
   exit 0
@@ -428,8 +436,8 @@ cat > /tmp/irods_setup_answers.json <<EOF
         ],
         "schema_name": "server_config",
         "schema_version": "v5",
-        "server_port_range_end": 20199,
         "server_port_range_start": 20000,
+        "server_port_range_end": 20199,
         "zone_auth_scheme": "native",
         "zone_key": "TEMPORARY_ZONE_KEY",
         "zone_name": "$IRODS_ZONE",
@@ -493,11 +501,6 @@ fi
   chmod 600 /root/.irods/irods_environment.json
   chmod 700 /root/.irods
   
-  # Ensure /etc/irods/server_config.json has the correct hostname if it was mis-set
-  if [ -f /etc/irods/server_config.json ]; then
-      sed -i "s/$(hostname)/$IRODS_HOSTNAME/g" /etc/irods/server_config.json || true
-  fi
-
   start_irods
 
   # Post-setup configurations
@@ -539,12 +542,8 @@ EOF
 
   echo "Running testsetup-consortium.sh..."
   chmod +x /var/lib/irods/testsetup-consortium.sh
-  # Check if testsetup already ran (e.g. if test1 user exists)
-  if ! su - irods -c "iadmin lu test1" >/dev/null 2>&1; then
-      su - irods -c "/var/lib/irods/testsetup-consortium.sh"
-  else
-      echo "testsetup-consortium.sh seems to have already run, skipping."
-  fi
+  # Always run the script, as it is now idempotent and handles its own waiting.
+  su - irods -c "IRODS_HOSTNAME=$IRODS_HOSTNAME /var/lib/irods/testsetup-consortium.sh"
 
 echo "iRODS 5.x initialized. Tailing logs..."
 tail_logs

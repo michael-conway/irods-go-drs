@@ -43,6 +43,22 @@ services:
       - "20000-20199:20000-20199"  # TCP range for data connections
     cap_add:
       - SYS_ADMIN
+  keycloak:
+    hostname: keycloak
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile-keycloak
+    env_file:
+      - ${KEYCLOAK_ENV_FILE:-./keycloak.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8443:8443"
+      - "9000:9000"
+    cap_add:
+      - SYS_ADMIN
 
 volumes:
   pgdata:

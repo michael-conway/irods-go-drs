@@ -3,7 +3,7 @@
 # Should be run inside the container as the irods user or using sudo -u irods
 
 # Wait for server
-for i in {1..10}; do
+for i in {1..90}; do
     if iadmin lr > /dev/null 2>&1; then
         break
     fi
