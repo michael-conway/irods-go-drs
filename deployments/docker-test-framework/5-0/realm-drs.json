@@ -62,9 +62,6 @@
       "webOrigins": [
         "http://localhost:8080"
       ],
-      "attributes": {
-        "pkce.code.challenge.method": "S256"
-      },
       "protocolMappers": []
     }
   ]
