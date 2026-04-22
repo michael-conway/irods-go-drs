@@ -1,5 +1,21 @@
 # Development Notes
 
+## iRODS Conventions
+
+### DRS Objects
+
+A DRS Object is a blob, and maps to an iRODS data object. The creation of a DRS object is accomplished by
+decorating the iRODS data object with AVU metadata. 
+
+Metadata AVU Attributes:
+
+* `DRS_OBJECT_ID` - unique identifier for the DRS object. This will be a standard GUID by default.
+* `DRS_OBJECT_TYPE` - mime type of the DRS object (optional).
+* `DRS_OBJECT_VERSION` - version of the DRS object (optional). Will be the Hash by default.
+* `DRS_OBJECT_DESCRIPTION` - Description of the DRS object (optional).
+
+
+Metadata AVU Unit: `DRS_OBJECT_AVU`
 
 
 ## Testing
