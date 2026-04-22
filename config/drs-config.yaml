@@ -2,6 +2,8 @@ DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
 DrsListenPort: 8080
+ServiceInfoSampleIntervalMinutes: 5
+ServiceInfoFilePath: service-info.json
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone

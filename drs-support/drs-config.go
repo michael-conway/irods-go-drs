@@ -3,6 +3,7 @@ package drs_support
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cyverse/go-irodsclient/irods/types"
@@ -12,25 +13,27 @@ import (
 
 // DrsConfig Provides configuration for drs behaviors
 type DrsConfig struct {
-	DrsIdAvuValue          string
-	DrsAvuUnit             string
-	DrsLogLevel            string //info, debug
-	DrsListenPort          int
-	IrodsHost              string
-	IrodsPort              int
-	IrodsZone              string
-	IrodsDrsAdminUser         string
-	IrodsDrsAdminPassword     string
-	IrodsDrsAdminPasswordFile string
-	IrodsAuthScheme           string
-	IrodsNegotiationPolicy    string
-	IrodsDefaultResource      string
-	OidcUrl                   string
-	OidcClientId              string
-	OidcClientSecret          string
-	OidcClientSecretFile      string
-	OidcRealm                 string
-	OidcScope                 string
+	DrsIdAvuValue                    string
+	DrsAvuUnit                       string
+	DrsLogLevel                      string //info, debug
+	DrsListenPort                    int
+	ServiceInfoSampleIntervalMinutes int
+	ServiceInfoFilePath              string
+	IrodsHost                        string
+	IrodsPort                        int
+	IrodsZone                        string
+	IrodsDrsAdminUser                string
+	IrodsDrsAdminPassword            string
+	IrodsDrsAdminPasswordFile        string
+	IrodsAuthScheme                  string
+	IrodsNegotiationPolicy           string
+	IrodsDefaultResource             string
+	OidcUrl                          string
+	OidcClientId                     string
+	OidcClientSecret                 string
+	OidcClientSecretFile             string
+	OidcRealm                        string
+	OidcScope                        string
 }
 
 func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
@@ -64,25 +67,27 @@ const ConfigFileEnvVar = "DRS_CONFIG_FILE"
 
 func bindEnvVars(v *viper.Viper) error {
 	envBindings := map[string][]string{
-		"DrsIdAvuValue":             {"DRS_DRS_ID_AVU_VALUE", "DRS_DRSIDAVUVALUE"},
-		"DrsAvuUnit":                {"DRS_DRS_AVU_UNIT", "DRS_DRSAVUUNIT"},
-		"DrsLogLevel":               {"DRS_DRS_LOG_LEVEL", "DRS_DRSLOGLEVEL"},
-		"DrsListenPort":             {"DRS_LISTEN_PORT", "DRS_DRSLISTENPORT"},
-		"IrodsHost":                 {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
-		"IrodsPort":                 {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
-		"IrodsZone":                 {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
-		"IrodsDrsAdminUser":         {"DRS_IRODS_DRS_ADMIN_USER", "DRS_IRODSDRSADMINUSER"},
-		"IrodsDrsAdminPassword":     {"DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
-		"IrodsDrsAdminPasswordFile": {"DRS_IRODS_DRS_ADMIN_PASSWORD_FILE", "DRS_IRODSDRSADMINPASSWORDFILE"},
-		"IrodsAuthScheme":           {"DRS_IRODS_AUTH_SCHEME", "DRS_IRODSAUTHSCHEME"},
-		"IrodsNegotiationPolicy":    {"DRS_IRODS_NEGOTIATION_POLICY", "DRS_IRODSNEGOTIATIONPOLICY"},
-		"IrodsDefaultResource":      {"DRS_IRODS_DEFAULT_RESOURCE", "DRS_IRODSDEFAULTRESOURCE"},
-		"OidcUrl":                   {"DRS_OIDC_URL", "DRS_OIDCURL"},
-		"OidcClientId":              {"DRS_OIDC_CLIENT_ID", "DRS_OIDCCLIENTID"},
-		"OidcClientSecret":          {"DRS_OIDC_CLIENT_SECRET", "DRS_OIDCCLIENTSECRET"},
-		"OidcClientSecretFile":      {"DRS_OIDC_CLIENT_SECRET_FILE", "DRS_OIDCCLIENTSECRETFILE"},
-		"OidcRealm":                 {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
-		"OidcScope":                 {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
+		"DrsIdAvuValue":                    {"DRS_DRS_ID_AVU_VALUE", "DRS_DRSIDAVUVALUE"},
+		"DrsAvuUnit":                       {"DRS_DRS_AVU_UNIT", "DRS_DRSAVUUNIT"},
+		"DrsLogLevel":                      {"DRS_DRS_LOG_LEVEL", "DRS_DRSLOGLEVEL"},
+		"DrsListenPort":                    {"DRS_LISTEN_PORT", "DRS_DRSLISTENPORT"},
+		"ServiceInfoSampleIntervalMinutes": {"DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "DRS_SERVICEINFOSAMPLEINTERVALMINUTES"},
+		"ServiceInfoFilePath":              {"DRS_SERVICE_INFO_FILE_PATH", "DRS_SERVICEINFOFILEPATH"},
+		"IrodsHost":                        {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
+		"IrodsPort":                        {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
+		"IrodsZone":                        {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
+		"IrodsDrsAdminUser":                {"DRS_IRODS_DRS_ADMIN_USER", "DRS_IRODSDRSADMINUSER"},
+		"IrodsDrsAdminPassword":            {"DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
+		"IrodsDrsAdminPasswordFile":        {"DRS_IRODS_DRS_ADMIN_PASSWORD_FILE", "DRS_IRODSDRSADMINPASSWORDFILE"},
+		"IrodsAuthScheme":                  {"DRS_IRODS_AUTH_SCHEME", "DRS_IRODSAUTHSCHEME"},
+		"IrodsNegotiationPolicy":           {"DRS_IRODS_NEGOTIATION_POLICY", "DRS_IRODSNEGOTIATIONPOLICY"},
+		"IrodsDefaultResource":             {"DRS_IRODS_DEFAULT_RESOURCE", "DRS_IRODSDEFAULTRESOURCE"},
+		"OidcUrl":                          {"DRS_OIDC_URL", "DRS_OIDCURL"},
+		"OidcClientId":                     {"DRS_OIDC_CLIENT_ID", "DRS_OIDCCLIENTID"},
+		"OidcClientSecret":                 {"DRS_OIDC_CLIENT_SECRET", "DRS_OIDCCLIENTSECRET"},
+		"OidcClientSecretFile":             {"DRS_OIDC_CLIENT_SECRET_FILE", "DRS_OIDCCLIENTSECRETFILE"},
+		"OidcRealm":                        {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
+		"OidcScope":                        {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
 	}
 
 	for key, envNames := range envBindings {
@@ -95,7 +100,7 @@ func bindEnvVars(v *viper.Viper) error {
 	return nil
 }
 
-func resolveSecret(secret string, secretFile string, secretName string) (string, error) {
+func resolveSecret(secret string, secretFile string, secretName string, configDir string) (string, error) {
 	if secret != "" {
 		return secret, nil
 	}
@@ -104,12 +109,28 @@ func resolveSecret(secret string, secretFile string, secretName string) (string,
 		return "", nil
 	}
 
+	if !filepath.IsAbs(secretFile) && configDir != "" {
+		secretFile = filepath.Join(configDir, secretFile)
+	}
+
 	secretBytes, err := os.ReadFile(secretFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read %s file %q: %w", secretName, secretFile, err)
 	}
 
 	return strings.TrimSpace(string(secretBytes)), nil
+}
+
+func resolveConfigPath(configPath string, configDir string) string {
+	if configPath == "" {
+		return ""
+	}
+
+	if filepath.IsAbs(configPath) || configDir == "" {
+		return configPath
+	}
+
+	return filepath.Join(configDir, configPath)
 }
 
 // ReadDrsConfig reads the configuration for DRS behaviors in irods
@@ -150,6 +171,8 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	if err != nil {         // Handle errors reading the config file
 		return nil, fmt.Errorf("fatal error config file: %w", err)
 	}
+
+	configDir := filepath.Dir(v.ConfigFileUsed())
 	var C DrsConfig
 
 	err = v.Unmarshal(&C)
@@ -157,18 +180,24 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 		return nil, fmt.Errorf("unable to decode into struct: %w", err)
 	}
 
-	C.IrodsDrsAdminPassword, err = resolveSecret(C.IrodsDrsAdminPassword, C.IrodsDrsAdminPasswordFile, "iRODS admin password")
+	C.IrodsDrsAdminPassword, err = resolveSecret(C.IrodsDrsAdminPassword, C.IrodsDrsAdminPasswordFile, "iRODS admin password", configDir)
 	if err != nil {
 		return nil, err
 	}
 
-	C.OidcClientSecret, err = resolveSecret(C.OidcClientSecret, C.OidcClientSecretFile, "OIDC client secret")
+	C.OidcClientSecret, err = resolveSecret(C.OidcClientSecret, C.OidcClientSecretFile, "OIDC client secret", configDir)
 	if err != nil {
 		return nil, err
 	}
+
+	C.ServiceInfoFilePath = resolveConfigPath(C.ServiceInfoFilePath, configDir)
 
 	if C.DrsListenPort == 0 {
 		C.DrsListenPort = 8080
+	}
+
+	if C.ServiceInfoSampleIntervalMinutes <= 0 {
+		C.ServiceInfoSampleIntervalMinutes = 5
 	}
 
 	return &C, nil

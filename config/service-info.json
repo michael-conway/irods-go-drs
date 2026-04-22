@@ -1,0 +1,19 @@
+{
+  "id": "org.irods.irods-go-drs",
+  "name": "iRODS DRS Service",
+  "description": "Site-specific DRS service metadata. The sampler will enrich this payload with dynamic values.",
+  "organization": {
+    "name": "Example Organization",
+    "url": "https://example.org/"
+  },
+  "contactUrl": "mailto:drs-support@example.org",
+  "documentationUrl": "https://example.org/drs/docs",
+  "environment": "prod",
+  "version": "1.5.0",
+  "type": {
+    "artifact": "drs"
+  },
+  "drs": {
+    "maxBulkRequestLength": 1000
+  }
+}

@@ -13,6 +13,8 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_OIDC_CLIENT_SECRET", "env-secret")
 	t.Setenv("DRS_DRS_LOG_LEVEL", "debug")
 	t.Setenv("DRS_LISTEN_PORT", "9090")
+	t.Setenv("DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "11")
+	t.Setenv("DRS_SERVICE_INFO_FILE_PATH", "/tmp/service-info.json")
 
 	var confs = [1]string{"./resources/"}
 	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
@@ -34,6 +36,14 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 
 	if config.DrsListenPort != 9090 {
 		t.Fatalf("expected env override for DrsListenPort, got %d", config.DrsListenPort)
+	}
+
+	if config.ServiceInfoSampleIntervalMinutes != 11 {
+		t.Fatalf("expected env override for ServiceInfoSampleIntervalMinutes, got %d", config.ServiceInfoSampleIntervalMinutes)
+	}
+
+	if config.ServiceInfoFilePath != "/tmp/service-info.json" {
+		t.Fatalf("expected env override for ServiceInfoFilePath, got %q", config.ServiceInfoFilePath)
 	}
 }
 
@@ -66,6 +76,8 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 	configBody := "" +
 		"DrsIdAvuValue: env-config\n" +
 		"DrsListenPort: 9191\n" +
+		"ServiceInfoSampleIntervalMinutes: 13\n" +
+		"ServiceInfoFilePath: service-info.json\n" +
 		"IrodsHost: env-file-host\n" +
 		"IrodsPort: 1247\n" +
 		"IrodsZone: tempZone\n" +
@@ -94,5 +106,14 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 
 	if config.DrsListenPort != 9191 {
 		t.Fatalf("expected listen port from %s override, got %d", drs_support.ConfigFileEnvVar, config.DrsListenPort)
+	}
+
+	if config.ServiceInfoSampleIntervalMinutes != 13 {
+		t.Fatalf("expected service info sample interval from %s override, got %d", drs_support.ConfigFileEnvVar, config.ServiceInfoSampleIntervalMinutes)
+	}
+
+	expectedServiceInfoPath := filepath.Join(dir, "service-info.json")
+	if config.ServiceInfoFilePath != expectedServiceInfoPath {
+		t.Fatalf("expected service info path from %s override to resolve to %q, got %q", drs_support.ConfigFileEnvVar, expectedServiceInfoPath, config.ServiceInfoFilePath)
 	}
 }

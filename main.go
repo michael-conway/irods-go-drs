@@ -10,6 +10,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -29,6 +30,17 @@ func main() {
 	cfg, err := drs_support.ReadDrsConfig("", "", nil)
 	if err != nil {
 		log.Fatalf("read drs config: %v", err)
+	}
+
+	sampler, err := sw.NewServiceInfoSampler(cfg)
+	if err != nil {
+		log.Fatalf("create service info sampler: %v", err)
+	}
+
+	sw.SetDefaultServiceInfoSampler(sampler)
+
+	if err := sampler.Start(context.Background()); err != nil {
+		log.Fatalf("start service info sampler: %v", err)
 	}
 
 	log.Printf("Server started on :%d", cfg.DrsListenPort)

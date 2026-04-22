@@ -2,16 +2,17 @@ DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
 DrsListenPort: 8080
+ServiceInfoSampleIntervalMinutes: 7
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone
 IrodsDrsAdminUser: rods
-IrodsDrsAdminPasswordFile: ./resources/irods-admin-password.txt
+IrodsDrsAdminPasswordFile: irods-admin-password.txt
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: native
 IrodsDefaultResource:
 OidcUrl: https://localhost:8443
 OidcClientId:
-OidcClientSecretFile: ./resources/oidc-client-secret.txt
+OidcClientSecretFile: oidc-client-secret.txt
 OidcRealm:
 OidcScope: openid profile email

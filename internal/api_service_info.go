@@ -9,11 +9,16 @@
  */
 package internal
 
-import (
-	"net/http"
-)
+import "net/http"
 
 func GetServiceInfo(w http.ResponseWriter, r *http.Request) {
+	sampler := GetDefaultServiceInfoSampler()
+	if sampler == nil || sampler.Snapshot() == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "service info sampler is not initialized")
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(sampler.Snapshot().ServiceInfoJSON)
 }

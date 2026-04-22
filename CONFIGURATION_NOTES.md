@@ -73,6 +73,65 @@ DRS_DRS_LOG_LEVEL=debug
 The DRS server listen port is configured through `DrsListenPort` in `drs-config.yaml` or `DRS_LISTEN_PORT` in the
 environment. If it is omitted, the service defaults to port `8080`.
 
+### Service info JSON configuration
+
+The DRS service-info endpoint can be backed by a site-specific JSON document. This allows deployers to keep local
+metadata such as service name, description, organization, contact URL, documentation URL, environment, and other
+static GA4GH DRS service-info fields in a separate JSON file instead of hardcoding them in the service.
+
+The JSON file is configured from `drs-config.yaml` with:
+
+```yaml
+ServiceInfoSampleIntervalMinutes: 5
+ServiceInfoFilePath: service-info.json
+```
+
+`ServiceInfoFilePath` points to the JSON file that should be loaded by the `ServiceInfoSampler` when the service starts.
+On each sampling interval, the sampler reads that JSON, updates fields that are maintained by the service, and stores
+the resulting JSON payload for the `/ga4gh/drs/v1/service-info` response.
+
+At the moment, the sampler fills placeholder values for dynamic fields under the `drs` section such as:
+
+```json
+{
+  "drs": {
+    "objectCount": 0,
+    "totalObjectSize": 0
+  }
+}
+```
+
+This keeps the site-specific metadata in JSON while leaving room for the service to inject live values later.
+
+`ServiceInfoFilePath` may be absolute or relative:
+
+* If it is absolute, that path is used directly.
+* If it is relative, it is resolved relative to the directory containing `drs-config.yaml`.
+
+For example, with the checked-in sample config:
+
+```yaml
+ServiceInfoFilePath: service-info.json
+```
+
+and:
+
+```text
+config/
+  drs-config.yaml
+  service-info.json
+```
+
+the loader resolves the JSON file to the sibling file next to `drs-config.yaml`.
+
+The equivalent environment variable override is:
+
+```bash
+DRS_SERVICE_INFO_FILE_PATH=/path/to/service-info.json
+```
+
+See the sample file at [config/service-info.json](./config/service-info.json) for the expected shape.
+
 For secrets, prefer file-backed values over putting secrets directly in YAML or plain environment variables.
 
 The loader supports:
