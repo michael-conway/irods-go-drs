@@ -15,21 +15,22 @@ type DrsConfig struct {
 	DrsIdAvuValue          string
 	DrsAvuUnit             string
 	DrsLogLevel            string //info, debug
+	DrsListenPort          int
 	IrodsHost              string
 	IrodsPort              int
 	IrodsZone              string
-	IrodsDrsAdminUser      string
-	IrodsDrsAdminPassword  string
+	IrodsDrsAdminUser         string
+	IrodsDrsAdminPassword     string
 	IrodsDrsAdminPasswordFile string
-	IrodsAuthScheme        string
-	IrodsNegotiationPolicy string
-	IrodsDefaultResource   string
-	OidcUrl                string
-	OidcClientId           string
-	OidcClientSecret       string
-	OidcClientSecretFile   string
-	OidcRealm              string
-	OidcScope              string
+	IrodsAuthScheme           string
+	IrodsNegotiationPolicy    string
+	IrodsDefaultResource      string
+	OidcUrl                   string
+	OidcClientId              string
+	OidcClientSecret          string
+	OidcClientSecretFile      string
+	OidcRealm                 string
+	OidcScope                 string
 }
 
 func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
@@ -63,24 +64,25 @@ const ConfigFileEnvVar = "DRS_CONFIG_FILE"
 
 func bindEnvVars(v *viper.Viper) error {
 	envBindings := map[string][]string{
-		"DrsIdAvuValue":          {"DRS_DRS_ID_AVU_VALUE", "DRS_DRSIDAVUVALUE"},
-		"DrsAvuUnit":             {"DRS_DRS_AVU_UNIT", "DRS_DRSAVUUNIT"},
-		"DrsLogLevel":            {"DRS_DRS_LOG_LEVEL", "DRS_DRSLOGLEVEL"},
-		"IrodsHost":              {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
-		"IrodsPort":              {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
-		"IrodsZone":              {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
-		"IrodsDrsAdminUser":      {"DRS_IRODS_DRS_ADMIN_USER", "DRS_IRODSDRSADMINUSER"},
-		"IrodsDrsAdminPassword":  {"DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
+		"DrsIdAvuValue":             {"DRS_DRS_ID_AVU_VALUE", "DRS_DRSIDAVUVALUE"},
+		"DrsAvuUnit":                {"DRS_DRS_AVU_UNIT", "DRS_DRSAVUUNIT"},
+		"DrsLogLevel":               {"DRS_DRS_LOG_LEVEL", "DRS_DRSLOGLEVEL"},
+		"DrsListenPort":             {"DRS_LISTEN_PORT", "DRS_DRSLISTENPORT"},
+		"IrodsHost":                 {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
+		"IrodsPort":                 {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
+		"IrodsZone":                 {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
+		"IrodsDrsAdminUser":         {"DRS_IRODS_DRS_ADMIN_USER", "DRS_IRODSDRSADMINUSER"},
+		"IrodsDrsAdminPassword":     {"DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
 		"IrodsDrsAdminPasswordFile": {"DRS_IRODS_DRS_ADMIN_PASSWORD_FILE", "DRS_IRODSDRSADMINPASSWORDFILE"},
-		"IrodsAuthScheme":        {"DRS_IRODS_AUTH_SCHEME", "DRS_IRODSAUTHSCHEME"},
-		"IrodsNegotiationPolicy": {"DRS_IRODS_NEGOTIATION_POLICY", "DRS_IRODSNEGOTIATIONPOLICY"},
-		"IrodsDefaultResource":   {"DRS_IRODS_DEFAULT_RESOURCE", "DRS_IRODSDEFAULTRESOURCE"},
-		"OidcUrl":                {"DRS_OIDC_URL", "DRS_OIDCURL"},
-		"OidcClientId":           {"DRS_OIDC_CLIENT_ID", "DRS_OIDCCLIENTID"},
-		"OidcClientSecret":       {"DRS_OIDC_CLIENT_SECRET", "DRS_OIDCCLIENTSECRET"},
-		"OidcClientSecretFile":   {"DRS_OIDC_CLIENT_SECRET_FILE", "DRS_OIDCCLIENTSECRETFILE"},
-		"OidcRealm":              {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
-		"OidcScope":              {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
+		"IrodsAuthScheme":           {"DRS_IRODS_AUTH_SCHEME", "DRS_IRODSAUTHSCHEME"},
+		"IrodsNegotiationPolicy":    {"DRS_IRODS_NEGOTIATION_POLICY", "DRS_IRODSNEGOTIATIONPOLICY"},
+		"IrodsDefaultResource":      {"DRS_IRODS_DEFAULT_RESOURCE", "DRS_IRODSDEFAULTRESOURCE"},
+		"OidcUrl":                   {"DRS_OIDC_URL", "DRS_OIDCURL"},
+		"OidcClientId":              {"DRS_OIDC_CLIENT_ID", "DRS_OIDCCLIENTID"},
+		"OidcClientSecret":          {"DRS_OIDC_CLIENT_SECRET", "DRS_OIDCCLIENTSECRET"},
+		"OidcClientSecretFile":      {"DRS_OIDC_CLIENT_SECRET_FILE", "DRS_OIDCCLIENTSECRETFILE"},
+		"OidcRealm":                 {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
+		"OidcScope":                 {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
 	}
 
 	for key, envNames := range envBindings {
@@ -163,6 +165,10 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	C.OidcClientSecret, err = resolveSecret(C.OidcClientSecret, C.OidcClientSecretFile, "OIDC client secret")
 	if err != nil {
 		return nil, err
+	}
+
+	if C.DrsListenPort == 0 {
+		C.DrsListenPort = 8080
 	}
 
 	return &C, nil

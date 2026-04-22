@@ -14,6 +14,9 @@ func TestReadDrsConfig(t *testing.T) {
 	if actual.DrsIdAvuValue != "drs-id" {
 		t.Fail()
 	}
+	if actual.DrsListenPort != 8080 {
+		t.Fatalf("expected default listen port from config to be 8080, got %d", actual.DrsListenPort)
+	}
 }
 
 func TestSetLogLevel(t *testing.T) {

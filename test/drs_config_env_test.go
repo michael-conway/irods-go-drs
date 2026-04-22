@@ -12,6 +12,7 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_IRODS_HOST", "env-host")
 	t.Setenv("DRS_OIDC_CLIENT_SECRET", "env-secret")
 	t.Setenv("DRS_DRS_LOG_LEVEL", "debug")
+	t.Setenv("DRS_LISTEN_PORT", "9090")
 
 	var confs = [1]string{"./resources/"}
 	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
@@ -29,6 +30,10 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 
 	if config.DrsLogLevel != "debug" {
 		t.Fatalf("expected env override for DrsLogLevel, got %q", config.DrsLogLevel)
+	}
+
+	if config.DrsListenPort != 9090 {
+		t.Fatalf("expected env override for DrsListenPort, got %d", config.DrsListenPort)
 	}
 }
 
@@ -60,6 +65,7 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 	configPath := filepath.Join(dir, "custom-drs-config.yaml")
 	configBody := "" +
 		"DrsIdAvuValue: env-config\n" +
+		"DrsListenPort: 9191\n" +
 		"IrodsHost: env-file-host\n" +
 		"IrodsPort: 1247\n" +
 		"IrodsZone: tempZone\n" +
@@ -84,5 +90,9 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 
 	if config.IrodsHost != "env-file-host" {
 		t.Fatalf("expected host from %s override, got %q", drs_support.ConfigFileEnvVar, config.IrodsHost)
+	}
+
+	if config.DrsListenPort != 9191 {
+		t.Fatalf("expected listen port from %s override, got %d", drs_support.ConfigFileEnvVar, config.DrsListenPort)
 	}
 }

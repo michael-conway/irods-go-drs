@@ -59,6 +59,7 @@ environment variable overrides on top of the file values.
 Examples of supported environment variable overrides:
 
 ```bash
+DRS_LISTEN_PORT=8080
 DRS_IRODS_HOST=irods-provider
 DRS_IRODS_PORT=1247
 DRS_IRODS_ZONE=tempZone
@@ -68,6 +69,9 @@ DRS_OIDC_REALM=drs
 DRS_OIDC_CLIENT_ID=irods-go-drs
 DRS_DRS_LOG_LEVEL=debug
 ```
+
+The DRS server listen port is configured through `DrsListenPort` in `drs-config.yaml` or `DRS_LISTEN_PORT` in the
+environment. If it is omitted, the service defaults to port `8080`.
 
 For secrets, prefer file-backed values over putting secrets directly in YAML or plain environment variables.
 
@@ -102,3 +106,30 @@ oidc-client-secret.txt
 The `drs-config-secret-files.yaml` fixture points at `irods-admin-password.txt` and `oidc-client-secret.txt`, and the
 loader reads and trims those files at startup. This is the preferred pattern for Docker or Kubernetes-style mounted
 secrets.
+
+## Sample Bearer Token
+
+```json
+{
+  "exp": 1776788002,
+  "iat": 1776787702,
+  "auth_time": 1776787702,
+  "jti": "onrtac:8427a08e-4129-8040-b483-7e2d24d42a34",
+  "iss": "https://localhost:8443/realms/drs",
+  "sub": "4b603570-0b59-4adc-ade7-493ea8d56493",
+  "typ": "Bearer",
+  "azp": "irods-go-rest",
+  "sid": "65yhGlh1ynSCUBF9rZ5KQ-Ch",
+  "acr": "1",
+  "allowed-origins": [
+    "http://localhost:8080"
+  ],
+  "scope": "openid profile email",
+  "email_verified": false,
+  "name": "test1 test",
+  "preferred_username": "test1",
+  "given_name": "test1",
+  "family_name": "test",
+  "email": "test1@irods.org"
+}
+```

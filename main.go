@@ -10,9 +10,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	// WARNING!
 	// Change this to a fully-qualified import path
 	// once you place this file into your project.
@@ -24,9 +26,14 @@ import (
 )
 
 func main() {
-	log.Printf("Server started")
+	cfg, err := drs_support.ReadDrsConfig("", "", nil)
+	if err != nil {
+		log.Fatalf("read drs config: %v", err)
+	}
+
+	log.Printf("Server started on :%d", cfg.DrsListenPort)
 
 	router := sw.NewRouter()
 
-	log.Fatal(http.ListenAndServe(":8080", router))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", cfg.DrsListenPort), router))
 }

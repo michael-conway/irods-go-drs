@@ -1,6 +1,7 @@
 DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
+DrsListenPort: 8080
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone
