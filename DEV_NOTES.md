@@ -17,6 +17,16 @@ Metadata AVU Attributes:
 
 Metadata AVU Unit: `DRS_OBJECT_AVU`
 
+### DRS Compound Objects
+
+Compound object support is planned. This will likely be a YAML or JSON file, marked with a variant of the DRS Object
+AVU scheme. The file is a manifest that points to constituent DRS Objects. This will be created via tooling.
+
+### DRS Ruleset?
+
+Consider iRODS policies for DRS, including versioning on data object change, immuntability? DRS object validation, 
+such as scans for missing DRS objects in bundles, etc?
+
 
 ## Testing
 
