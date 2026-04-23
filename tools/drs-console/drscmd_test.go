@@ -24,7 +24,9 @@ func TestIinit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	testEnvManager.EnvironmentFilePath = envFile
+	if err := testEnvManager.SetEnvironmentFilePath(envFile); err != nil {
+		t.Fatalf("set environment file path: %v", err)
+	}
 
 	oldEnvManager := envManager
 	envManager = testEnvManager

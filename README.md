@@ -1,5 +1,8 @@
 # iRODS DRS Client - GoLang
 
+[![Go](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml)
+[![CodeQL Advanced](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml)
+
 A GoLang based implementation of the GA4GH Data Repository Service (DRS)
 
 ## drscmd
@@ -27,4 +30,3 @@ Usage and workflow notes are documented in [USERGUIDE.md](/Users/conwaymc/Docume
 * Using Keycloak with Gorilla Mux - https://mikebolshakov.medium.com/keycloak-with-go-web-services-why-not-f806c0bc820a
 * GoCloak - https://github.com/Nerzal/gocloak
 * go contexts - https://golang.org/pkg/context/
-
