@@ -1,0 +1,191 @@
+package test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
+)
+
+func TestApplyDrsMetadata(t *testing.T) {
+	metas := []*irodstypes.IRODSMeta{
+		{Name: drs_support.DrsIdAvuAttrib, Value: "drs-123", Units: drs_support.DrsAvuUnit},
+		{Name: drs_support.DrsAvuVersionAttrib, Value: "v1", Units: drs_support.DrsAvuUnit},
+		{Name: drs_support.DrsAvuMimeTypeAttrib, Value: "application/json", Units: drs_support.DrsAvuUnit},
+		{Name: drs_support.DrsAvuDescriptionAttrib, Value: "test description", Units: drs_support.DrsAvuUnit},
+		{Name: drs_support.DrsAvuAliasAttrib, Value: "alias-1", Units: drs_support.DrsAvuUnit},
+		{Name: drs_support.DrsAvuAliasAttrib, Value: "alias-2", Units: drs_support.DrsAvuUnit},
+		{Name: drs_support.DrsAvuCompoundManifestAttrib, Value: "true", Units: drs_support.DrsAvuUnit},
+	}
+
+	object := &drs_support.InternalDrsObject{}
+	if err := drs_support.ApplyDrsMetadata(object, metas); err != nil {
+		t.Fatalf("apply metadata: %v", err)
+	}
+
+	if object.Id != "drs-123" {
+		t.Fatalf("expected id drs-123, got %q", object.Id)
+	}
+
+	if !object.IsManifest {
+		t.Fatal("expected manifest metadata")
+	}
+
+	if len(object.Aliases) != 2 {
+		t.Fatalf("expected 2 aliases, got %d", len(object.Aliases))
+	}
+}
+
+func TestNewInternalDrsObjectFromDataObject(t *testing.T) {
+	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
+	updateTime := createTime.Add(5 * time.Minute)
+	checksum, err := irodstypes.CreateIRODSChecksum("d41d8cd98f00b204e9800998ecf8427e")
+	if err != nil {
+		t.Fatalf("create checksum: %v", err)
+	}
+
+	object, err := drs_support.NewInternalDrsObjectFromDataObject(&irodstypes.IRODSDataObject{
+		Path: "/tempZone/home/rods/file.txt",
+		Name: "file.txt",
+		Size: 42,
+		Replicas: []*irodstypes.IRODSReplica{
+			{
+				Checksum:   checksum,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
+		},
+	}, "tempZone", []*irodstypes.IRODSMeta{
+		{Name: drs_support.DrsIdAvuAttrib, Value: "drs-file-1", Units: drs_support.DrsAvuUnit},
+		{Name: drs_support.DrsAvuDescriptionAttrib, Value: "file description", Units: drs_support.DrsAvuUnit},
+	})
+	if err != nil {
+		t.Fatalf("build internal drs object: %v", err)
+	}
+
+	if object.Id != "drs-file-1" {
+		t.Fatalf("expected id drs-file-1, got %q", object.Id)
+	}
+
+	if object.Checksum == nil {
+		t.Fatal("expected checksum to be populated")
+	}
+
+	if object.Version != "d41d8cd98f00b204e9800998ecf8427e" {
+		t.Fatalf("expected version to fall back to checksum value, got %q", object.Version)
+	}
+
+	if !object.CreatedTime.Equal(createTime) {
+		t.Fatalf("expected create time %v, got %v", createTime, object.CreatedTime)
+	}
+}
+
+func TestParseDrsManifest(t *testing.T) {
+	manifest, err := drs_support.ParseDrsManifest([]byte(`{
+		"schema":"irods-drs-manifest/v1",
+		"type":"compound",
+		"contents":[
+			{"id":"drs://example.org/object-1","name":"bam"},
+			{"id":"drs://example.org/object-2","name":"bai"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+
+	if len(manifest.Contents) != 2 {
+		t.Fatalf("expected 2 manifest entries, got %d", len(manifest.Contents))
+	}
+
+	if issues := manifest.Validate(); len(issues) != 0 {
+		t.Fatalf("expected no manifest validation issues, got %v", issues)
+	}
+}
+
+type fakeValidatorResolver struct {
+	objects         map[string]*drs_support.InternalDrsObject
+	contents        map[string][]byte
+	observed        map[string]*drs_support.ObservedObjectState
+	updatedMetadata []string
+}
+
+func (r *fakeValidatorResolver) GetObjectByID(_ context.Context, drsID string) (*drs_support.InternalDrsObject, error) {
+	object, ok := r.objects[drsID]
+	if !ok {
+		return nil, context.DeadlineExceeded
+	}
+	return object, nil
+}
+
+func (r *fakeValidatorResolver) ReadObjectContents(_ context.Context, object *drs_support.InternalDrsObject) ([]byte, error) {
+	return r.contents[object.Id], nil
+}
+
+func (r *fakeValidatorResolver) ObserveObjectState(_ context.Context, object *drs_support.InternalDrsObject) (*drs_support.ObservedObjectState, error) {
+	return r.observed[object.Id], nil
+}
+
+func (r *fakeValidatorResolver) UpdateObjectMetadata(_ context.Context, object *drs_support.InternalDrsObject, observed *drs_support.ObservedObjectState) error {
+	r.updatedMetadata = append(r.updatedMetadata, object.Id)
+	return nil
+}
+
+func TestDrsValidatorReportsBrokenManifestWithoutThrowing(t *testing.T) {
+	validator, err := drs_support.NewDrsValidator(&fakeValidatorResolver{
+		objects: map[string]*drs_support.InternalDrsObject{
+			"manifest-1": {
+				Id:           "manifest-1",
+				AbsolutePath: "/tempZone/home/rods/manifest-1.json",
+				IsManifest:   true,
+			},
+		},
+		contents: map[string][]byte{
+			"manifest-1": []byte(`{"schema":"irods-drs-manifest/v1","contents":[{"name":"missing-id"}]}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("create validator: %v", err)
+	}
+
+	report := validator.Validate(context.Background(), "manifest-1")
+	if report == nil {
+		t.Fatal("expected validation report")
+	}
+
+	if len(report.Findings) == 0 {
+		t.Fatal("expected manifest validation findings")
+	}
+}
+
+func TestDrsValidatorUpdatesAtomicMetadata(t *testing.T) {
+	validator, err := drs_support.NewDrsValidator(&fakeValidatorResolver{
+		objects: map[string]*drs_support.InternalDrsObject{
+			"object-1": {
+				Id:           "object-1",
+				AbsolutePath: "/tempZone/home/rods/object-1.txt",
+				Size:         10,
+			},
+		},
+		observed: map[string]*drs_support.ObservedObjectState{
+			"object-1": {
+				Size:        20,
+				CreatedTime: time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC),
+				UpdatedTime: time.Date(2026, 4, 23, 11, 0, 0, 0, time.UTC),
+				Checksum: &drs_support.InternalChecksum{
+					Type:  "MD5",
+					Value: "d41d8cd98f00b204e9800998ecf8427e",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create validator: %v", err)
+	}
+
+	report := validator.Validate(context.Background(), "object-1")
+	if len(report.MetadataUpdates) == 0 {
+		t.Fatal("expected metadata updates in report")
+	}
+}
