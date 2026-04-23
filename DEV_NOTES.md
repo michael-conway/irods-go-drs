@@ -1,5 +1,54 @@
 # Development Notes
 
+## iRODS Conventions
+
+### DRS Objects
+
+A DRS object always maps to an iRODS data object, never to an iRODS collection. Collections may still be useful for
+organization, but they are not addressable as DRS objects in this implementation.
+
+The creation of a DRS object is accomplished by decorating an iRODS data object with AVU metadata. The current AVU
+scheme in `drs_support` is:
+
+* `iRODS:DRS:ID` - unique identifier for the DRS object.
+* `iRODS:DRS:VERSION` - version of the DRS object. If absent, the implementation may fall back to the checksum value.
+* `iRODS:DRS:MIME_TYPE` - mime type of the DRS object.
+* `iRODS:DRS:DESCRIPTION` - description of the DRS object.
+* `iRODS:DRS:ALIAS` - alternate identifiers for the DRS object.
+* `iRODS:DRS:COMPOUND_MANIFEST` - marker indicating that the data object content is a DRS manifest.
+
+Metadata AVU unit: `iRODS:DRS`
+
+The DRS metadata layer is intentionally shallow. It records identity and descriptive metadata in AVUs, but does not
+serialize compound membership or object trees into AVU values.
+
+### DRS Compound Objects
+
+A compound object is also represented by an iRODS data object. Specifically, it is a generated JSON manifest file that
+has its own DRS ID and is marked with `iRODS:DRS:COMPOUND_MANIFEST`.
+
+Compound Objects design:
+
+* each compound object manifest is stored as a normal iRODS data object
+* the manifest file itself is the DRS object for that compound object
+* the manifest content is JSON and contains child DRS IDs plus optional relationship metadata such as `name` or `role`
+* a child may be either a standard iRODS-backed DRS object or another manifest-backed DRS object
+* nesting is therefore expressed by manifest files pointing to other manifest files by DRS ID
+* manifest files do not point back to parents, because multiple compound objects may reuse the same child manifest or data object
+
+This means compound membership is determined by parsing the manifest file bytes, not by reading AVUs. The AVU marker
+only answers the question “is this object a manifest?”
+
+Validator and traversal behavior should follow that model:
+
+* for a non-compound object, validate checksum, size, and created/modified timestamps against observed iRODS state and update metadata if needed
+* for a compound object, read and parse the manifest JSON, validate the manifest structure, then recursively descend through child DRS IDs
+* broken manifest integrity should be recorded in a report, not treated as a fatal exception path
+
+### DRS Ruleset?
+
+Consider iRODS policies for DRS, including versioning on data object change, immuntability? DRS object validation, 
+such as scans for missing DRS objects in bundles, etc?
 
 
 ## Testing
@@ -27,6 +76,10 @@ Run only when requested:
 go test -tags=integration ./...
 
 ```
+
+Use `DRS_TEST_BEARER_TOKEN` for integration tests that need an Authorization header. The shared test helper will attach
+`Authorization: Bearer <token>` automatically when that environment variable is set. Tests that require a bearer token
+should call the helper that skips when the token is missing.
 
 CI split (recommended).
 

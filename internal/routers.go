@@ -30,10 +30,14 @@ type Routes []Route
 func NewRouter() *mux.Router {
 	router := mux.NewRouter().StrictSlash(true)
 	authMiddleware := NewDefaultRouteAuthMiddleware()
+	serviceContextMiddleware := NewDefaultRouteServiceContextMiddleware()
 
 	for _, route := range routes {
 		var handler http.Handler
 		handler = route.HandlerFunc
+		if route.RequiresAuth && serviceContextMiddleware != nil {
+			handler = serviceContextMiddleware(handler)
+		}
 		if route.RequiresAuth && authMiddleware != nil {
 			handler = authMiddleware(handler)
 		}
@@ -59,6 +63,20 @@ var routes = Routes{
 		"GET",
 		"/ga4gh/drs/v1/",
 		Index,
+		false,
+	},
+	Route{
+		"GetOpenAPISpec",
+		"GET",
+		"/openapi.yaml",
+		GetOpenAPISpec,
+		false,
+	},
+	Route{
+		"GetSwaggerUI",
+		"GET",
+		"/swagger",
+		GetSwaggerUI,
 		false,
 	},
 

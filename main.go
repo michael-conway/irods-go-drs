@@ -10,9 +10,12 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
 
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	// WARNING!
 	// Change this to a fully-qualified import path
 	// once you place this file into your project.
@@ -24,9 +27,25 @@ import (
 )
 
 func main() {
-	log.Printf("Server started")
+	cfg, err := drs_support.ReadDrsConfig("", "", nil)
+	if err != nil {
+		log.Fatalf("read drs config: %v", err)
+	}
+
+	sampler, err := sw.NewServiceInfoSampler(cfg)
+	if err != nil {
+		log.Fatalf("create service info sampler: %v", err)
+	}
+
+	sw.SetDefaultServiceInfoSampler(sampler)
+
+	if err := sampler.Start(context.Background()); err != nil {
+		log.Fatalf("start service info sampler: %v", err)
+	}
+
+	log.Printf("Server started on :%d", cfg.DrsListenPort)
 
 	router := sw.NewRouter()
 
-	log.Fatal(http.ListenAndServe(":8080", router))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", cfg.DrsListenPort), router))
 }
