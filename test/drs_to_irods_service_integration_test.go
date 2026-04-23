@@ -59,7 +59,7 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 	drsID, err := drs_support.CreateDrsObjectFromDataObject(
 		filesystem,
 		objectPath,
-		"text/plain",
+		"",
 		"integration description",
 		[]string{"alias-one", "alias-two"},
 	)
@@ -86,6 +86,7 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 
 	expectedChecksumType := strings.ToLower(string(entry.IRODSReplicas[0].Checksum.Algorithm))
 	expectedChecksumValue := entry.IRODSReplicas[0].Checksum.IRODSChecksumString
+	expectedMimeType := drs_support.DeriveMimeTypeFromDataObjectPath(objectPath)
 
 	metas, err := filesystem.ListMetadata(objectPath)
 	if err != nil {
@@ -94,7 +95,7 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 
 	assertMetadataValue(t, metas, drs_support.DrsIdAvuAttrib, drsID)
 	assertMetadataValue(t, metas, drs_support.DrsAvuVersionAttrib, expectedChecksumValue)
-	assertMetadataValue(t, metas, drs_support.DrsAvuMimeTypeAttrib, "text/plain")
+	assertMetadataValue(t, metas, drs_support.DrsAvuMimeTypeAttrib, expectedMimeType)
 	assertMetadataValue(t, metas, drs_support.DrsAvuDescriptionAttrib, "integration description")
 	assertMetadataValues(t, metas, drs_support.DrsAvuAliasAttrib, []string{"alias-one", "alias-two"})
 
@@ -104,7 +105,7 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 
 	}
 
-	_, err = drs_support.CreateDrsObjectFromDataObject(filesystem, objectPath, "text/plain", "integration description", nil)
+	_, err = drs_support.CreateDrsObjectFromDataObject(filesystem, objectPath, "", "integration description", nil)
 	if err == nil {
 		t.Fatal("expected second create call to fail for an existing DRS object")
 	}

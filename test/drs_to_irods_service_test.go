@@ -98,6 +98,50 @@ func TestCreateDrsObjectFromDataObject(t *testing.T) {
 	}
 }
 
+func TestCreateDrsObjectFromDataObjectDerivesMimeTypeFromPath(t *testing.T) {
+	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
+	updateTime := createTime.Add(5 * time.Minute)
+
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		entry: &irodsfs.Entry{
+			ID:         1,
+			Type:       irodsfs.FileEntry,
+			Name:       "file.txt",
+			Path:       "/tempZone/home/rods/file.txt",
+			Size:       42,
+			CreateTime: createTime,
+			ModifyTime: updateTime,
+		},
+		metadata: []*irodstypes.IRODSMeta{},
+	}
+
+	_, err := drs_support.CreateDrsObjectFromDataObject(
+		filesystem,
+		"/tempZone/home/rods/file.txt",
+		"",
+		"file description",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create drs object: %v", err)
+	}
+
+	foundMimeType := false
+	for _, meta := range filesystem.addedMetadata {
+		if meta.Name == drs_support.DrsAvuMimeTypeAttrib {
+			foundMimeType = true
+			if meta.Value != "text/plain" {
+				t.Fatalf("expected derived mime type text/plain, got %q", meta.Value)
+			}
+		}
+	}
+
+	if !foundMimeType {
+		t.Fatal("expected derived mime type metadata to be written")
+	}
+}
+
 func TestCreateDrsObjectFromDataObjectRejectsExistingDrsObject(t *testing.T) {
 	filesystem := &fakeIRODSFilesystem{
 		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},

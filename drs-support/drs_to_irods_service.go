@@ -152,7 +152,7 @@ func CreateDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePath stri
 		Size:         entry.Size,
 		CreatedTime:  entry.CreateTime,
 		UpdatedTime:  entry.ModifyTime,
-		MimeType:     strings.TrimSpace(mimeType),
+		MimeType:     normalizedMimeType(correctPath, mimeType),
 		Description:  strings.TrimSpace(description),
 		Aliases:      normalizedAliases(aliases),
 	}
@@ -263,6 +263,15 @@ func metadataForObject(object *InternalDrsObject) []*irodstypes.IRODSMeta {
 	}
 
 	return metas
+}
+
+func normalizedMimeType(dataObjectPath string, mimeType string) string {
+	mimeType = strings.TrimSpace(mimeType)
+	if mimeType != "" {
+		return mimeType
+	}
+
+	return DeriveMimeTypeFromDataObjectPath(dataObjectPath)
 }
 
 // normalizedAliases trims aliases and drops empty values before they are persisted as AVUs.
