@@ -3,6 +3,7 @@ package drs_support
 import (
 	"crypto/rand"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -61,10 +62,24 @@ type InternalDrsObject struct {
 	Aliases []string
 }
 
+// DrsObjectPage represents one page of DRS object results from a listing operation.
+// Offset and Limit reflect the requested page window, Total is the count before paging,
+// and HasMore reports whether another page exists after the returned slice.
+type DrsObjectPage struct {
+	Objects []*InternalDrsObject
+	Offset  int
+	Limit   int
+	Total   int
+	HasMore bool
+}
+
 type IRODSFilesystem interface {
 	StatFile(irodsPath string) (*irodsfs.Entry, error)
+	List(irodsPath string) ([]*irodsfs.Entry, error)
+	SearchByMeta(metaname string, metavalue string) ([]*irodsfs.Entry, error)
 	ListMetadata(irodsPath string) ([]*irodstypes.IRODSMeta, error)
 	AddMetadata(irodsPath string, attName string, attValue string, attUnits string) error
+	DeleteMetadataByAVU(irodsPath string, attName string, attValue string, attUnits string) error
 	GetAccount() *irodstypes.IRODSAccount
 }
 
@@ -188,6 +203,248 @@ func CreateCompoundDrsObjectFromDataObject(filesystem IRODSFilesystem, absoluteP
 	return "", fmt.Errorf("compound DRS object creation is not implemented")
 }
 
+// GetDrsObjectByID resolves one DRS object by its DRS id and returns the hydrated internal model.
+// The lookup searches for data objects carrying the DRS id AVU, validates that exactly one object
+// matches with DRS-scoped metadata, and then maps the object's current iRODS state and DRS AVUs
+// into InternalDrsObject. Both single-object DRS entries and compound manifest objects are
+// returned through the same method.
+func GetDrsObjectByID(filesystem IRODSFilesystem, drsID string) (*InternalDrsObject, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	drsID = strings.TrimSpace(drsID)
+	if drsID == "" {
+		return nil, fmt.Errorf("a DRS id is required")
+	}
+
+	entries, err := filesystem.SearchByMeta(DrsIdAvuAttrib, drsID)
+	if err != nil {
+		return nil, fmt.Errorf("search DRS object by id %q: %w", drsID, err)
+	}
+
+	var matches []*irodsfs.Entry
+	for _, entry := range entries {
+		if entry == nil || entry.Path == "" {
+			continue
+		}
+
+		metas, err := filesystem.ListMetadata(entry.Path)
+		if err != nil {
+			return nil, fmt.Errorf("list metadata for %q: %w", entry.Path, err)
+		}
+
+		if !hasMatchingDrsIDMetadata(metas, drsID) {
+			continue
+		}
+
+		matches = append(matches, entry)
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("DRS object %q not found", drsID)
+	}
+
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("DRS id %q matched multiple data objects", drsID)
+	}
+
+	object, err := drsObjectFromEntry(filesystem, matches[0])
+	if err != nil {
+		return nil, err
+	}
+
+	return object, nil
+}
+
+// GetDrsObjectByIRODSPath resolves the DRS object metadata currently attached to one iRODS data
+// object path. If the target path exists but does not carry DRS metadata, the method returns a
+// not-found style error.
+func GetDrsObjectByIRODSPath(filesystem IRODSFilesystem, absolutePath string) (*InternalDrsObject, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	correctPath := irodsutil.GetCorrectIRODSPath(strings.TrimSpace(absolutePath))
+	if correctPath == "/" || correctPath == "" {
+		return nil, fmt.Errorf("an iRODS data object absolute path is required")
+	}
+
+	entry, err := filesystem.StatFile(correctPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat data object %q: %w", correctPath, err)
+	}
+
+	object, err := drsObjectFromEntry(filesystem, entry)
+	if err != nil {
+		return nil, err
+	}
+
+	if object == nil {
+		return nil, fmt.Errorf("iRODS path %q is not a DRS object", correctPath)
+	}
+
+	return object, nil
+}
+
+// ListDrsObjectsUnderCollection lists DRS-decorated data objects contained by an iRODS collection.
+// When recursive is false, only direct children of the collection are inspected. When recursive is
+// true, subcollections are traversed depth-first and any DRS-decorated data objects found below
+// them are included in the result. Returned objects are sorted by absolute path for stable output.
+func ListDrsObjectsUnderCollection(filesystem IRODSFilesystem, collectionPath string, recursive bool) ([]*InternalDrsObject, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	correctPath := irodsutil.GetCorrectIRODSPath(strings.TrimSpace(collectionPath))
+	if correctPath == "" {
+		return nil, fmt.Errorf("an iRODS collection path is required")
+	}
+
+	objects, err := listDrsObjectsUnderCollection(filesystem, correctPath, recursive)
+	if err != nil {
+		return nil, err
+	}
+
+	sortDrsObjects(objects)
+	return objects, nil
+}
+
+// ListDrsObjects returns one page of DRS objects discovered under the connected zone root.
+// The scan traverses the zone recursively, sorts results by absolute path, and then applies
+// zero-based offset/limit paging. Limit must be positive.
+func ListDrsObjects(filesystem IRODSFilesystem, offset int, limit int) (*DrsObjectPage, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be zero or greater")
+	}
+
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be greater than zero")
+	}
+
+	objects, err := listDrsObjectsUnderCollection(filesystem, rootCollectionPath(filesystem), true)
+	if err != nil {
+		return nil, err
+	}
+
+	sortDrsObjects(objects)
+
+	page := &DrsObjectPage{
+		Offset: offset,
+		Limit:  limit,
+		Total:  len(objects),
+	}
+
+	if offset >= len(objects) {
+		page.Objects = []*InternalDrsObject{}
+		return page, nil
+	}
+
+	end := offset + limit
+	if end > len(objects) {
+		end = len(objects)
+	}
+
+	page.Objects = objects[offset:end]
+	page.HasMore = end < len(objects)
+	return page, nil
+}
+
+// RemoveSingleDrsObjectFromDataObject strips DRS-related AVUs from a single-object DRS data object
+// without deleting the underlying iRODS data object.
+//
+// User guide:
+// Call this when an existing iRODS data object was previously decorated as one atomic DRS object
+// via CreateDrsObjectFromDataObject and you want to remove only the DRS registration metadata.
+// This method is idempotent: if the target object is not currently marked as a DRS object, it
+// returns success without making changes. This method must not be used for compound DRS objects;
+// if the target carries the compound-manifest AVU, the method returns an error and leaves metadata
+// unchanged.
+func RemoveSingleDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePath string) error {
+	if filesystem == nil {
+		return fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	correctPath := irodsutil.GetCorrectIRODSPath(strings.TrimSpace(absolutePath))
+	if correctPath == "/" || correctPath == "" {
+		return fmt.Errorf("a data object absolute path is required")
+	}
+
+	entry, err := filesystem.StatFile(correctPath)
+	if err != nil {
+		return fmt.Errorf("stat data object %q: %w", correctPath, err)
+	}
+
+	metas, err := filesystem.ListMetadata(correctPath)
+	if err != nil {
+		return fmt.Errorf("list metadata for %q: %w", correctPath, err)
+	}
+
+	object, err := internalDrsObjectFromEntry(entry, irodsZoneForPath(filesystem, correctPath), metas)
+	if err != nil {
+		return err
+	}
+
+	if object.IsManifest {
+		return fmt.Errorf("iRODS data object %q is a compound DRS manifest and cannot be removed with RemoveSingleDrsObjectFromDataObject", correctPath)
+	}
+
+	for _, meta := range metas {
+		if !isDrsMetadata(meta) {
+			continue
+		}
+
+		if err := filesystem.DeleteMetadataByAVU(correctPath, meta.Name, meta.Value, meta.Units); err != nil {
+			return fmt.Errorf("remove metadata %q from %q: %w", meta.Name, correctPath, err)
+		}
+	}
+
+	return nil
+}
+
+func listDrsObjectsUnderCollection(filesystem IRODSFilesystem, collectionPath string, recursive bool) ([]*InternalDrsObject, error) {
+	entries, err := filesystem.List(collectionPath)
+	if err != nil {
+		return nil, fmt.Errorf("list collection %q: %w", collectionPath, err)
+	}
+
+	objects := []*InternalDrsObject{}
+	for _, entry := range entries {
+		if entry == nil || entry.Path == "" {
+			continue
+		}
+
+		if entry.IsDir() {
+			if !recursive {
+				continue
+			}
+
+			nested, err := listDrsObjectsUnderCollection(filesystem, entry.Path, true)
+			if err != nil {
+				return nil, err
+			}
+
+			objects = append(objects, nested...)
+			continue
+		}
+
+		object, err := drsObjectFromEntry(filesystem, entry)
+		if err != nil {
+			return nil, err
+		}
+
+		if object != nil {
+			objects = append(objects, object)
+		}
+	}
+
+	return objects, nil
+}
+
 // internalDrsObjectFromEntry builds an InternalDrsObject from an iRODS file entry plus any DRS AVUs
 // already attached to the object.
 func internalDrsObjectFromEntry(entry *irodsfs.Entry, irodsZone string, metas []*irodstypes.IRODSMeta) (*InternalDrsObject, error) {
@@ -272,6 +529,86 @@ func normalizedMimeType(dataObjectPath string, mimeType string) string {
 	}
 
 	return DeriveMimeTypeFromDataObjectPath(dataObjectPath)
+}
+
+func isDrsMetadata(meta *irodstypes.IRODSMeta) bool {
+	if meta == nil {
+		return false
+	}
+
+	switch meta.Name {
+	case DrsIdAvuAttrib, DrsAvuVersionAttrib, DrsAvuMimeTypeAttrib, DrsAvuCompoundManifestAttrib, DrsAvuAliasAttrib, DrsAvuDescriptionAttrib:
+		return meta.Units == "" || strings.EqualFold(meta.Units, DrsAvuUnit)
+	default:
+		return false
+	}
+}
+
+func drsObjectFromEntry(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*InternalDrsObject, error) {
+	if entry == nil {
+		return nil, fmt.Errorf("no iRODS entry provided")
+	}
+
+	metas, err := filesystem.ListMetadata(entry.Path)
+	if err != nil {
+		return nil, fmt.Errorf("list metadata for %q: %w", entry.Path, err)
+	}
+
+	object, err := internalDrsObjectFromEntry(entry, irodsZoneForPath(filesystem, entry.Path), metas)
+	if err != nil {
+		return nil, err
+	}
+
+	if !hasMatchingDrsIDMetadata(metas, object.Id) {
+		return nil, nil
+	}
+
+	return object, nil
+}
+
+func hasMatchingDrsIDMetadata(metas []*irodstypes.IRODSMeta, drsID string) bool {
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+
+		if meta.Name != DrsIdAvuAttrib {
+			continue
+		}
+
+		if strings.TrimSpace(meta.Value) != drsID {
+			continue
+		}
+
+		if meta.Units == "" || strings.EqualFold(meta.Units, DrsAvuUnit) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func rootCollectionPath(filesystem IRODSFilesystem) string {
+	if filesystem != nil {
+		if account := filesystem.GetAccount(); account != nil {
+			zone := strings.TrimSpace(account.ClientZone)
+			if zone != "" {
+				return "/" + strings.TrimPrefix(zone, "/")
+			}
+		}
+	}
+
+	return "/"
+}
+
+func sortDrsObjects(objects []*InternalDrsObject) {
+	sort.Slice(objects, func(i int, j int) bool {
+		if objects[i].AbsolutePath == objects[j].AbsolutePath {
+			return objects[i].Id < objects[j].Id
+		}
+
+		return objects[i].AbsolutePath < objects[j].AbsolutePath
+	})
 }
 
 // normalizedAliases trims aliases and drops empty values before they are persisted as AVUs.
