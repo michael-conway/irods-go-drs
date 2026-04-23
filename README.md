@@ -2,6 +2,16 @@
 
 A GoLang based implementation of the GA4GH Data Repository Service (DRS)
 
+## drscmd
+
+This repository now includes a DRS administration command line tool at [tools/drs-console](/Users/conwaymc/Documents/workspace-gabble/irods-go-drs/tools/drs-console).
+
+`drscmd` is intended to work alongside CyVerse `gocmd`:
+
+- use `gocmd` for general iRODS operations and environment management
+- use `drscmd` for DRS-specific administration such as `drsinfo`, `drsmake`, and `drsrm`
+
+Usage and workflow notes are documented in [USERGUIDE.md](/Users/conwaymc/Documents/workspace-gabble/irods-go-drs/tools/drs-console/USERGUIDE.md).
 
 
 # docs and links
@@ -17,6 +27,5 @@ A GoLang based implementation of the GA4GH Data Repository Service (DRS)
 * Using Keycloak with Gorilla Mux - https://mikebolshakov.medium.com/keycloak-with-go-web-services-why-not-f806c0bc820a
 * GoCloak - https://github.com/Nerzal/gocloak
 * go contexts - https://golang.org/pkg/context/
-
 
 
