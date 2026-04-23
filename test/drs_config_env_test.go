@@ -117,3 +117,42 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 		t.Fatalf("expected service info path from %s override to resolve to %q, got %q", drs_support.ConfigFileEnvVar, expectedServiceInfoPath, config.ServiceInfoFilePath)
 	}
 }
+
+func TestReadDrsConfigTrimsWhitespaceFromInputs(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "custom-drs-config.yaml")
+	configBody := "" +
+		"DrsIdAvuValue: trimmed-config\n" +
+		"DrsListenPort: 8181\n" +
+		"ServiceInfoFilePath: service-info.json\n" +
+		"IrodsHost: trimmed-host\n" +
+		"IrodsPort: 1247\n" +
+		"IrodsZone: tempZone\n" +
+		"IrodsDrsAdminUser: rods\n" +
+		"IrodsAuthScheme: native\n" +
+		"IrodsNegotiationPolicy: native\n"
+
+	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	t.Setenv(drs_support.ConfigFileEnvVar, "  "+configPath+"  ")
+
+	config, err := drs_support.ReadDrsConfig(" drs-config1 ", " yaml ", []string{"  " + dir + "  ", "   "})
+	if err != nil {
+		t.Fatalf("error reading drs config with whitespace-padded inputs: %s", err)
+	}
+
+	if config.DrsIdAvuValue != "trimmed-config" {
+		t.Fatalf("expected config file override after trimming, got %q", config.DrsIdAvuValue)
+	}
+
+	if config.IrodsHost != "trimmed-host" {
+		t.Fatalf("expected trimmed host from config file override, got %q", config.IrodsHost)
+	}
+
+	expectedServiceInfoPath := filepath.Join(dir, "service-info.json")
+	if config.ServiceInfoFilePath != expectedServiceInfoPath {
+		t.Fatalf("expected trimmed service info path to resolve to %q, got %q", expectedServiceInfoPath, config.ServiceInfoFilePath)
+	}
+}

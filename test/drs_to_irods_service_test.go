@@ -2,9 +2,12 @@ package test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
@@ -38,7 +41,7 @@ func TestApplyDrsMetadata(t *testing.T) {
 	}
 }
 
-func TestNewInternalDrsObjectFromDataObject(t *testing.T) {
+func TestCreateDrsObjectFromDataObject(t *testing.T) {
 	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
 	updateTime := createTime.Add(5 * time.Minute)
 	checksum, err := irodstypes.CreateIRODSChecksum("d41d8cd98f00b204e9800998ecf8427e")
@@ -46,39 +49,89 @@ func TestNewInternalDrsObjectFromDataObject(t *testing.T) {
 		t.Fatalf("create checksum: %v", err)
 	}
 
-	object, err := drs_support.NewInternalDrsObjectFromDataObject(&irodstypes.IRODSDataObject{
-		Path: "/tempZone/home/rods/file.txt",
-		Name: "file.txt",
-		Size: 42,
-		Replicas: []*irodstypes.IRODSReplica{
-			{
-				Checksum:   checksum,
-				CreateTime: createTime,
-				ModifyTime: updateTime,
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		entry: &irodsfs.Entry{
+			ID:         1,
+			Type:       irodsfs.FileEntry,
+			Name:       "file.txt",
+			Path:       "/tempZone/home/rods/file.txt",
+			Size:       42,
+			CreateTime: createTime,
+			ModifyTime: updateTime,
+			IRODSReplicas: []irodstypes.IRODSReplica{
+				{
+					Checksum:   checksum,
+					CreateTime: createTime,
+					ModifyTime: updateTime,
+				},
 			},
 		},
-	}, "tempZone", []*irodstypes.IRODSMeta{
-		{Name: drs_support.DrsIdAvuAttrib, Value: "drs-file-1", Units: drs_support.DrsAvuUnit},
-		{Name: drs_support.DrsAvuDescriptionAttrib, Value: "file description", Units: drs_support.DrsAvuUnit},
-	})
+		metadata: []*irodstypes.IRODSMeta{},
+	}
+
+	drsID, err := drs_support.CreateDrsObjectFromDataObject(
+		filesystem,
+		"/tempZone/home/rods/file.txt",
+		"text/plain",
+		"file description",
+		[]string{"alias-1", "alias-2"},
+	)
 	if err != nil {
-		t.Fatalf("build internal drs object: %v", err)
+		t.Fatalf("create drs object: %v", err)
 	}
 
-	if object.Id != "drs-file-1" {
-		t.Fatalf("expected id drs-file-1, got %q", object.Id)
+	if drsID == "" {
+		t.Fatal("expected generated drs id")
 	}
 
-	if object.Checksum == nil {
-		t.Fatal("expected checksum to be populated")
+	if len(filesystem.addedMetadata) != 6 {
+		t.Fatalf("expected 6 AVUs to be written, got %d", len(filesystem.addedMetadata))
 	}
 
-	if object.Version != "d41d8cd98f00b204e9800998ecf8427e" {
-		t.Fatalf("expected version to fall back to checksum value, got %q", object.Version)
+	if got := filesystem.addedMetadata[0]; got.Name != drs_support.DrsIdAvuAttrib || got.Value != drsID {
+		t.Fatalf("expected first metadata to be DRS id %q, got %+v", drsID, got)
 	}
 
-	if !object.CreatedTime.Equal(createTime) {
-		t.Fatalf("expected create time %v, got %v", createTime, object.CreatedTime)
+	if got := filesystem.addedMetadata[1]; got.Name != drs_support.DrsAvuVersionAttrib || got.Value != "d41d8cd98f00b204e9800998ecf8427e" {
+		t.Fatalf("expected version metadata from checksum, got %+v", got)
+	}
+}
+
+func TestCreateDrsObjectFromDataObjectRejectsExistingDrsObject(t *testing.T) {
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		entry: &irodsfs.Entry{
+			ID:   1,
+			Type: irodsfs.FileEntry,
+			Path: "/tempZone/home/rods/file.txt",
+			Name: "file.txt",
+		},
+		metadata: []*irodstypes.IRODSMeta{
+			{Name: drs_support.DrsIdAvuAttrib, Value: "existing-drs-id", Units: drs_support.DrsAvuUnit},
+		},
+	}
+
+	_, err := drs_support.CreateDrsObjectFromDataObject(filesystem, "/tempZone/home/rods/file.txt", "text/plain", "", nil)
+	if err == nil {
+		t.Fatal("expected an error for existing DRS object")
+	}
+
+	if !strings.Contains(err.Error(), "already a DRS object") {
+		t.Fatalf("expected already a DRS object error, got %v", err)
+	}
+}
+
+func TestCreateCompoundDrsObjectFromDataObjectSkeleton(t *testing.T) {
+	filesystem := &fakeIRODSFilesystem{}
+
+	_, err := drs_support.CreateCompoundDrsObjectFromDataObject(filesystem, "/tempZone/home/rods/manifest.json", "compound", []string{"alias-1"})
+	if err == nil {
+		t.Fatal("expected skeleton method to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("expected not implemented error, got %v", err)
 	}
 }
 
@@ -130,6 +183,50 @@ func (r *fakeValidatorResolver) ObserveObjectState(_ context.Context, object *dr
 func (r *fakeValidatorResolver) UpdateObjectMetadata(_ context.Context, object *drs_support.InternalDrsObject, observed *drs_support.ObservedObjectState) error {
 	r.updatedMetadata = append(r.updatedMetadata, object.Id)
 	return nil
+}
+
+type fakeIRODSFilesystem struct {
+	account       *irodstypes.IRODSAccount
+	entry         *irodsfs.Entry
+	metadata      []*irodstypes.IRODSMeta
+	addedMetadata []*irodstypes.IRODSMeta
+	statErr       error
+	listErr       error
+	addErr        error
+}
+
+func (f *fakeIRODSFilesystem) StatFile(_ string) (*irodsfs.Entry, error) {
+	if f.statErr != nil {
+		return nil, f.statErr
+	}
+	if f.entry == nil {
+		return nil, errors.New("missing fake entry")
+	}
+	return f.entry, nil
+}
+
+func (f *fakeIRODSFilesystem) ListMetadata(_ string) ([]*irodstypes.IRODSMeta, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.metadata, nil
+}
+
+func (f *fakeIRODSFilesystem) AddMetadata(_ string, attName string, attValue string, attUnits string) error {
+	if f.addErr != nil {
+		return f.addErr
+	}
+
+	f.addedMetadata = append(f.addedMetadata, &irodstypes.IRODSMeta{
+		Name:  attName,
+		Value: attValue,
+		Units: attUnits,
+	})
+	return nil
+}
+
+func (f *fakeIRODSFilesystem) GetAccount() *irodstypes.IRODSAccount {
+	return f.account
 }
 
 func TestDrsValidatorReportsBrokenManifestWithoutThrowing(t *testing.T) {

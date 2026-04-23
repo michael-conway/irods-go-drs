@@ -122,6 +122,8 @@ func resolveSecret(secret string, secretFile string, secretName string, configDi
 }
 
 func resolveConfigPath(configPath string, configDir string) string {
+	configPath = strings.TrimSpace(configPath)
+
 	if configPath == "" {
 		return ""
 	}
@@ -139,7 +141,10 @@ func resolveConfigPath(configPath string, configDir string) string {
 func ReadDrsConfig(configName string, configType string, configPaths []string) (*DrsConfig, error) {
 	v := viper.New()
 
-	if configFilePath := os.Getenv(ConfigFileEnvVar); configFilePath != "" {
+	configName = strings.TrimSpace(configName)
+	configType = strings.TrimSpace(configType)
+
+	if configFilePath := strings.TrimSpace(os.Getenv(ConfigFileEnvVar)); configFilePath != "" {
 		v.SetConfigFile(configFilePath)
 	} else {
 		if configName == "" {
@@ -155,6 +160,11 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 		}
 
 		for _, path := range configPaths {
+			path = strings.TrimSpace(path)
+			if path == "" {
+				continue
+			}
+
 			v.AddConfigPath(path)
 		}
 
