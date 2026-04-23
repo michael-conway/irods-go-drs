@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/Nerzal/gocloak/v13"
-	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	"github.com/gorilla/mux"
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	"github.com/michael-conway/irods-go-drs/internal"
 )
 
