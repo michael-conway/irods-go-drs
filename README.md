@@ -28,4 +28,3 @@ Usage and workflow notes are documented in [USERGUIDE.md](/Users/conwaymc/Docume
 * GoCloak - https://github.com/Nerzal/gocloak
 * go contexts - https://golang.org/pkg/context/
 
-
