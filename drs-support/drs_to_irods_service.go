@@ -310,6 +310,47 @@ func ListDrsObjectsUnderCollection(filesystem IRODSFilesystem, collectionPath st
 	return objects, nil
 }
 
+// ListDrsObjectsUnderCollectionPage lists DRS-decorated data objects under one collection and
+// applies zero-based offset/limit paging after sorting by absolute path. Limit must be positive.
+func ListDrsObjectsUnderCollectionPage(filesystem IRODSFilesystem, collectionPath string, recursive bool, offset int, limit int) (*DrsObjectPage, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be zero or greater")
+	}
+
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be greater than zero")
+	}
+
+	objects, err := ListDrsObjectsUnderCollection(filesystem, collectionPath, recursive)
+	if err != nil {
+		return nil, err
+	}
+
+	page := &DrsObjectPage{
+		Offset: offset,
+		Limit:  limit,
+		Total:  len(objects),
+	}
+
+	if offset >= len(objects) {
+		page.Objects = []*InternalDrsObject{}
+		return page, nil
+	}
+
+	end := offset + limit
+	if end > len(objects) {
+		end = len(objects)
+	}
+
+	page.Objects = objects[offset:end]
+	page.HasMore = end < len(objects)
+	return page, nil
+}
+
 // ListDrsObjects returns one page of DRS objects discovered under the connected zone root.
 // The scan traverses the zone recursively, sorts results by absolute path, and then applies
 // zero-based offset/limit paging. Limit must be positive.

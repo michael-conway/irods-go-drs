@@ -14,6 +14,7 @@ import (
 	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
+	logrus "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v3"
 )
 
@@ -41,7 +42,7 @@ var createFileSystem = func(account *types.IRODSAccount, applicationName string)
 
 var envManager *irodsclientconfig.ICommandsEnvironmentManager
 
-var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+var logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 const APP_NAME = "drscmd"
 
@@ -66,9 +67,31 @@ type drsRemoveResult struct {
 	Path string `json:"path"`
 }
 
+type drsListEntry struct {
+	DRSID       string `json:"drsId"`
+	Path        string `json:"path"`
+	IsBundle    bool   `json:"isBundle"`
+	Description string `json:"description,omitempty"`
+}
+
+type drsListResult struct {
+	Path    string         `json:"path"`
+	Offset  int            `json:"offset"`
+	Limit   int            `json:"limit"`
+	Total   int            `json:"total"`
+	HasMore bool           `json:"hasMore"`
+	Objects []drsListEntry `json:"objects"`
+}
+
 func init() {
+	setupLogging()
 	setupCLI()
 	setupEnvironment()
+}
+
+func setupLogging() {
+	// drscmd responses should remain clean on stdout; suppress library log output.
+	logrus.SetOutput(io.Discard)
 }
 
 func setupCLI() {
@@ -89,6 +112,9 @@ func setupCLI() {
 			case "drsmake":
 				writeDrsMakeHelp(w)
 				return
+			case "drsls":
+				writeDrsListHelp(w)
+				return
 			case "drsrm":
 				writeDrsRemoveHelp(w)
 				return
@@ -104,6 +130,7 @@ func setupCLI() {
 		fmt.Fprintf(w, "\n\n")
 		fmt.Fprintf(w, "\t------- drs --------\n\n")
 		fmt.Fprintf(w, "\tdrsinfo - drs info for a given path or drs id\n")
+		fmt.Fprintf(w, "\tdrsls - list drs objects under an iRODS collection\n")
 		fmt.Fprintf(w, "\tdrsmake - make a single-object drs object at the given data object\n")
 		fmt.Fprintf(w, "\tdrsrm - remove drs object characteristics from a given data object\n")
 	}
@@ -168,14 +195,31 @@ func writeDrsInfoHelp(w io.Writer) {
 	fmt.Fprintf(w, "      --id           treat the argument as a DRS id\n")
 }
 
+func writeDrsListHelp(w io.Writer) {
+	fmt.Fprintf(w, "drscmd drsls\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Usage:\n")
+	fmt.Fprintf(w, "  drscmd drsls [irods-collection-path] [flags]\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "The collection path is optional. When omitted, drsls lists from the saved iRODS current working directory.\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Flags:\n")
+	fmt.Fprintf(w, "      --help         show help for drsls\n")
+	fmt.Fprintf(w, "      --offset       zero-based paging offset (default: 0)\n")
+	fmt.Fprintf(w, "      --limit        page size (default: 20)\n")
+	fmt.Fprintf(w, "  -r, --recursive    recurse into subcollections\n")
+}
+
 func writeDrsRemoveHelp(w io.Writer) {
 	fmt.Fprintf(w, "drscmd drsrm\n")
 	fmt.Fprintf(w, "\n")
 	fmt.Fprintf(w, "Usage:\n")
-	fmt.Fprintf(w, "  drscmd drsrm <irods-data-object-path> [flags]\n")
+	fmt.Fprintf(w, "  drscmd drsrm <path-or-drs-id> [flags]\n")
 	fmt.Fprintf(w, "\n")
 	fmt.Fprintf(w, "Flags:\n")
 	fmt.Fprintf(w, "      --help         show help for drsrm\n")
+	fmt.Fprintf(w, "      --path         treat the argument as an iRODS path\n")
+	fmt.Fprintf(w, "      --id           treat the argument as a DRS id\n")
 }
 
 func usageError(cmd *cli.Command, writeHelp func(io.Writer), format string, args ...interface{}) error {
@@ -194,12 +238,18 @@ func getCommand() *cli.Command {
 
 	var drsPath bool
 	var drsID bool
+	var drsRemovePath bool
+	var drsRemoveID bool
+	var drsListRecursive bool
+	var drsListOffset int
+	var drsListLimit int
 	var mimeType string
 	var description string
 	var aliases []string
 	var drsMakeHelp bool
 	var iinitHelp bool
 	var drsInfoHelp bool
+	var drsListHelp bool
 	var drsRemoveHelp bool
 
 	return &cli.Command{
@@ -343,11 +393,90 @@ func getCommand() *cli.Command {
 				},
 			},
 			{
+				Name:      "drsls",
+				Usage:     "list DRS objects under an iRODS collection",
+				ArgsUsage: "[irods-collection-path]",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "help", Usage: "show help for drsls", Destination: &drsListHelp},
+					&cli.IntFlag{Name: "offset", Value: 0, Usage: "zero-based paging offset", Destination: &drsListOffset},
+					&cli.IntFlag{Name: "limit", Value: 20, Usage: "page size", Destination: &drsListLimit},
+					&cli.BoolFlag{Name: "recursive", Aliases: []string{"r"}, Usage: "recurse into subcollections", Destination: &drsListRecursive},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if drsListHelp {
+						writeDrsListHelp(cmd.Writer)
+						return nil
+					}
+
+					if cmd.Args().Len() > 1 {
+						return usageError(cmd, writeDrsListHelp, "at most one iRODS collection path may be provided")
+					}
+
+					if drsListOffset < 0 {
+						return usageError(cmd, writeDrsListHelp, "offset must be zero or greater")
+					}
+
+					if drsListLimit <= 0 {
+						return usageError(cmd, writeDrsListHelp, "limit must be greater than zero")
+					}
+
+					filesystem, err := connectFileSystem()
+					if err != nil {
+						return err
+					}
+					defer filesystem.Release()
+
+					target := strings.TrimSpace(cmd.Args().First())
+					if target == "" {
+						target, err = currentIRODSWorkingDir(filesystem)
+						if err != nil {
+							return err
+						}
+					} else {
+						target, err = resolveIRODSPath(target, filesystem)
+						if err != nil {
+							return err
+						}
+					}
+
+					page, err := drs_support.ListDrsObjectsUnderCollectionPage(filesystem, target, drsListRecursive, drsListOffset, drsListLimit)
+					if err != nil {
+						return err
+					}
+
+					result := drsListResult{
+						Path:    target,
+						Offset:  page.Offset,
+						Limit:   page.Limit,
+						Total:   page.Total,
+						HasMore: page.HasMore,
+						Objects: make([]drsListEntry, 0, len(page.Objects)),
+					}
+
+					for _, object := range page.Objects {
+						if object == nil {
+							continue
+						}
+
+						result.Objects = append(result.Objects, drsListEntry{
+							DRSID:       object.Id,
+							Path:        object.AbsolutePath,
+							IsBundle:    object.IsManifest,
+							Description: object.Description,
+						})
+					}
+
+					return writeJSON(cmd.Writer, result)
+				},
+			},
+			{
 				Name:      "drsrm",
-				Usage:     "remove single-object DRS metadata from an iRODS data object",
-				ArgsUsage: "<irods-data-object-path>",
+				Usage:     "remove single-object DRS metadata by iRODS path or DRS id",
+				ArgsUsage: "<path-or-drs-id>",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "help", Usage: "show help for drsrm", Destination: &drsRemoveHelp},
+					&cli.BoolFlag{Name: "path", Usage: "treat the argument as an iRODS path", Destination: &drsRemovePath},
+					&cli.BoolFlag{Name: "id", Usage: "treat the argument as a DRS id", Destination: &drsRemoveID},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if drsRemoveHelp {
@@ -357,7 +486,11 @@ func getCommand() *cli.Command {
 
 					target := cmd.Args().First()
 					if strings.TrimSpace(target) == "" {
-						return usageError(cmd, writeDrsRemoveHelp, "an iRODS data object path is required")
+						return usageError(cmd, writeDrsRemoveHelp, "a DRS id or iRODS path is required")
+					}
+
+					if drsRemovePath && drsRemoveID {
+						return usageError(cmd, writeDrsRemoveHelp, "--path and --id cannot be used together")
 					}
 
 					filesystem, err := connectFileSystem()
@@ -366,16 +499,16 @@ func getCommand() *cli.Command {
 					}
 					defer filesystem.Release()
 
-					targetPath, err := resolveIRODSPath(target, filesystem)
+					object, err := getDrsObject(filesystem, target, drsRemovePath, drsRemoveID)
 					if err != nil {
 						return err
 					}
 
-					if err := drs_support.RemoveSingleDrsObjectFromDataObject(filesystem, targetPath); err != nil {
+					if err := drs_support.RemoveSingleDrsObjectFromDataObject(filesystem, object.AbsolutePath); err != nil {
 						return err
 					}
 
-					return writeJSON(cmd.Writer, drsRemoveResult{Path: targetPath})
+					return writeJSON(cmd.Writer, drsRemoveResult{Path: object.AbsolutePath})
 				},
 			},
 		},
