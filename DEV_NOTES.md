@@ -56,6 +56,23 @@ Validator and traversal behavior should follow that model:
 * for a compound object, read and parse the manifest JSON, validate the manifest structure, then recursively descend through child DRS IDs
 * broken manifest integrity should be recorded in a report, not treated as a fatal exception path
 
+### Access Methods
+
+Access method generation should remain in `drs-support`, with `internal` only mapping the support-layer results into
+the OpenAPI `access_methods` response model.
+
+The current implementation is intentionally stubbed and configuration-driven.
+
+Current configured stub types:
+
+* `http` - emits an `access_id` that will later resolve through `/access`, likely backed by an iRODS ticket.
+* `irods` - emits an `access_id` that will later resolve through `/access` into an `irods://host:port/zone/path/to/data/object` URL, likely backed by an iRODS ticket.
+* `local` - emits a `local:///absolute/path` URL using a configured storage-root mapping.
+* `s3` - emits a placeholder `access_id` only; no S3 resolution logic exists yet.
+
+The intent is to keep all transport-specific derivation rules in `drs-support` so the REST layer remains thin while
+the access story evolves.
+
 ### DRS Ruleset?
 
 Consider iRODS policies for DRS, including versioning on data object change, immuntability? DRS object validation, 

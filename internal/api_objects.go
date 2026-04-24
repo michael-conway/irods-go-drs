@@ -18,8 +18,8 @@ import (
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
-	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	"github.com/gorilla/mux"
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
 type RouteFileSystem interface {
@@ -113,17 +113,23 @@ func PostObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool) DrsObject {
+	var accessMethods []AccessMethod
+	if serviceContext, ok := DrsServiceContextFromContext(r.Context()); ok && serviceContext != nil {
+		accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethods(serviceContext.DrsConfig, object))
+	}
+
 	response := DrsObject{
-		Id:          object.Id,
-		Name:        path.Base(object.AbsolutePath),
-		SelfUri:     buildSelfURI(r, object.Id),
-		Size:        object.Size,
-		CreatedTime: object.CreatedTime,
-		UpdatedTime: object.UpdatedTime,
-		Version:     object.Version,
-		MimeType:    object.MimeType,
-		Description: object.Description,
-		Aliases:     append([]string(nil), object.Aliases...),
+		Id:            object.Id,
+		Name:          path.Base(object.AbsolutePath),
+		SelfUri:       buildSelfURI(r, object.Id),
+		Size:          object.Size,
+		CreatedTime:   object.CreatedTime,
+		UpdatedTime:   object.UpdatedTime,
+		Version:       object.Version,
+		MimeType:      object.MimeType,
+		AccessMethods: accessMethods,
+		Description:   object.Description,
+		Aliases:       append([]string(nil), object.Aliases...),
 	}
 
 	if object.Checksum != nil && object.Checksum.Value != "" {
@@ -144,6 +150,33 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 				DrsUri: buildContentsDrsURIs(r, entry.ID),
 			})
 		}
+	}
+
+	return response
+}
+
+func accessMethodsFromInternal(methods []drs_support.DrsAccessMethod) []AccessMethod {
+	if len(methods) == 0 {
+		return nil
+	}
+
+	response := make([]AccessMethod, 0, len(methods))
+	for _, method := range methods {
+		accessMethod := AccessMethod{
+			Type_:     method.Type,
+			AccessId:  method.AccessID,
+			Cloud:     method.Cloud,
+			Region:    method.Region,
+			Available: method.Available,
+		}
+
+		if method.URL != "" {
+			accessMethod.AccessUrl = &AllOfAccessMethodAccessUrl{
+				Url: method.URL,
+			}
+		}
+
+		response = append(response, accessMethod)
 	}
 
 	return response

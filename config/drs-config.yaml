@@ -4,6 +4,14 @@ DrsLogLevel: info
 DrsListenPort: 8080
 ServiceInfoSampleIntervalMinutes: 5
 ServiceInfoFilePath: service-info.json
+AccessMethods:
+  - http
+  - irods
+HTTPAccessBaseURL: http://localhost:8080
+IRODSAccessHost: localhost
+IRODSAccessPort: 1247
+LocalAccessRootPath:
+S3AccessEndpoint:
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone

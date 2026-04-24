@@ -24,6 +24,13 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
 	req.Host = "drs.example.org"
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			AccessMethods:       []string{"http", "irods", "local", "s3"},
+			HTTPAccessBaseURL:   "https://download.example.org",
+			IRODSAccessHost:     "irods.example.org",
+			IRODSAccessPort:     1247,
+			LocalAccessRootPath: "/mnt/irods",
+		},
 		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
 	}))
 	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
@@ -66,6 +73,26 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 
 	if len(response.Aliases) != 2 || response.Aliases[0] != "alias-1" || response.Aliases[1] != "alias-2" {
 		t.Fatalf("expected aliases to be mapped, got %+v", response.Aliases)
+	}
+
+	if len(response.AccessMethods) != 4 {
+		t.Fatalf("expected 4 access methods, got %+v", response.AccessMethods)
+	}
+
+	if response.AccessMethods[0].Type_ != "http" || response.AccessMethods[0].AccessId != "http:object-123" || response.AccessMethods[0].AccessUrl != nil {
+		t.Fatalf("expected http access method, got %+v", response.AccessMethods[0])
+	}
+
+	if response.AccessMethods[1].Type_ != "irods" || response.AccessMethods[1].AccessId != "irods:object-123" || response.AccessMethods[1].AccessUrl != nil {
+		t.Fatalf("expected irods access method, got %+v", response.AccessMethods[1])
+	}
+
+	if response.AccessMethods[2].Type_ != "local" || response.AccessMethods[2].AccessUrl == nil || response.AccessMethods[2].AccessUrl.Url != "local:///mnt/irods/tempZone/home/test1/file.txt" {
+		t.Fatalf("expected local access method, got %+v", response.AccessMethods[2])
+	}
+
+	if response.AccessMethods[3].Type_ != "s3" || response.AccessMethods[3].AccessId != "s3:object-123" {
+		t.Fatalf("expected s3 access method stub, got %+v", response.AccessMethods[3])
 	}
 }
 
