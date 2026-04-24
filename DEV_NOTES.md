@@ -1,5 +1,16 @@
 # Development Notes
 
+## API Docs and Swagger
+
+When the DRS REST service is running, the embedded Swagger UI is available at `/swagger`.
+
+The raw OpenAPI document served by the service is available at `/openapi.yaml`.
+
+For a default local startup on port `8080`, that means:
+
+* Swagger UI: `http://localhost:8080/swagger`
+* OpenAPI spec: `http://localhost:8080/openapi.yaml`
+
 ## iRODS Conventions
 
 ### DRS Objects
@@ -52,6 +63,19 @@ such as scans for missing DRS objects in bundles, etc?
 
 
 ## Testing
+
+### Development and Test Environment
+
+For live functional testing of the DRS console and related workflows, the local development environment should include:
+
+* a reachable iRODS test environment, such as the docker compose stack under `deployments/docker-test-framework/5-0`
+* valid iRODS test credentials
+* `gocmd` installed and available on `PATH`
+
+The `gocmd` requirement is intentional. Current development and manual functional test flows assume that `gocmd` can be
+used to initialize and manage the iCommands-compatible environment and session state that `drscmd` will later consume.
+If a test or harness depends on relative iRODS path resolution or the saved iRODS cwd, it should assume that `gocmd`
+has already been used to establish that state.
 
 ### Unit versus Integration Testing
 
