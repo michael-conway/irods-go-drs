@@ -10,8 +10,8 @@ import (
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
-	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	"github.com/gorilla/mux"
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
 func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
@@ -56,8 +56,12 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 		t.Fatalf("expected description to be mapped, got %q", response.Description)
 	}
 
-	if len(response.Checksums) != 1 || response.Checksums[0].Checksum != "sha2:abc123" {
+	if len(response.Checksums) != 1 || response.Checksums[0].Checksum != "abc123" {
 		t.Fatalf("expected checksum to be mapped, got %+v", response.Checksums)
+	}
+
+	if response.Checksums[0].Type_ != "sha-256" {
+		t.Fatalf("expected checksum type sha-256, got %+v", response.Checksums)
 	}
 
 	if len(response.Aliases) != 2 || response.Aliases[0] != "alias-1" || response.Aliases[1] != "alias-2" {
@@ -155,7 +159,7 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 			"/tempZone/home/test1/file.txt": {
 				{Name: drs_support.DrsIdAvuAttrib, Value: "object-123", Units: drs_support.DrsAvuUnit},
 				{Name: drs_support.DrsAvuMimeTypeAttrib, Value: "text/plain", Units: drs_support.DrsAvuUnit},
-				{Name: drs_support.DrsAvuVersionAttrib, Value: "v1", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuVersionAttrib, Value: "abc123", Units: drs_support.DrsAvuUnit},
 				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "test description", Units: drs_support.DrsAvuUnit},
 				{Name: drs_support.DrsAvuAliasAttrib, Value: "alias-1", Units: drs_support.DrsAvuUnit},
 				{Name: drs_support.DrsAvuAliasAttrib, Value: "alias-2", Units: drs_support.DrsAvuUnit},

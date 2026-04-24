@@ -33,6 +33,48 @@ func TestChecksumFromReplicaPreservesTypeAndValue(t *testing.T) {
 	}
 }
 
+func TestChecksumFromReplicaNormalizesSHA256ValueAndType(t *testing.T) {
+	checksum, err := irodstypes.CreateIRODSChecksum("sha2:JzZYwVeBDkKwp8dtxc6ZDZbe287HDy9NkS0+Let9UyQ=")
+	if err != nil {
+		t.Fatalf("create checksum: %v", err)
+	}
+
+	replica := &irodstypes.IRODSReplica{Checksum: checksum}
+	internalChecksum := checksumFromReplica(replica)
+	if internalChecksum == nil {
+		t.Fatal("expected internal checksum to be populated")
+	}
+
+	if internalChecksum.Type != "sha-256" {
+		t.Fatalf("expected checksum type sha-256, got %q", internalChecksum.Type)
+	}
+
+	if internalChecksum.Value != "JzZYwVeBDkKwp8dtxc6ZDZbe287HDy9NkS0+Let9UyQ=" {
+		t.Fatalf("expected checksum value without irods prefix, got %q", internalChecksum.Value)
+	}
+}
+
+func TestChecksumFromReplicaPreservesMD5ValueAndType(t *testing.T) {
+	checksum, err := irodstypes.CreateIRODSChecksum("d41d8cd98f00b204e9800998ecf8427e")
+	if err != nil {
+		t.Fatalf("create checksum: %v", err)
+	}
+
+	replica := &irodstypes.IRODSReplica{Checksum: checksum}
+	internalChecksum := checksumFromReplica(replica)
+	if internalChecksum == nil {
+		t.Fatal("expected internal checksum to be populated")
+	}
+
+	if internalChecksum.Type != "md5" {
+		t.Fatalf("expected checksum type md5, got %q", internalChecksum.Type)
+	}
+
+	if internalChecksum.Value != "d41d8cd98f00b204e9800998ecf8427e" {
+		t.Fatalf("expected md5 checksum value to be preserved, got %q", internalChecksum.Value)
+	}
+}
+
 func TestNormalizedMimeTypeUsesMimeTypeSupportWhenUnset(t *testing.T) {
 	mimeType := normalizedMimeType("/tempZone/home/rods/file.txt", "")
 	if mimeType != "text/plain" {

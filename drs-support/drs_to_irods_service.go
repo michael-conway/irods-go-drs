@@ -649,8 +649,8 @@ func checksumFromReplica(replica *irodstypes.IRODSReplica) *InternalChecksum {
 	}
 
 	return &InternalChecksum{
-		Type:  strings.ToLower(string(replica.Checksum.Algorithm)),
-		Value: replica.Checksum.IRODSChecksumString,
+		Type:  normalizeChecksumType(replica.Checksum.Algorithm),
+		Value: normalizeChecksumValue(replica.Checksum.IRODSChecksumString),
 	}
 }
 
@@ -660,9 +660,40 @@ func checksumFromIRODSChecksum(checksum *irodstypes.IRODSChecksum) *InternalChec
 	}
 
 	return &InternalChecksum{
-		Type:  strings.ToLower(string(checksum.Algorithm)),
-		Value: checksum.IRODSChecksumString,
+		Type:  normalizeChecksumType(checksum.Algorithm),
+		Value: normalizeChecksumValue(checksum.IRODSChecksumString),
 	}
+}
+
+func normalizeChecksumType(algorithm irodstypes.ChecksumAlgorithm) string {
+	switch algorithm {
+	case irodstypes.ChecksumAlgorithmSHA1:
+		return "sha-1"
+	case irodstypes.ChecksumAlgorithmSHA256:
+		return "sha-256"
+	case irodstypes.ChecksumAlgorithmSHA512:
+		return "sha-512"
+	case irodstypes.ChecksumAlgorithmADLER32:
+		return "adler32"
+	case irodstypes.ChecksumAlgorithmMD5:
+		return "md5"
+	default:
+		return strings.ToLower(string(algorithm))
+	}
+}
+
+func normalizeChecksumValue(irodsChecksum string) string {
+	trimmed := strings.TrimSpace(irodsChecksum)
+	if trimmed == "" {
+		return ""
+	}
+
+	parts := strings.SplitN(trimmed, ":", 2)
+	if len(parts) == 2 {
+		return parts[1]
+	}
+
+	return trimmed
 }
 
 func ensureDataObjectChecksum(filesystem IRODSFilesystem, absolutePath string, replicas []*irodstypes.IRODSReplica) (*InternalChecksum, error) {
