@@ -1,5 +1,36 @@
 # Development Notes
 
+## AI Summary
+
+This block is intended as a short operational summary for Codex or another AI assistant working in this repository.
+
+`irods-go-drs` is the GA4GH DRS-facing service for iRODS. The main architectural rule is that `internal/` should stay thin and HTTP-centric, while `drs-support/` holds the real DRS/iRODS behavior. Route handlers should parse requests, call support-layer operations, map results into OpenAPI models, and translate typed failures into HTTP responses. Avoid putting iRODS metadata logic, manifest traversal, bundle logic, or access-method derivation directly into `internal/`.
+
+Key domain assumptions:
+
+* a DRS object always maps to an iRODS data object, never to a collection
+* a compound DRS object is a manifest-backed iRODS data object, not an AVU-expanded tree
+* compound membership is determined by reading manifest file content, not by serializing structure into AVUs
+* DRS metadata is stored as shallow AVUs on the data object
+* checksum and version should be derived from real iRODS checksum state when possible
+* access method generation belongs in `drs-support` and is currently configuration-driven and partially stubbed
+
+Current access-method direction:
+
+* `http` and `irods` should use `access_id` and later resolve through `/access`, likely by generating iRODS tickets
+* `local` may emit a direct configured local path mapping
+* `s3` is a stub placeholder for future work
+
+Testing and workflow assumptions:
+
+* package unit tests live next to code
+* broader integration tests live under `test/`
+* docker-compose-backed system tests live under `e2e/`
+* `DRS_TEST_BEARER_TOKEN` is the shared bearer token variable for integration/e2e work
+* `gocmd` on `PATH` is assumed for `drscmd` and CLI-oriented workflows
+
+When extending behavior, prefer strengthening `drs-support` first, then expose it through `internal` with minimal glue code.
+
 ## API Docs and Swagger
 
 When the DRS REST service is running, the embedded Swagger UI is available at `/swagger`.
