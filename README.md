@@ -2,11 +2,6 @@
 
 [![Go](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml)
 [![CodeQL Advanced](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml)
-<<<<<<< HEAD
-=======
-
-A GoLang based implementation of the GA4GH Data Repository Service (DRS)
->>>>>>> main
 
 A Go implementation of the GA4GH Data Repository Service (DRS) for iRODS.
 
@@ -85,7 +80,6 @@ GoCommands resources:
 
 See the [DRS Console User Guide](./tools/drs-console/USERGUIDE.md) for usage and workflow details.
 
-<<<<<<< HEAD
 ## API Documentation
 
 When the REST service is running locally on the default port, the API documentation is available at:
@@ -112,16 +106,3 @@ When the REST service is running locally on the default port, the API documentat
 * Gorilla Mux docs: https://gorilla.github.io/mux/
 * GoCloak: https://github.com/Nerzal/gocloak
 * Go contexts: https://golang.org/pkg/context/
-=======
-* standard Go project layout - https://github.com/golang-standards/project-layout
-* client/console apps in go - https://github.com/urfave/cli
-* cli docs - https://cli.urfave.org/v3/getting-started/
-* logging with slog - https://betterstack.com/community/guides/logging/logging-in-go/
-* Go for OIDC - https://github.com/coreos/go-oidc
-* Keycloak quickstart - https://github.com/keycloak/keycloak-quickstarts/
-* Gorilla Mux - https://github.com/gorilla/mux - router framework
-* Gorilla Mux docs - https://gorilla.github.io/mux/
-* Using Keycloak with Gorilla Mux - https://mikebolshakov.medium.com/keycloak-with-go-web-services-why-not-f806c0bc820a
-* GoCloak - https://github.com/Nerzal/gocloak
-* go contexts - https://golang.org/pkg/context/
->>>>>>> main
