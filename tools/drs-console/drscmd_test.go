@@ -221,6 +221,16 @@ func TestDrsCommands(t *testing.T) {
 		t.Fatalf("expected drsinfo id output to contain the drs id, got %q", infoByID)
 	}
 
+	updateOutput := runCommand(t, cmd, []string{APP_NAME, "drsupdate", "--id", object.Id, "description", "updated description"})
+	if !strings.Contains(updateOutput, "\"item\": \"description\"") || !strings.Contains(updateOutput, "\"value\": \"updated description\"") {
+		t.Fatalf("expected drsupdate output to report updated description, got %q", updateOutput)
+	}
+
+	updatedInfo := runCommand(t, cmd, []string{APP_NAME, "drsinfo", "--path", objectPath})
+	if !strings.Contains(updatedInfo, "\"description\": \"updated description\"") {
+		t.Fatalf("expected drsinfo output to reflect updated description, got %q", updatedInfo)
+	}
+
 	removeOutput := runCommand(t, cmd, []string{APP_NAME, "drsrm", "--id", object.Id})
 	if !strings.Contains(removeOutput, "\"path\": \""+objectPath+"\"") {
 		t.Fatalf("expected drsrm output to contain the removed path, got %q", removeOutput)
@@ -412,6 +422,112 @@ func TestDrsListRecursiveIncludesChildCollections(t *testing.T) {
 	}
 }
 
+func TestDrsUpdateByPathUpdatesSupportedFields(t *testing.T) {
+	const objectPath = "/tempZone/home/rods/file.txt"
+
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		CurrentWorkingDir:    "/tempZone/home/rods",
+		Home:                 "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem(objectPath)
+	if _, err := drs_support.CreateDrsObjectFromDataObject(fakeFS, objectPath, "text/plain", "initial description", nil); err != nil {
+		t.Fatalf("create DRS object: %v", err)
+	}
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+
+	versionOutput := runCommand(t, cmd, []string{APP_NAME, "drsupdate", "--path", objectPath, "version", "v2"})
+	if !strings.Contains(versionOutput, "\"item\": \"version\"") || !strings.Contains(versionOutput, "\"value\": \"v2\"") {
+		t.Fatalf("expected drsupdate output to report version update, got %q", versionOutput)
+	}
+
+	mimeOutput := runCommand(t, cmd, []string{APP_NAME, "drsupdate", "--path", objectPath, "mimeType", "application/json"})
+	if !strings.Contains(mimeOutput, "\"item\": \"mimeType\"") || !strings.Contains(mimeOutput, "\"value\": \"application/json\"") {
+		t.Fatalf("expected drsupdate output to report mimeType update, got %q", mimeOutput)
+	}
+
+	info := runCommand(t, cmd, []string{APP_NAME, "drsinfo", "--path", objectPath})
+	if !strings.Contains(info, "\"version\": \"v2\"") {
+		t.Fatalf("expected drsinfo output to reflect updated version, got %q", info)
+	}
+	if !strings.Contains(info, "\"mimeType\": \"application/json\"") {
+		t.Fatalf("expected drsinfo output to reflect updated mimeType, got %q", info)
+	}
+}
+
+func TestDrsUpdateAliasReplacesAliasSet(t *testing.T) {
+	const objectPath = "/tempZone/home/rods/file.txt"
+
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		CurrentWorkingDir:    "/tempZone/home/rods",
+		Home:                 "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem(objectPath)
+	if _, err := drs_support.CreateDrsObjectFromDataObject(fakeFS, objectPath, "text/plain", "initial description", []string{"alias-1", "alias-2"}); err != nil {
+		t.Fatalf("create DRS object: %v", err)
+	}
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+
+	updateOutput := runCommand(t, cmd, []string{APP_NAME, "drsupdate", "--path", objectPath, "alias", "-a", "alias-2", "-a", "alias-3"})
+	if !strings.Contains(updateOutput, "\"item\": \"alias\"") {
+		t.Fatalf("expected drsupdate alias output to report alias item, got %q", updateOutput)
+	}
+	if !strings.Contains(updateOutput, "\"alias-2\"") || !strings.Contains(updateOutput, "\"alias-3\"") {
+		t.Fatalf("expected drsupdate alias output to report replacement set, got %q", updateOutput)
+	}
+
+	info := runCommand(t, cmd, []string{APP_NAME, "drsinfo", "--path", objectPath})
+	if strings.Contains(info, "\"alias-1\"") {
+		t.Fatalf("expected omitted alias to be removed, got %q", info)
+	}
+	if !strings.Contains(info, "\"alias-2\"") || !strings.Contains(info, "\"alias-3\"") {
+		t.Fatalf("expected retained aliases to remain after update, got %q", info)
+	}
+}
+
 func TestDrsListReportsBundleState(t *testing.T) {
 	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
 	if err != nil {
@@ -544,6 +660,27 @@ func TestDrsListHelp(t *testing.T) {
 	}
 }
 
+func TestDrsUpdateHelp(t *testing.T) {
+	cmd := getCommand()
+
+	helpOutput := runCommand(t, cmd, []string{APP_NAME, "drsupdate", "--help"})
+	if !strings.Contains(helpOutput, "drscmd drsupdate") {
+		t.Fatalf("expected drsupdate help header, got %q", helpOutput)
+	}
+
+	if !strings.Contains(helpOutput, "<path-or-drs-id> <item> <value>") {
+		t.Fatalf("expected drsupdate help to include argument usage, got %q", helpOutput)
+	}
+
+	if !strings.Contains(helpOutput, "mimeType") || !strings.Contains(helpOutput, "version") || !strings.Contains(helpOutput, "description") || !strings.Contains(helpOutput, "alias") {
+		t.Fatalf("expected drsupdate help to include supported items, got %q", helpOutput)
+	}
+
+	if !strings.Contains(helpOutput, "--alias") {
+		t.Fatalf("expected drsupdate help to include alias flag, got %q", helpOutput)
+	}
+}
+
 func TestDrsRemoveHelp(t *testing.T) {
 	cmd := getCommand()
 
@@ -609,6 +746,173 @@ func TestDrsInfoConflictingFlagsShowHelp(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "--path and --id cannot be used together") {
 		t.Fatalf("expected drsinfo conflicting flags message, got %v", err)
+	}
+}
+
+func TestDrsUpdateUsageErrorShowsHelp(t *testing.T) {
+	cmd := getCommand()
+
+	output, err := runCommandAllowError(t, cmd, []string{APP_NAME, "drsupdate", "target", "description"})
+	if err == nil {
+		t.Fatal("expected drsupdate usage error")
+	}
+
+	if !strings.Contains(output, "drscmd drsupdate") {
+		t.Fatalf("expected drsupdate help content on usage error, got %q", output)
+	}
+
+	if !strings.Contains(err.Error(), "a value is required for this item") {
+		t.Fatalf("expected drsupdate usage error message, got %v", err)
+	}
+}
+
+func TestDrsUpdateConflictingFlagsShowHelp(t *testing.T) {
+	cmd := getCommand()
+
+	output, err := runCommandAllowError(t, cmd, []string{APP_NAME, "drsupdate", "--path", "--id", "value", "description", "x"})
+	if err == nil {
+		t.Fatal("expected drsupdate conflicting flags error")
+	}
+
+	if !strings.Contains(output, "drscmd drsupdate") {
+		t.Fatalf("expected drsupdate help content on conflicting flags, got %q", output)
+	}
+
+	if !strings.Contains(err.Error(), "--path and --id cannot be used together") {
+		t.Fatalf("expected drsupdate conflicting flags message, got %v", err)
+	}
+}
+
+func TestDrsUpdateFailsForUnsupportedItem(t *testing.T) {
+	const objectPath = "/tempZone/home/rods/file.txt"
+
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		CurrentWorkingDir:    "/tempZone/home/rods",
+		Home:                 "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem(objectPath)
+	if _, err := drs_support.CreateDrsObjectFromDataObject(fakeFS, objectPath, "text/plain", "initial description", nil); err != nil {
+		t.Fatalf("create DRS object: %v", err)
+	}
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	_, err = runCommandAllowError(t, cmd, []string{APP_NAME, "drsupdate", "--path", objectPath, "bogus", "x"})
+	if err == nil {
+		t.Fatal("expected drsupdate unsupported item error")
+	}
+
+	if !strings.Contains(err.Error(), "unsupported DRS metadata field") {
+		t.Fatalf("expected unsupported item error, got %v", err)
+	}
+}
+
+func TestDrsUpdateAliasRejectsPositionalValue(t *testing.T) {
+	const objectPath = "/tempZone/home/rods/file.txt"
+
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		CurrentWorkingDir:    "/tempZone/home/rods",
+		Home:                 "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem(objectPath)
+	if _, err := drs_support.CreateDrsObjectFromDataObject(fakeFS, objectPath, "text/plain", "initial description", nil); err != nil {
+		t.Fatalf("create DRS object: %v", err)
+	}
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	output, err := runCommandAllowError(t, cmd, []string{APP_NAME, "drsupdate", "--path", objectPath, "alias", "x"})
+	if err == nil {
+		t.Fatal("expected drsupdate alias positional value error")
+	}
+
+	if !strings.Contains(output, "drscmd drsupdate") {
+		t.Fatalf("expected drsupdate help content on alias positional value error, got %q", output)
+	}
+
+	if !strings.Contains(err.Error(), "alias updates use -a/--alias instead of a positional value") {
+		t.Fatalf("expected alias positional value message, got %v", err)
+	}
+}
+
+func TestDrsUpdateFailsForNonDrsObject(t *testing.T) {
+	const objectPath = "/tempZone/home/rods/file.txt"
+
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		CurrentWorkingDir:    "/tempZone/home/rods",
+		Home:                 "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem(objectPath)
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	_, err = runCommandAllowError(t, cmd, []string{APP_NAME, "drsupdate", "--path", objectPath, "description", "x"})
+	if err == nil {
+		t.Fatal("expected drsupdate non-DRS error")
+	}
+
+	if !strings.Contains(err.Error(), "is not a DRS object") {
+		t.Fatalf("expected non-DRS error, got %v", err)
 	}
 }
 

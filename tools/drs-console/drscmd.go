@@ -67,6 +67,13 @@ type drsRemoveResult struct {
 	Path string `json:"path"`
 }
 
+type drsUpdateResult struct {
+	Path    string   `json:"path"`
+	Item    string   `json:"item"`
+	Value   string   `json:"value,omitempty"`
+	Aliases []string `json:"aliases,omitempty"`
+}
+
 type drsListEntry struct {
 	DRSID       string `json:"drsId"`
 	Path        string `json:"path"`
@@ -115,6 +122,9 @@ func setupCLI() {
 			case "drsls":
 				writeDrsListHelp(w)
 				return
+			case "drsupdate":
+				writeDrsUpdateHelp(w)
+				return
 			case "drsrm":
 				writeDrsRemoveHelp(w)
 				return
@@ -132,6 +142,7 @@ func setupCLI() {
 		fmt.Fprintf(w, "\tdrsinfo - drs info for a given path or drs id\n")
 		fmt.Fprintf(w, "\tdrsls - list drs objects under an iRODS collection\n")
 		fmt.Fprintf(w, "\tdrsmake - make a single-object drs object at the given data object\n")
+		fmt.Fprintf(w, "\tdrsupdate - update supported DRS AVU metadata on an existing DRS object\n")
 		fmt.Fprintf(w, "\tdrsrm - remove drs object characteristics from a given data object\n")
 	}
 
@@ -222,6 +233,26 @@ func writeDrsRemoveHelp(w io.Writer) {
 	fmt.Fprintf(w, "      --id           treat the argument as a DRS id\n")
 }
 
+func writeDrsUpdateHelp(w io.Writer) {
+	fmt.Fprintf(w, "drscmd drsupdate\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Usage:\n")
+	fmt.Fprintf(w, "  drscmd drsupdate <path-or-drs-id> <item> <value> [flags]\n")
+	fmt.Fprintf(w, "  drscmd drsupdate <path-or-drs-id> alias -a <alias> [-a <alias> ...] [flags]\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Supported items:\n")
+	fmt.Fprintf(w, "  mimeType\n")
+	fmt.Fprintf(w, "  version\n")
+	fmt.Fprintf(w, "  description\n")
+	fmt.Fprintf(w, "  alias\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Flags:\n")
+	fmt.Fprintf(w, "      --help         show help for drsupdate\n")
+	fmt.Fprintf(w, "      --path         treat the first argument as an iRODS path\n")
+	fmt.Fprintf(w, "      --id           treat the first argument as a DRS id\n")
+	fmt.Fprintf(w, "  -a, --alias        alias value for alias updates (repeatable)\n")
+}
+
 func usageError(cmd *cli.Command, writeHelp func(io.Writer), format string, args ...interface{}) error {
 	writeHelp(cmd.ErrWriter)
 	fmt.Fprintln(cmd.ErrWriter)
@@ -238,6 +269,8 @@ func getCommand() *cli.Command {
 
 	var drsPath bool
 	var drsID bool
+	var drsUpdatePath bool
+	var drsUpdateID bool
 	var drsRemovePath bool
 	var drsRemoveID bool
 	var drsListRecursive bool
@@ -246,10 +279,12 @@ func getCommand() *cli.Command {
 	var mimeType string
 	var description string
 	var aliases []string
+	var updateAliases []string
 	var drsMakeHelp bool
 	var iinitHelp bool
 	var drsInfoHelp bool
 	var drsListHelp bool
+	var drsUpdateHelp bool
 	var drsRemoveHelp bool
 
 	return &cli.Command{
@@ -470,6 +505,91 @@ func getCommand() *cli.Command {
 				},
 			},
 			{
+				Name:      "drsupdate",
+				Usage:     "update supported DRS metadata for an existing DRS object",
+				ArgsUsage: "<path-or-drs-id> <item> <value>",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "help", Usage: "show help for drsupdate", Destination: &drsUpdateHelp},
+					&cli.BoolFlag{Name: "path", Usage: "treat the first argument as an iRODS path", Destination: &drsUpdatePath},
+					&cli.BoolFlag{Name: "id", Usage: "treat the first argument as a DRS id", Destination: &drsUpdateID},
+					&cli.StringSliceFlag{Name: "alias", Aliases: []string{"a"}, Usage: "alias value for alias updates"},
+				},
+				Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+					updateAliases = cmd.StringSlice("alias")
+					return ctx, nil
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if drsUpdateHelp {
+						writeDrsUpdateHelp(cmd.Writer)
+						return nil
+					}
+
+					if drsUpdatePath && drsUpdateID {
+						return usageError(cmd, writeDrsUpdateHelp, "--path and --id cannot be used together")
+					}
+
+					if cmd.Args().Len() < 2 {
+						return usageError(cmd, writeDrsUpdateHelp, "a target and item are required")
+					}
+
+					target := strings.TrimSpace(cmd.Args().Get(0))
+					item := strings.TrimSpace(cmd.Args().Get(1))
+					if target == "" || item == "" {
+						return usageError(cmd, writeDrsUpdateHelp, "a target and item are required")
+					}
+
+					if !strings.EqualFold(item, string(drs_support.DrsMetadataFieldAlias)) && cmd.Args().Len() < 3 {
+						return usageError(cmd, writeDrsUpdateHelp, "a value is required for this item")
+					}
+
+					filesystem, err := connectFileSystem()
+					if err != nil {
+						return err
+					}
+					defer filesystem.Release()
+
+					object, err := getDrsObject(filesystem, target, drsUpdatePath, drsUpdateID)
+					if err != nil {
+						return err
+					}
+
+					if strings.EqualFold(item, string(drs_support.DrsMetadataFieldAlias)) {
+						if cmd.Args().Len() > 2 {
+							return usageError(cmd, writeDrsUpdateHelp, "alias updates use -a/--alias instead of a positional value")
+						}
+
+						if err := drs_support.UpdateDrsObjectAliases(filesystem, object.AbsolutePath, updateAliases); err != nil {
+							return err
+						}
+
+						return writeJSON(cmd.Writer, drsUpdateResult{
+							Path:    object.AbsolutePath,
+							Item:    item,
+							Aliases: normalizedCLIStringSlice(updateAliases),
+						})
+					}
+
+					value := strings.TrimSpace(cmd.Args().Get(2))
+					if value == "" {
+						return usageError(cmd, writeDrsUpdateHelp, "a value is required for this item")
+					}
+
+					if len(updateAliases) > 0 {
+						return usageError(cmd, writeDrsUpdateHelp, "-a/--alias can only be used when updating alias")
+					}
+
+					if err := drs_support.UpdateDrsObjectMetadataField(filesystem, object.AbsolutePath, drs_support.DrsMetadataField(item), value); err != nil {
+						return err
+					}
+
+					return writeJSON(cmd.Writer, drsUpdateResult{
+						Path:  object.AbsolutePath,
+						Item:  item,
+						Value: value,
+					})
+				},
+			},
+			{
 				Name:      "drsrm",
 				Usage:     "remove single-object DRS metadata by iRODS path or DRS id",
 				ArgsUsage: "<path-or-drs-id>",
@@ -624,6 +744,23 @@ func writeJSON(writer io.Writer, value any) error {
 	encoder := json.NewEncoder(writer)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
+}
+
+func normalizedCLIStringSlice(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
 }
 
 func main() {

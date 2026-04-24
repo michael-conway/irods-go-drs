@@ -73,6 +73,15 @@ type DrsObjectPage struct {
 	HasMore bool
 }
 
+type DrsMetadataField string
+
+const (
+	DrsMetadataFieldMimeType    DrsMetadataField = "mimeType"
+	DrsMetadataFieldVersion     DrsMetadataField = "version"
+	DrsMetadataFieldDescription DrsMetadataField = "description"
+	DrsMetadataFieldAlias       DrsMetadataField = "alias"
+)
+
 type IRODSFilesystem interface {
 	StatFile(irodsPath string) (*irodsfs.Entry, error)
 	List(irodsPath string) ([]*irodsfs.Entry, error)
@@ -395,6 +404,106 @@ func ListDrsObjects(filesystem IRODSFilesystem, offset int, limit int) (*DrsObje
 	return page, nil
 }
 
+// UpdateDrsObjectMetadataField updates one supported DRS metadata AVU on an existing DRS object.
+// The target must already resolve to a DRS object by iRODS data object path.
+func UpdateDrsObjectMetadataField(filesystem IRODSFilesystem, absolutePath string, field DrsMetadataField, value string) error {
+	if filesystem == nil {
+		return fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	object, err := GetDrsObjectByIRODSPath(filesystem, absolutePath)
+	if err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(string(field)) == string(DrsMetadataFieldAlias) {
+		return fmt.Errorf("alias updates require UpdateDrsObjectAliases")
+	}
+
+	attrName, err := drsMetadataAttributeName(field)
+	if err != nil {
+		return err
+	}
+
+	metas, err := filesystem.ListMetadata(object.AbsolutePath)
+	if err != nil {
+		return fmt.Errorf("list metadata for %q: %w", object.AbsolutePath, err)
+	}
+
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+
+		if meta.Name != attrName {
+			continue
+		}
+
+		if meta.Units != "" && !strings.EqualFold(meta.Units, DrsAvuUnit) {
+			continue
+		}
+
+		if err := filesystem.DeleteMetadataByAVU(object.AbsolutePath, meta.Name, meta.Value, meta.Units); err != nil {
+			return fmt.Errorf("remove metadata %q from %q: %w", meta.Name, object.AbsolutePath, err)
+		}
+	}
+
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return nil
+	}
+
+	if err := filesystem.AddMetadata(object.AbsolutePath, attrName, trimmedValue, DrsAvuUnit); err != nil {
+		return fmt.Errorf("apply metadata %q to %q: %w", attrName, object.AbsolutePath, err)
+	}
+
+	return nil
+}
+
+// UpdateDrsObjectAliases replaces the alias AVUs for an existing DRS object with the provided set.
+// Any alias not present in the new set is removed. Duplicate and blank aliases are ignored.
+func UpdateDrsObjectAliases(filesystem IRODSFilesystem, absolutePath string, aliases []string) error {
+	if filesystem == nil {
+		return fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	object, err := GetDrsObjectByIRODSPath(filesystem, absolutePath)
+	if err != nil {
+		return err
+	}
+
+	metas, err := filesystem.ListMetadata(object.AbsolutePath)
+	if err != nil {
+		return fmt.Errorf("list metadata for %q: %w", object.AbsolutePath, err)
+	}
+
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+
+		if meta.Name != DrsAvuAliasAttrib {
+			continue
+		}
+
+		if meta.Units != "" && !strings.EqualFold(meta.Units, DrsAvuUnit) {
+			continue
+		}
+
+		if err := filesystem.DeleteMetadataByAVU(object.AbsolutePath, meta.Name, meta.Value, meta.Units); err != nil {
+			return fmt.Errorf("remove alias metadata from %q: %w", object.AbsolutePath, err)
+		}
+	}
+
+	for _, alias := range normalizedAliases(aliases) {
+		if err := filesystem.AddMetadata(object.AbsolutePath, DrsAvuAliasAttrib, alias, DrsAvuUnit); err != nil {
+			return fmt.Errorf("apply alias metadata to %q: %w", object.AbsolutePath, err)
+		}
+	}
+
+	return nil
+}
+
 // RemoveSingleDrsObjectFromDataObject strips DRS-related AVUs from a single-object DRS data object
 // without deleting the underlying iRODS data object.
 //
@@ -570,6 +679,21 @@ func normalizedMimeType(dataObjectPath string, mimeType string) string {
 	}
 
 	return DeriveMimeTypeFromDataObjectPath(dataObjectPath)
+}
+
+func drsMetadataAttributeName(field DrsMetadataField) (string, error) {
+	switch strings.TrimSpace(string(field)) {
+	case string(DrsMetadataFieldMimeType), "mime-type", "mime":
+		return DrsAvuMimeTypeAttrib, nil
+	case string(DrsMetadataFieldVersion):
+		return DrsAvuVersionAttrib, nil
+	case string(DrsMetadataFieldDescription):
+		return DrsAvuDescriptionAttrib, nil
+	case string(DrsMetadataFieldAlias):
+		return DrsAvuAliasAttrib, nil
+	default:
+		return "", fmt.Errorf("unsupported DRS metadata field %q", field)
+	}
 }
 
 func isDrsMetadata(meta *irodstypes.IRODSMeta) bool {

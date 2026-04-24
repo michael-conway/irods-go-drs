@@ -71,7 +71,7 @@ This repository includes a DRS administration command line tool at [`tools/drs-c
 `drscmd` is intended to work alongside CyVerse `gocmd`:
 
 * use `gocmd` for general iRODS operations and environment/session management
-* use `drscmd` for DRS-specific administration such as `drsinfo`, `drsmake`, and `drsrm`
+* use `drscmd` for DRS-specific administration such as `drsinfo`, `drsls`, `drsmake`, `drsupdate`, and `drsrm`
 
 GoCommands resources:
 
@@ -116,4 +116,3 @@ When the REST service is running locally on the default port, the API documentat
 * Using Keycloak with Gorilla Mux - https://mikebolshakov.medium.com/keycloak-with-go-web-services-why-not-f806c0bc820a
 * GoCloak - https://github.com/Nerzal/gocloak
 * go contexts - https://golang.org/pkg/context/
-
