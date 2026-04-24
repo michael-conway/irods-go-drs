@@ -49,7 +49,8 @@ The repository follows a conventional Go layout centered around a generated-and-
 | `tools/drs-console/` | `drscmd` command-line tool for DRS administration |
 | `api/` | OpenAPI source documents embedded and served by the service |
 | `config/` | Sample runtime configuration including `drs-config.yaml` and `service-info.json` |
-| `test/` | Unit tests plus integration-tagged functional tests |
+| `test/` | Broader integration tests that span packages without requiring the full docker-compose stack |
+| `e2e/` | Docker-compose-backed end-to-end HTTP and workflow tests |
 | `deployments/` | Development and integration test deployment assets, including docker-based test environments |
 
 ## Stack and Testing Strategy
@@ -58,8 +59,9 @@ The implementation is written in Go and uses a generated Swagger/OpenAPI server 
 
 Testing is organized in layers:
 
-* unit tests run by default with `go test ./...`
-* integration tests are opt-in with the `integration` build tag
+* unit tests live next to the code they validate and run by default with `go test ./...`
+* integration tests live under `test/` and are opt-in with the `integration` build tag
+* end-to-end tests live under `e2e/` and are opt-in with the `e2e` build tag
 * live CLI functional tests use the built `drscmd` binary and a reachable iRODS test environment
 
 For CLI-centered development, `gocmd` should be installed and on `PATH` so that `drscmd` can consume the saved iCommands-compatible environment and session state.

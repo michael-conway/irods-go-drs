@@ -79,13 +79,16 @@ has already been used to establish that state.
 
 ### Unit versus Integration Testing
 
-Use two layers: default unit tests, opt-in integration tests.
-Keep unit tests as normal *_test.go files.
+Use three layers: package unit tests, broader integration tests, and docker-compose-backed end-to-end tests.
+
+Keep package unit tests as normal `*_test.go` files next to the code they validate.
 
 * No tags.
-*Fast, isolated, run with go test ./....
+* Fast, isolated, run with `go test ./...`.
 
-Mark integration tests with a build tag. Put them in files like *_integration_test.go.
+Keep broader integration tests under `test/`.
+
+Mark them with a build tag. Put them in files like `*_integration_test.go`.
 
 Add at top of each file:
 
@@ -97,7 +100,7 @@ Add at top of each file:
 Run only when requested:
 
 ```
-go test -tags=integration ./...
+go test -tags=integration ./test/...
 
 ```
 
@@ -105,7 +108,32 @@ Use `DRS_TEST_BEARER_TOKEN` for integration tests that need an Authorization hea
 `Authorization: Bearer <token>` automatically when that environment variable is set. Tests that require a bearer token
 should call the helper that skips when the token is missing.
 
+Keep docker-compose-backed HTTP system tests under `e2e/`.
+
+Mark them with the `e2e` build tag:
+
+```
+//go:build e2e
+// +build e2e
+```
+
+Run only when requested:
+
+```
+go test -tags=e2e ./e2e/...
+```
+
+Current E2E environment variable conventions:
+
+* `DRS_E2E_BASE_URL`
+* `DRS_TEST_BEARER_TOKEN`
+* `DRS_E2E_SKIP_TLS_VERIFY`
+
+These tests assume the docker compose framework under `deployments/docker-test-framework/5-0` is already running and
+the DRS service is reachable over HTTP.
+
 CI split (recommended).
 
 * Job 1: unit tests on every push/PR.
-* Job 2: start docker compose, then run integration tests with -tags=integration.
+* Job 2: integration tests with `-tags=integration`.
+* Job 3: start docker compose, provision auth as needed, then run E2E tests with `-tags=e2e`.
