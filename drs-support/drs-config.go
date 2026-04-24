@@ -34,6 +34,7 @@ type DrsConfig struct {
 	OidcClientSecretFile             string
 	OidcRealm                        string
 	OidcScope                        string
+	OidcSkipTLSVerify                bool
 }
 
 func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
@@ -88,6 +89,7 @@ func bindEnvVars(v *viper.Viper) error {
 		"OidcClientSecretFile":             {"DRS_OIDC_CLIENT_SECRET_FILE", "DRS_OIDCCLIENTSECRETFILE"},
 		"OidcRealm":                        {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
 		"OidcScope":                        {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
+		"OidcSkipTLSVerify":                {"DRS_OIDC_SKIP_TLS_VERIFY", "DRS_OIDCSKIPTLSVERIFY"},
 	}
 
 	for key, envNames := range envBindings {

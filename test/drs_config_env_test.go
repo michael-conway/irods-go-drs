@@ -15,6 +15,7 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_LISTEN_PORT", "9090")
 	t.Setenv("DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "11")
 	t.Setenv("DRS_SERVICE_INFO_FILE_PATH", "/tmp/service-info.json")
+	t.Setenv("DRS_OIDC_SKIP_TLS_VERIFY", "true")
 
 	var confs = [1]string{"./resources/"}
 	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
@@ -44,6 +45,10 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 
 	if config.ServiceInfoFilePath != "/tmp/service-info.json" {
 		t.Fatalf("expected env override for ServiceInfoFilePath, got %q", config.ServiceInfoFilePath)
+	}
+
+	if !config.OidcSkipTLSVerify {
+		t.Fatal("expected env override for OidcSkipTLSVerify")
 	}
 }
 

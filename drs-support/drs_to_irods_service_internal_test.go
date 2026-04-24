@@ -32,3 +32,17 @@ func TestChecksumFromReplicaPreservesTypeAndValue(t *testing.T) {
 		t.Fatalf("expected checksum value to be preserved, got %q", internalChecksum.Value)
 	}
 }
+
+func TestNormalizedMimeTypeUsesMimeTypeSupportWhenUnset(t *testing.T) {
+	mimeType := normalizedMimeType("/tempZone/home/rods/file.txt", "")
+	if mimeType != "text/plain" {
+		t.Fatalf("expected text/plain from MimeTypeSupport, got %q", mimeType)
+	}
+}
+
+func TestNormalizedMimeTypePreservesExplicitMimeType(t *testing.T) {
+	mimeType := normalizedMimeType("/tempZone/home/rods/file.txt", "application/custom")
+	if mimeType != "application/custom" {
+		t.Fatalf("expected explicit mime type to be preserved, got %q", mimeType)
+	}
+}

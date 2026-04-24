@@ -67,6 +67,7 @@ DRS_IRODS_DRS_ADMIN_USER=rods
 DRS_OIDC_URL=https://keycloak.example.org
 DRS_OIDC_REALM=drs
 DRS_OIDC_CLIENT_ID=irods-go-drs
+DRS_OIDC_SKIP_TLS_VERIFY=false
 DRS_DRS_LOG_LEVEL=debug
 ```
 
@@ -147,6 +148,26 @@ and the matching environment variables:
 DRS_IRODS_DRS_ADMIN_PASSWORD_FILE=/path/to/irods-admin-password.txt
 DRS_OIDC_CLIENT_SECRET_FILE=/path/to/oidc-client-secret.txt
 ```
+
+### OIDC TLS verification
+
+For local development environments that use a self-signed Keycloak certificate, the OIDC client can be configured to
+skip TLS certificate verification during token introspection.
+
+In `drs-config.yaml`:
+
+```yaml
+OidcSkipTLSVerify: true
+```
+
+Or with an environment override:
+
+```bash
+DRS_OIDC_SKIP_TLS_VERIFY=true
+```
+
+This should only be used for local development or controlled test environments. Leave it unset or `false` for normal
+deployments so HTTPS certificate validation remains enabled.
 
 Direct secret values are still supported, but the effective precedence is:
 

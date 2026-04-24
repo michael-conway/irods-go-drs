@@ -44,6 +44,10 @@ func TestApplyDrsMetadata(t *testing.T) {
 func TestGetDrsObjectByID(t *testing.T) {
 	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
 	updateTime := createTime.Add(5 * time.Minute)
+	checksum, err := irodstypes.CreateIRODSChecksum("d41d8cd98f00b204e9800998ecf8427e")
+	if err != nil {
+		t.Fatalf("create checksum: %v", err)
+	}
 
 	filesystem := &fakeIRODSFilesystem{
 		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
@@ -56,6 +60,22 @@ func TestGetDrsObjectByID(t *testing.T) {
 				Size:       42,
 				CreateTime: createTime,
 				ModifyTime: updateTime,
+			},
+		},
+		entryByPath: map[string]*irodsfs.Entry{
+			"/tempZone/home/rods/file.txt": {
+				ID:         1,
+				Type:       irodsfs.FileEntry,
+				Name:       "file.txt",
+				Path:       "/tempZone/home/rods/file.txt",
+				Size:       42,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+				IRODSReplicas: []irodstypes.IRODSReplica{
+					{
+						Checksum: checksum,
+					},
+				},
 			},
 		},
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
@@ -82,6 +102,14 @@ func TestGetDrsObjectByID(t *testing.T) {
 
 	if object.MimeType != "text/plain" {
 		t.Fatalf("expected mime type text/plain, got %q", object.MimeType)
+	}
+
+	if object.Version != "d41d8cd98f00b204e9800998ecf8427e" {
+		t.Fatalf("expected checksum-derived version, got %q", object.Version)
+	}
+
+	if object.Checksum == nil || object.Checksum.Value != "d41d8cd98f00b204e9800998ecf8427e" {
+		t.Fatalf("expected checksum to be populated from stat entry, got %+v", object.Checksum)
 	}
 }
 
@@ -375,6 +403,59 @@ func TestCreateDrsObjectFromDataObjectDerivesMimeTypeFromPath(t *testing.T) {
 	}
 }
 
+func TestCreateDrsObjectFromDataObjectCreatesChecksumWhenMissing(t *testing.T) {
+	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
+	updateTime := createTime.Add(5 * time.Minute)
+	checksum, err := irodstypes.CreateIRODSChecksum("d41d8cd98f00b204e9800998ecf8427e")
+	if err != nil {
+		t.Fatalf("create checksum: %v", err)
+	}
+
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		entry: &irodsfs.Entry{
+			ID:         1,
+			Type:       irodsfs.FileEntry,
+			Name:       "file.txt",
+			Path:       "/tempZone/home/rods/file.txt",
+			Size:       42,
+			CreateTime: createTime,
+			ModifyTime: updateTime,
+		},
+		metadata:        []*irodstypes.IRODSMeta{},
+		ensuredChecksum: checksum,
+	}
+
+	_, err = drs_support.CreateDrsObjectFromDataObject(
+		filesystem,
+		"/tempZone/home/rods/file.txt",
+		"text/plain",
+		"file description",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create drs object: %v", err)
+	}
+
+	if len(filesystem.ensuredChecksumPaths) != 1 || filesystem.ensuredChecksumPaths[0] != "/tempZone/home/rods/file.txt" {
+		t.Fatalf("expected checksum creation for target path, got %+v", filesystem.ensuredChecksumPaths)
+	}
+
+	foundVersion := false
+	for _, meta := range filesystem.addedMetadata {
+		if meta.Name == drs_support.DrsAvuVersionAttrib {
+			foundVersion = true
+			if meta.Value != "d41d8cd98f00b204e9800998ecf8427e" {
+				t.Fatalf("expected checksum-derived version, got %q", meta.Value)
+			}
+		}
+	}
+
+	if !foundVersion {
+		t.Fatal("expected version metadata to be written from generated checksum")
+	}
+}
+
 func TestCreateDrsObjectFromDataObjectRejectsExistingDrsObject(t *testing.T) {
 	filesystem := &fakeIRODSFilesystem{
 		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
@@ -552,21 +633,24 @@ func (r *fakeValidatorResolver) UpdateObjectMetadata(_ context.Context, object *
 }
 
 type fakeIRODSFilesystem struct {
-	account       *irodstypes.IRODSAccount
-	entry         *irodsfs.Entry
-	entryByPath   map[string]*irodsfs.Entry
-	searchEntries []*irodsfs.Entry
-	metadata      []*irodstypes.IRODSMeta
-	metadataByPath map[string][]*irodstypes.IRODSMeta
-	listByPath    map[string][]*irodsfs.Entry
-	addedMetadata []*irodstypes.IRODSMeta
-	deletedMetadata []*irodstypes.IRODSMeta
-	statErr       error
-	listDirErr    error
-	searchErr     error
-	listErr       error
-	addErr        error
-	deleteErr     error
+	account              *irodstypes.IRODSAccount
+	entry                *irodsfs.Entry
+	entryByPath          map[string]*irodsfs.Entry
+	searchEntries        []*irodsfs.Entry
+	metadata             []*irodstypes.IRODSMeta
+	metadataByPath       map[string][]*irodstypes.IRODSMeta
+	listByPath           map[string][]*irodsfs.Entry
+	addedMetadata        []*irodstypes.IRODSMeta
+	deletedMetadata      []*irodstypes.IRODSMeta
+	ensuredChecksum      *irodstypes.IRODSChecksum
+	ensuredChecksumPaths []string
+	statErr              error
+	listDirErr           error
+	searchErr            error
+	listErr              error
+	addErr               error
+	deleteErr            error
+	ensureChecksumErr    error
 }
 
 func (f *fakeIRODSFilesystem) StatFile(irodsPath string) (*irodsfs.Entry, error) {
@@ -648,6 +732,15 @@ func (f *fakeIRODSFilesystem) DeleteMetadataByAVU(_ string, attName string, attV
 
 func (f *fakeIRODSFilesystem) GetAccount() *irodstypes.IRODSAccount {
 	return f.account
+}
+
+func (f *fakeIRODSFilesystem) EnsureDataObjectChecksum(irodsPath string) (*irodstypes.IRODSChecksum, error) {
+	if f.ensureChecksumErr != nil {
+		return nil, f.ensureChecksumErr
+	}
+
+	f.ensuredChecksumPaths = append(f.ensuredChecksumPaths, irodsPath)
+	return f.ensuredChecksum, nil
 }
 
 func TestDrsValidatorReportsBrokenManifestWithoutThrowing(t *testing.T) {

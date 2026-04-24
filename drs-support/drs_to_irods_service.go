@@ -8,6 +8,7 @@ import (
 	"time"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
+	irodslowfs "github.com/cyverse/go-irodsclient/irods/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	irodsutil "github.com/cyverse/go-irodsclient/irods/util"
 )
@@ -90,6 +91,10 @@ type IRODSFilesystem interface {
 	AddMetadata(irodsPath string, attName string, attValue string, attUnits string) error
 	DeleteMetadataByAVU(irodsPath string, attName string, attValue string, attUnits string) error
 	GetAccount() *irodstypes.IRODSAccount
+}
+
+type checksumEnsuringFilesystem interface {
+	EnsureDataObjectChecksum(irodsPath string) (*irodstypes.IRODSChecksum, error)
 }
 
 // ApplyDrsMetadata maps DRS AVUs from iRODS metadata onto an InternalDrsObject.
@@ -182,8 +187,9 @@ func CreateDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePath stri
 	}
 
 	dataObject := entry.ToDataObject()
-	if len(dataObject.Replicas) > 0 && dataObject.Replicas[0] != nil {
-		object.Checksum = checksumFromReplica(dataObject.Replicas[0])
+	object.Checksum, err = ensureDataObjectChecksum(filesystem, correctPath, dataObject.Replicas)
+	if err != nil {
+		return "", fmt.Errorf("ensure checksum for %q: %w", correctPath, err)
 	}
 	if object.Checksum != nil {
 		object.Version = object.Checksum.Value
@@ -258,7 +264,12 @@ func GetDrsObjectByID(filesystem IRODSFilesystem, drsID string) (*InternalDrsObj
 		return nil, fmt.Errorf("DRS id %q matched multiple data objects", drsID)
 	}
 
-	object, err := drsObjectFromEntry(filesystem, matches[0])
+	entry, err := filesystem.StatFile(matches[0].Path)
+	if err != nil {
+		return nil, fmt.Errorf("stat data object %q: %w", matches[0].Path, err)
+	}
+
+	object, err := drsObjectFromEntry(filesystem, entry)
 	if err != nil {
 		return nil, err
 	}
@@ -643,6 +654,50 @@ func checksumFromReplica(replica *irodstypes.IRODSReplica) *InternalChecksum {
 	}
 }
 
+func checksumFromIRODSChecksum(checksum *irodstypes.IRODSChecksum) *InternalChecksum {
+	if checksum == nil || checksum.IRODSChecksumString == "" {
+		return nil
+	}
+
+	return &InternalChecksum{
+		Type:  strings.ToLower(string(checksum.Algorithm)),
+		Value: checksum.IRODSChecksumString,
+	}
+}
+
+func ensureDataObjectChecksum(filesystem IRODSFilesystem, absolutePath string, replicas []*irodstypes.IRODSReplica) (*InternalChecksum, error) {
+	for _, replica := range replicas {
+		if checksum := checksumFromReplica(replica); checksum != nil {
+			return checksum, nil
+		}
+	}
+
+	switch fs := any(filesystem).(type) {
+	case checksumEnsuringFilesystem:
+		checksum, err := fs.EnsureDataObjectChecksum(absolutePath)
+		if err != nil {
+			return nil, err
+		}
+		return checksumFromIRODSChecksum(checksum), nil
+	case *irodsfs.FileSystem:
+		conn, err := fs.GetMetadataConnection(true)
+		if err != nil {
+			return nil, fmt.Errorf("get metadata connection: %w", err)
+		}
+		defer func() {
+			_ = fs.ReturnMetadataConnection(conn)
+		}()
+
+		checksum, err := irodslowfs.GetDataObjectChecksum(conn, absolutePath, "")
+		if err != nil {
+			return nil, err
+		}
+		return checksumFromIRODSChecksum(checksum), nil
+	default:
+		return nil, nil
+	}
+}
+
 // metadataForObject renders an InternalDrsObject into the AVUs that should be stored on the iRODS object.
 func metadataForObject(object *InternalDrsObject) []*irodstypes.IRODSMeta {
 	metas := []*irodstypes.IRODSMeta{
@@ -678,7 +733,7 @@ func normalizedMimeType(dataObjectPath string, mimeType string) string {
 		return mimeType
 	}
 
-	return DeriveMimeTypeFromDataObjectPath(dataObjectPath)
+	return MimeTypeSupport{}.DeriveFromDataObjectPath(dataObjectPath)
 }
 
 func drsMetadataAttributeName(field DrsMetadataField) (string, error) {

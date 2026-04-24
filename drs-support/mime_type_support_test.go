@@ -9,6 +9,13 @@ func TestDeriveMimeTypeFromDataObjectPath(t *testing.T) {
 	}
 }
 
+func TestDeriveMimeTypeFromMarkdownPath(t *testing.T) {
+	mimeType := DeriveMimeTypeFromDataObjectPath("/tempZone/home/rods/USERGUIDE.md")
+	if mimeType != "text/markdown" {
+		t.Fatalf("expected text/markdown, got %q", mimeType)
+	}
+}
+
 func TestDeriveMimeTypeFromDataObjectPathUnknownExtension(t *testing.T) {
 	mimeType := DeriveMimeTypeFromDataObjectPath("/tempZone/home/rods/file.unknown-extension")
 	if mimeType != "" {

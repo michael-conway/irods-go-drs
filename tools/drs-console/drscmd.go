@@ -12,6 +12,7 @@ import (
 
 	irodsclientconfig "github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
+	irodslowfs "github.com/cyverse/go-irodsclient/irods/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	logrus "github.com/sirupsen/logrus"
@@ -30,6 +31,18 @@ type realFileSystem struct {
 
 func (f *realFileSystem) Release() {
 	f.FileSystem.Release()
+}
+
+func (f *realFileSystem) EnsureDataObjectChecksum(irodsPath string) (*types.IRODSChecksum, error) {
+	conn, err := f.FileSystem.GetMetadataConnection(true)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = f.FileSystem.ReturnMetadataConnection(conn)
+	}()
+
+	return irodslowfs.GetDataObjectChecksum(conn, irodsPath, "")
 }
 
 var createFileSystem = func(account *types.IRODSAccount, applicationName string) (FileSystem, error) {

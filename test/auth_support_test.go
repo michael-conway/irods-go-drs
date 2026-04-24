@@ -17,5 +17,4 @@ func TestNewKeycloak(t *testing.T) {
 	if keycloak == nil {
 		t.Errorf("did not create keycloak")
 	}
-
 }
