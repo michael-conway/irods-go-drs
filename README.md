@@ -49,7 +49,8 @@ The repository follows a conventional Go layout centered around a generated-and-
 | `tools/drs-console/` | `drscmd` command-line tool for DRS administration |
 | `api/` | OpenAPI source documents embedded and served by the service |
 | `config/` | Sample runtime configuration including `drs-config.yaml` and `service-info.json` |
-| `test/` | Unit tests plus integration-tagged functional tests |
+| `test/` | Broader integration tests that span packages without requiring the full docker-compose stack |
+| `e2e/` | Docker-compose-backed end-to-end HTTP and workflow tests |
 | `deployments/` | Development and integration test deployment assets, including docker-based test environments |
 
 ## Stack and Testing Strategy
@@ -58,8 +59,9 @@ The implementation is written in Go and uses a generated Swagger/OpenAPI server 
 
 Testing is organized in layers:
 
-* unit tests run by default with `go test ./...`
-* integration tests are opt-in with the `integration` build tag
+* unit tests live next to the code they validate and run by default with `go test ./...`
+* integration tests live under `test/` and are opt-in with the `integration` build tag
+* end-to-end tests live under `e2e/` and are opt-in with the `e2e` build tag
 * live CLI functional tests use the built `drscmd` binary and a reachable iRODS test environment
 
 For CLI-centered development, `gocmd` should be installed and on `PATH` so that `drscmd` can consume the saved iCommands-compatible environment and session state.
@@ -71,7 +73,7 @@ This repository includes a DRS administration command line tool at [`tools/drs-c
 `drscmd` is intended to work alongside CyVerse `gocmd`:
 
 * use `gocmd` for general iRODS operations and environment/session management
-* use `drscmd` for DRS-specific administration such as `drsinfo`, `drsmake`, and `drsrm`
+* use `drscmd` for DRS-specific administration such as `drsinfo`, `drsls`, `drsmake`, `drsupdate`, and `drsrm`
 
 GoCommands resources:
 
@@ -90,30 +92,11 @@ When the REST service is running locally on the default port, the API documentat
 ## References
 
 * GA4GH Data Repository Service (DRS): https://ga4gh.github.io/data-repository-service-schemas/
-* OpenAPI Specification: https://github.com/OAI/OpenAPI-Specification
-* Swagger Codegen: https://github.com/swagger-api/swagger-codegen
-* Standard Go project layout: https://github.com/golang-standards/project-layout
 * go-irodsclient: https://github.com/cyverse/go-irodsclient
-* urfave/cli: https://github.com/urfave/cli
-* urfave/cli docs: https://cli.urfave.org/v3/getting-started/
 * Viper: https://github.com/spf13/viper
 * Zerolog: https://github.com/rs/zerolog
 * slog logging guide: https://betterstack.com/community/guides/logging/logging-in-go/
 * Go OIDC library: https://github.com/coreos/go-oidc
 * Keycloak: https://www.keycloak.org/documentation
-* Keycloak quickstarts: https://github.com/keycloak/keycloak-quickstarts/
-* Gorilla Mux: https://github.com/gorilla/mux
-* Gorilla Mux docs: https://gorilla.github.io/mux/
-* GoCloak: https://github.com/Nerzal/gocloak
-* standard Go project layout - https://github.com/golang-standards/project-layout
-* client/console apps in go - https://github.com/urfave/cli
-* cli docs - https://cli.urfave.org/v3/getting-started/
-* logging with slog - https://betterstack.com/community/guides/logging/logging-in-go/
-* Go for OIDC - https://github.com/coreos/go-oidc
-* Keycloak quickstart - https://github.com/keycloak/keycloak-quickstarts/
-* Gorilla Mux - https://github.com/gorilla/mux - router framework
-* Gorilla Mux docs - https://gorilla.github.io/mux/
-* Using Keycloak with Gorilla Mux - https://mikebolshakov.medium.com/keycloak-with-go-web-services-why-not-f806c0bc820a
 * GoCloak - https://github.com/Nerzal/gocloak
-* go contexts - https://golang.org/pkg/context/
-
+* Gorilla Mux: https://github.com/gorilla/mux

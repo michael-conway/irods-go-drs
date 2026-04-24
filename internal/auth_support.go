@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 
 	"github.com/Nerzal/gocloak/v13"
@@ -20,8 +21,13 @@ type Keycloak struct {
 }
 
 func NewKeycloak(drsConfig *drs_support.DrsConfig) *Keycloak {
+	client := gocloak.NewClient(drsConfig.OidcUrl)
+	if drsConfig.OidcSkipTLSVerify {
+		client.RestyClient().SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true})
+	}
+
 	return &Keycloak{
-		gocloak:      gocloak.NewClient(drsConfig.OidcUrl),
+		gocloak:      client,
 		clientId:     drsConfig.OidcClientId,
 		clientSecret: drsConfig.OidcClientSecret,
 		realm:        drsConfig.OidcRealm,

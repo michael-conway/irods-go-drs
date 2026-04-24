@@ -1,5 +1,36 @@
 # Development Notes
 
+## AI Summary
+
+This block is intended as a short operational summary for Codex or another AI assistant working in this repository.
+
+`irods-go-drs` is the GA4GH DRS-facing service for iRODS. The main architectural rule is that `internal/` should stay thin and HTTP-centric, while `drs-support/` holds the real DRS/iRODS behavior. Route handlers should parse requests, call support-layer operations, map results into OpenAPI models, and translate typed failures into HTTP responses. Avoid putting iRODS metadata logic, manifest traversal, bundle logic, or access-method derivation directly into `internal/`.
+
+Key domain assumptions:
+
+* a DRS object always maps to an iRODS data object, never to a collection
+* a compound DRS object is a manifest-backed iRODS data object, not an AVU-expanded tree
+* compound membership is determined by reading manifest file content, not by serializing structure into AVUs
+* DRS metadata is stored as shallow AVUs on the data object
+* checksum and version should be derived from real iRODS checksum state when possible
+* access method generation belongs in `drs-support` and is currently configuration-driven and partially stubbed
+
+Current access-method direction:
+
+* `http` and `irods` should use `access_id` and later resolve through `/access`, likely by generating iRODS tickets
+* `local` may emit a direct configured local path mapping
+* `s3` is a stub placeholder for future work
+
+Testing and workflow assumptions:
+
+* package unit tests live next to code
+* broader integration tests live under `test/`
+* docker-compose-backed system tests live under `e2e/`
+* `DRS_TEST_BEARER_TOKEN` is the shared bearer token variable for integration/e2e work
+* `gocmd` on `PATH` is assumed for `drscmd` and CLI-oriented workflows
+
+When extending behavior, prefer strengthening `drs-support` first, then expose it through `internal` with minimal glue code.
+
 ## API Docs and Swagger
 
 When the DRS REST service is running, the embedded Swagger UI is available at `/swagger`.
@@ -56,6 +87,23 @@ Validator and traversal behavior should follow that model:
 * for a compound object, read and parse the manifest JSON, validate the manifest structure, then recursively descend through child DRS IDs
 * broken manifest integrity should be recorded in a report, not treated as a fatal exception path
 
+### Access Methods
+
+Access method generation should remain in `drs-support`, with `internal` only mapping the support-layer results into
+the OpenAPI `access_methods` response model.
+
+The current implementation is intentionally stubbed and configuration-driven.
+
+Current configured stub types:
+
+* `http` - emits an `access_id` that will later resolve through `/access`, likely backed by an iRODS ticket.
+* `irods` - emits an `access_id` that will later resolve through `/access` into an `irods://host:port/zone/path/to/data/object` URL, likely backed by an iRODS ticket.
+* `local` - emits a `local:///absolute/path` URL using a configured storage-root mapping.
+* `s3` - emits a placeholder `access_id` only; no S3 resolution logic exists yet.
+
+The intent is to keep all transport-specific derivation rules in `drs-support` so the REST layer remains thin while
+the access story evolves.
+
 ### DRS Ruleset?
 
 Consider iRODS policies for DRS, including versioning on data object change, immuntability? DRS object validation, 
@@ -79,13 +127,16 @@ has already been used to establish that state.
 
 ### Unit versus Integration Testing
 
-Use two layers: default unit tests, opt-in integration tests.
-Keep unit tests as normal *_test.go files.
+Use three layers: package unit tests, broader integration tests, and docker-compose-backed end-to-end tests.
+
+Keep package unit tests as normal `*_test.go` files next to the code they validate.
 
 * No tags.
-*Fast, isolated, run with go test ./....
+* Fast, isolated, run with `go test ./...`.
 
-Mark integration tests with a build tag. Put them in files like *_integration_test.go.
+Keep broader integration tests under `test/`.
+
+Mark them with a build tag. Put them in files like `*_integration_test.go`.
 
 Add at top of each file:
 
@@ -97,7 +148,7 @@ Add at top of each file:
 Run only when requested:
 
 ```
-go test -tags=integration ./...
+go test -tags=integration ./test/...
 
 ```
 
@@ -105,7 +156,32 @@ Use `DRS_TEST_BEARER_TOKEN` for integration tests that need an Authorization hea
 `Authorization: Bearer <token>` automatically when that environment variable is set. Tests that require a bearer token
 should call the helper that skips when the token is missing.
 
+Keep docker-compose-backed HTTP system tests under `e2e/`.
+
+Mark them with the `e2e` build tag:
+
+```
+//go:build e2e
+// +build e2e
+```
+
+Run only when requested:
+
+```
+go test -tags=e2e ./e2e/...
+```
+
+Current E2E environment variable conventions:
+
+* `DRS_E2E_BASE_URL`
+* `DRS_TEST_BEARER_TOKEN`
+* `DRS_E2E_SKIP_TLS_VERIFY`
+
+These tests assume the docker compose framework under `deployments/docker-test-framework/5-0` is already running and
+the DRS service is reachable over HTTP.
+
 CI split (recommended).
 
 * Job 1: unit tests on every push/PR.
-* Job 2: start docker compose, then run integration tests with -tags=integration.
+* Job 2: integration tests with `-tags=integration`.
+* Job 3: start docker compose, provision auth as needed, then run E2E tests with `-tags=e2e`.

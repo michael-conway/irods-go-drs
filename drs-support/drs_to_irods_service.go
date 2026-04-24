@@ -8,6 +8,7 @@ import (
 	"time"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
+	irodslowfs "github.com/cyverse/go-irodsclient/irods/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	irodsutil "github.com/cyverse/go-irodsclient/irods/util"
 )
@@ -73,6 +74,15 @@ type DrsObjectPage struct {
 	HasMore bool
 }
 
+type DrsMetadataField string
+
+const (
+	DrsMetadataFieldMimeType    DrsMetadataField = "mimeType"
+	DrsMetadataFieldVersion     DrsMetadataField = "version"
+	DrsMetadataFieldDescription DrsMetadataField = "description"
+	DrsMetadataFieldAlias       DrsMetadataField = "alias"
+)
+
 type IRODSFilesystem interface {
 	StatFile(irodsPath string) (*irodsfs.Entry, error)
 	List(irodsPath string) ([]*irodsfs.Entry, error)
@@ -81,6 +91,10 @@ type IRODSFilesystem interface {
 	AddMetadata(irodsPath string, attName string, attValue string, attUnits string) error
 	DeleteMetadataByAVU(irodsPath string, attName string, attValue string, attUnits string) error
 	GetAccount() *irodstypes.IRODSAccount
+}
+
+type checksumEnsuringFilesystem interface {
+	EnsureDataObjectChecksum(irodsPath string) (*irodstypes.IRODSChecksum, error)
 }
 
 // ApplyDrsMetadata maps DRS AVUs from iRODS metadata onto an InternalDrsObject.
@@ -173,8 +187,9 @@ func CreateDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePath stri
 	}
 
 	dataObject := entry.ToDataObject()
-	if len(dataObject.Replicas) > 0 && dataObject.Replicas[0] != nil {
-		object.Checksum = checksumFromReplica(dataObject.Replicas[0])
+	object.Checksum, err = ensureDataObjectChecksum(filesystem, correctPath, dataObject.Replicas)
+	if err != nil {
+		return "", fmt.Errorf("ensure checksum for %q: %w", correctPath, err)
 	}
 	if object.Checksum != nil {
 		object.Version = object.Checksum.Value
@@ -249,7 +264,12 @@ func GetDrsObjectByID(filesystem IRODSFilesystem, drsID string) (*InternalDrsObj
 		return nil, fmt.Errorf("DRS id %q matched multiple data objects", drsID)
 	}
 
-	object, err := drsObjectFromEntry(filesystem, matches[0])
+	entry, err := filesystem.StatFile(matches[0].Path)
+	if err != nil {
+		return nil, fmt.Errorf("stat data object %q: %w", matches[0].Path, err)
+	}
+
+	object, err := drsObjectFromEntry(filesystem, entry)
 	if err != nil {
 		return nil, err
 	}
@@ -310,6 +330,47 @@ func ListDrsObjectsUnderCollection(filesystem IRODSFilesystem, collectionPath st
 	return objects, nil
 }
 
+// ListDrsObjectsUnderCollectionPage lists DRS-decorated data objects under one collection and
+// applies zero-based offset/limit paging after sorting by absolute path. Limit must be positive.
+func ListDrsObjectsUnderCollectionPage(filesystem IRODSFilesystem, collectionPath string, recursive bool, offset int, limit int) (*DrsObjectPage, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be zero or greater")
+	}
+
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be greater than zero")
+	}
+
+	objects, err := ListDrsObjectsUnderCollection(filesystem, collectionPath, recursive)
+	if err != nil {
+		return nil, err
+	}
+
+	page := &DrsObjectPage{
+		Offset: offset,
+		Limit:  limit,
+		Total:  len(objects),
+	}
+
+	if offset >= len(objects) {
+		page.Objects = []*InternalDrsObject{}
+		return page, nil
+	}
+
+	end := offset + limit
+	if end > len(objects) {
+		end = len(objects)
+	}
+
+	page.Objects = objects[offset:end]
+	page.HasMore = end < len(objects)
+	return page, nil
+}
+
 // ListDrsObjects returns one page of DRS objects discovered under the connected zone root.
 // The scan traverses the zone recursively, sorts results by absolute path, and then applies
 // zero-based offset/limit paging. Limit must be positive.
@@ -352,6 +413,106 @@ func ListDrsObjects(filesystem IRODSFilesystem, offset int, limit int) (*DrsObje
 	page.Objects = objects[offset:end]
 	page.HasMore = end < len(objects)
 	return page, nil
+}
+
+// UpdateDrsObjectMetadataField updates one supported DRS metadata AVU on an existing DRS object.
+// The target must already resolve to a DRS object by iRODS data object path.
+func UpdateDrsObjectMetadataField(filesystem IRODSFilesystem, absolutePath string, field DrsMetadataField, value string) error {
+	if filesystem == nil {
+		return fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	object, err := GetDrsObjectByIRODSPath(filesystem, absolutePath)
+	if err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(string(field)) == string(DrsMetadataFieldAlias) {
+		return fmt.Errorf("alias updates require UpdateDrsObjectAliases")
+	}
+
+	attrName, err := drsMetadataAttributeName(field)
+	if err != nil {
+		return err
+	}
+
+	metas, err := filesystem.ListMetadata(object.AbsolutePath)
+	if err != nil {
+		return fmt.Errorf("list metadata for %q: %w", object.AbsolutePath, err)
+	}
+
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+
+		if meta.Name != attrName {
+			continue
+		}
+
+		if meta.Units != "" && !strings.EqualFold(meta.Units, DrsAvuUnit) {
+			continue
+		}
+
+		if err := filesystem.DeleteMetadataByAVU(object.AbsolutePath, meta.Name, meta.Value, meta.Units); err != nil {
+			return fmt.Errorf("remove metadata %q from %q: %w", meta.Name, object.AbsolutePath, err)
+		}
+	}
+
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return nil
+	}
+
+	if err := filesystem.AddMetadata(object.AbsolutePath, attrName, trimmedValue, DrsAvuUnit); err != nil {
+		return fmt.Errorf("apply metadata %q to %q: %w", attrName, object.AbsolutePath, err)
+	}
+
+	return nil
+}
+
+// UpdateDrsObjectAliases replaces the alias AVUs for an existing DRS object with the provided set.
+// Any alias not present in the new set is removed. Duplicate and blank aliases are ignored.
+func UpdateDrsObjectAliases(filesystem IRODSFilesystem, absolutePath string, aliases []string) error {
+	if filesystem == nil {
+		return fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	object, err := GetDrsObjectByIRODSPath(filesystem, absolutePath)
+	if err != nil {
+		return err
+	}
+
+	metas, err := filesystem.ListMetadata(object.AbsolutePath)
+	if err != nil {
+		return fmt.Errorf("list metadata for %q: %w", object.AbsolutePath, err)
+	}
+
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+
+		if meta.Name != DrsAvuAliasAttrib {
+			continue
+		}
+
+		if meta.Units != "" && !strings.EqualFold(meta.Units, DrsAvuUnit) {
+			continue
+		}
+
+		if err := filesystem.DeleteMetadataByAVU(object.AbsolutePath, meta.Name, meta.Value, meta.Units); err != nil {
+			return fmt.Errorf("remove alias metadata from %q: %w", object.AbsolutePath, err)
+		}
+	}
+
+	for _, alias := range normalizedAliases(aliases) {
+		if err := filesystem.AddMetadata(object.AbsolutePath, DrsAvuAliasAttrib, alias, DrsAvuUnit); err != nil {
+			return fmt.Errorf("apply alias metadata to %q: %w", object.AbsolutePath, err)
+		}
+	}
+
+	return nil
 }
 
 // RemoveSingleDrsObjectFromDataObject strips DRS-related AVUs from a single-object DRS data object
@@ -488,8 +649,83 @@ func checksumFromReplica(replica *irodstypes.IRODSReplica) *InternalChecksum {
 	}
 
 	return &InternalChecksum{
-		Type:  strings.ToLower(string(replica.Checksum.Algorithm)),
-		Value: replica.Checksum.IRODSChecksumString,
+		Type:  normalizeChecksumType(replica.Checksum.Algorithm),
+		Value: normalizeChecksumValue(replica.Checksum.IRODSChecksumString),
+	}
+}
+
+func checksumFromIRODSChecksum(checksum *irodstypes.IRODSChecksum) *InternalChecksum {
+	if checksum == nil || checksum.IRODSChecksumString == "" {
+		return nil
+	}
+
+	return &InternalChecksum{
+		Type:  normalizeChecksumType(checksum.Algorithm),
+		Value: normalizeChecksumValue(checksum.IRODSChecksumString),
+	}
+}
+
+func normalizeChecksumType(algorithm irodstypes.ChecksumAlgorithm) string {
+	switch algorithm {
+	case irodstypes.ChecksumAlgorithmSHA1:
+		return "sha-1"
+	case irodstypes.ChecksumAlgorithmSHA256:
+		return "sha-256"
+	case irodstypes.ChecksumAlgorithmSHA512:
+		return "sha-512"
+	case irodstypes.ChecksumAlgorithmADLER32:
+		return "adler32"
+	case irodstypes.ChecksumAlgorithmMD5:
+		return "md5"
+	default:
+		return strings.ToLower(string(algorithm))
+	}
+}
+
+func normalizeChecksumValue(irodsChecksum string) string {
+	trimmed := strings.TrimSpace(irodsChecksum)
+	if trimmed == "" {
+		return ""
+	}
+
+	parts := strings.SplitN(trimmed, ":", 2)
+	if len(parts) == 2 {
+		return parts[1]
+	}
+
+	return trimmed
+}
+
+func ensureDataObjectChecksum(filesystem IRODSFilesystem, absolutePath string, replicas []*irodstypes.IRODSReplica) (*InternalChecksum, error) {
+	for _, replica := range replicas {
+		if checksum := checksumFromReplica(replica); checksum != nil {
+			return checksum, nil
+		}
+	}
+
+	switch fs := any(filesystem).(type) {
+	case checksumEnsuringFilesystem:
+		checksum, err := fs.EnsureDataObjectChecksum(absolutePath)
+		if err != nil {
+			return nil, err
+		}
+		return checksumFromIRODSChecksum(checksum), nil
+	case *irodsfs.FileSystem:
+		conn, err := fs.GetMetadataConnection(true)
+		if err != nil {
+			return nil, fmt.Errorf("get metadata connection: %w", err)
+		}
+		defer func() {
+			_ = fs.ReturnMetadataConnection(conn)
+		}()
+
+		checksum, err := irodslowfs.GetDataObjectChecksum(conn, absolutePath, "")
+		if err != nil {
+			return nil, err
+		}
+		return checksumFromIRODSChecksum(checksum), nil
+	default:
+		return nil, nil
 	}
 }
 
@@ -528,7 +764,22 @@ func normalizedMimeType(dataObjectPath string, mimeType string) string {
 		return mimeType
 	}
 
-	return DeriveMimeTypeFromDataObjectPath(dataObjectPath)
+	return MimeTypeSupport{}.DeriveFromDataObjectPath(dataObjectPath)
+}
+
+func drsMetadataAttributeName(field DrsMetadataField) (string, error) {
+	switch strings.TrimSpace(string(field)) {
+	case string(DrsMetadataFieldMimeType), "mime-type", "mime":
+		return DrsAvuMimeTypeAttrib, nil
+	case string(DrsMetadataFieldVersion):
+		return DrsAvuVersionAttrib, nil
+	case string(DrsMetadataFieldDescription):
+		return DrsAvuDescriptionAttrib, nil
+	case string(DrsMetadataFieldAlias):
+		return DrsAvuAliasAttrib, nil
+	default:
+		return "", fmt.Errorf("unsupported DRS metadata field %q", field)
+	}
 }
 
 func isDrsMetadata(meta *irodstypes.IRODSMeta) bool {

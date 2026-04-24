@@ -10,8 +10,30 @@
 package internal
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"path"
+	"strings"
+
+	irodsfs "github.com/cyverse/go-irodsclient/fs"
+	"github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/gorilla/mux"
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
+
+type RouteFileSystem interface {
+	drs_support.IRODSFilesystem
+	Release()
+}
+
+var createRouteFileSystem = func(account *types.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+	filesystem, err := irodsfs.NewFileSystemWithDefault(account, applicationName)
+	if err != nil {
+		return nil, err
+	}
+	return filesystem, nil
+}
 
 func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
@@ -29,8 +51,45 @@ func GetBulkObjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetObject(w http.ResponseWriter, r *http.Request) {
+	serviceContext, ok := DrsServiceContextFromContext(r.Context())
+	if !ok || serviceContext == nil {
+		writeJSONError(w, http.StatusInternalServerError, "missing DRS service context")
+		return
+	}
+
+	vars := mux.Vars(r)
+	objectID := strings.TrimSpace(vars["object_id"])
+	if objectID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing object_id")
+		return
+	}
+
+	filesystem, err := createRouteFileSystem(serviceContext.IrodsAccount, "irods-go-drs-get-object")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		return
+	}
+	defer filesystem.Release()
+
+	object, err := drs_support.GetDrsObjectByID(filesystem, objectID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "required") {
+			status = http.StatusBadRequest
+		}
+
+		writeJSONError(w, status, err.Error())
+		return
+	}
+
+	expand := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("expand")), "true")
+	response := drsObjectFromInternal(r, object, expand)
+
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {
@@ -51,4 +110,97 @@ func PostAccessURL(w http.ResponseWriter, r *http.Request) {
 func PostObject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
+}
+
+func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool) DrsObject {
+	var accessMethods []AccessMethod
+	if serviceContext, ok := DrsServiceContextFromContext(r.Context()); ok && serviceContext != nil {
+		accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethods(serviceContext.DrsConfig, object))
+	}
+
+	response := DrsObject{
+		Id:            object.Id,
+		Name:          path.Base(object.AbsolutePath),
+		SelfUri:       buildSelfURI(r, object.Id),
+		Size:          object.Size,
+		CreatedTime:   object.CreatedTime,
+		UpdatedTime:   object.UpdatedTime,
+		Version:       object.Version,
+		MimeType:      object.MimeType,
+		AccessMethods: accessMethods,
+		Description:   object.Description,
+		Aliases:       append([]string(nil), object.Aliases...),
+	}
+
+	if object.Checksum != nil && object.Checksum.Value != "" {
+		response.Checksums = []Checksum{{
+			Checksum: object.Checksum.Value,
+			Type_:    object.Checksum.Type,
+		}}
+	} else {
+		response.Checksums = []Checksum{}
+	}
+
+	if expand && len(object.Contents) > 0 {
+		response.Contents = make([]ContentsObject, 0, len(object.Contents))
+		for _, entry := range object.Contents {
+			response.Contents = append(response.Contents, ContentsObject{
+				Name:   entry.Name,
+				Id:     entry.ID,
+				DrsUri: buildContentsDrsURIs(r, entry.ID),
+			})
+		}
+	}
+
+	return response
+}
+
+func accessMethodsFromInternal(methods []drs_support.DrsAccessMethod) []AccessMethod {
+	if len(methods) == 0 {
+		return nil
+	}
+
+	response := make([]AccessMethod, 0, len(methods))
+	for _, method := range methods {
+		accessMethod := AccessMethod{
+			Type_:     method.Type,
+			AccessId:  method.AccessID,
+			Cloud:     method.Cloud,
+			Region:    method.Region,
+			Available: method.Available,
+		}
+
+		if method.URL != "" {
+			accessMethod.AccessUrl = &AllOfAccessMethodAccessUrl{
+				Url: method.URL,
+			}
+		}
+
+		response = append(response, accessMethod)
+	}
+
+	return response
+}
+
+func buildSelfURI(r *http.Request, objectID string) string {
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("drs://%s/%s", host, objectID)
+}
+
+func buildContentsDrsURIs(r *http.Request, objectID string) []string {
+	objectID = strings.TrimSpace(objectID)
+	if objectID == "" {
+		return nil
+	}
+
+	selfURI := buildSelfURI(r, objectID)
+	if selfURI == "" {
+		return nil
+	}
+
+	return []string{selfURI}
 }

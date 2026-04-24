@@ -19,6 +19,12 @@ type DrsConfig struct {
 	DrsListenPort                    int
 	ServiceInfoSampleIntervalMinutes int
 	ServiceInfoFilePath              string
+	AccessMethods                    []string
+	HTTPAccessBaseURL                string
+	IRODSAccessHost                  string
+	IRODSAccessPort                  int
+	LocalAccessRootPath              string
+	S3AccessEndpoint                 string
 	IrodsHost                        string
 	IrodsPort                        int
 	IrodsZone                        string
@@ -34,6 +40,7 @@ type DrsConfig struct {
 	OidcClientSecretFile             string
 	OidcRealm                        string
 	OidcScope                        string
+	OidcSkipTLSVerify                bool
 }
 
 func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
@@ -73,6 +80,12 @@ func bindEnvVars(v *viper.Viper) error {
 		"DrsListenPort":                    {"DRS_LISTEN_PORT", "DRS_DRSLISTENPORT"},
 		"ServiceInfoSampleIntervalMinutes": {"DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "DRS_SERVICEINFOSAMPLEINTERVALMINUTES"},
 		"ServiceInfoFilePath":              {"DRS_SERVICE_INFO_FILE_PATH", "DRS_SERVICEINFOFILEPATH"},
+		"AccessMethods":                    {"DRS_ACCESS_METHODS", "DRS_ACCESSMETHODS"},
+		"HTTPAccessBaseURL":                {"DRS_HTTP_ACCESS_BASE_URL", "DRS_HTTPACCESSBASEURL"},
+		"IRODSAccessHost":                  {"DRS_IRODS_ACCESS_HOST", "DRS_IRODSACCESSHOST"},
+		"IRODSAccessPort":                  {"DRS_IRODS_ACCESS_PORT", "DRS_IRODSACCESSPORT"},
+		"LocalAccessRootPath":              {"DRS_LOCAL_ACCESS_ROOT_PATH", "DRS_LOCALACCESSROOTPATH"},
+		"S3AccessEndpoint":                 {"DRS_S3_ACCESS_ENDPOINT", "DRS_S3ACCESSENDPOINT"},
 		"IrodsHost":                        {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
 		"IrodsPort":                        {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
 		"IrodsZone":                        {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
@@ -88,6 +101,7 @@ func bindEnvVars(v *viper.Viper) error {
 		"OidcClientSecretFile":             {"DRS_OIDC_CLIENT_SECRET_FILE", "DRS_OIDCCLIENTSECRETFILE"},
 		"OidcRealm":                        {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
 		"OidcScope":                        {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
+		"OidcSkipTLSVerify":                {"DRS_OIDC_SKIP_TLS_VERIFY", "DRS_OIDCSKIPTLSVERIFY"},
 	}
 
 	for key, envNames := range envBindings {
@@ -133,6 +147,34 @@ func resolveConfigPath(configPath string, configDir string) string {
 	}
 
 	return filepath.Join(configDir, configPath)
+}
+
+func resolveStringSliceConfig(v *viper.Viper, key string) []string {
+	values := v.GetStringSlice(key)
+	if len(values) == 0 {
+		raw := strings.TrimSpace(v.GetString(key))
+		if raw == "" {
+			return nil
+		}
+		values = []string{raw}
+	}
+
+	resolved := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		for _, candidate := range strings.Split(value, ",") {
+			normalized := strings.ToLower(strings.TrimSpace(candidate))
+			if normalized == "" {
+				continue
+			}
+			if _, ok := seen[normalized]; ok {
+				continue
+			}
+			seen[normalized] = struct{}{}
+			resolved = append(resolved, normalized)
+		}
+	}
+	return resolved
 }
 
 // ReadDrsConfig reads the configuration for DRS behaviors in irods
@@ -201,6 +243,11 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	}
 
 	C.ServiceInfoFilePath = resolveConfigPath(C.ServiceInfoFilePath, configDir)
+	C.AccessMethods = resolveStringSliceConfig(v, "AccessMethods")
+	C.HTTPAccessBaseURL = strings.TrimSpace(C.HTTPAccessBaseURL)
+	C.IRODSAccessHost = strings.TrimSpace(C.IRODSAccessHost)
+	C.LocalAccessRootPath = resolveConfigPath(C.LocalAccessRootPath, configDir)
+	C.S3AccessEndpoint = strings.TrimSpace(C.S3AccessEndpoint)
 
 	if C.DrsListenPort == 0 {
 		C.DrsListenPort = 8080

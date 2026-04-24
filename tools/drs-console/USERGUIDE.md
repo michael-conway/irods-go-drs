@@ -18,6 +18,8 @@ It is the right tool for day-to-day iRODS operations such as:
 
 - creating a single-object DRS registration for an iRODS data object
 - looking up DRS metadata by iRODS path or DRS id
+- listing DRS objects under an iRODS collection
+- updating supported DRS metadata fields on an existing DRS object
 - removing single-object DRS metadata from an iRODS data object
 
 The expected workflow is:
@@ -108,10 +110,103 @@ Show command help:
 drscmd drsmake --help
 ```
 
-### Remove a single-object DRS registration
+### List DRS objects in a collection
+
+List DRS objects directly under the saved iRODS current working directory:
 
 ```bash
-drscmd drsrm /tempZone/home/rods/file.txt
+drscmd drsls
+```
+
+List DRS objects under a specific collection:
+
+```bash
+drscmd drsls /tempZone/home/rods/projects/demo
+```
+
+List recursively through child collections:
+
+```bash
+drscmd drsls --recursive /tempZone/home/rods/projects
+```
+
+Paging options:
+
+- `--offset <n>` for a zero-based page offset
+- `--limit <n>` for page size
+
+The response includes:
+
+- `drsId`
+- `path`
+- `isBundle`
+- `description`
+
+Show command help:
+
+```bash
+drscmd drsls --help
+```
+
+### Update DRS metadata on an existing DRS object
+
+Update description by DRS id:
+
+```bash
+drscmd drsupdate --id <drs-id> description "updated description"
+```
+
+Update MIME type by iRODS path:
+
+```bash
+drscmd drsupdate --path /tempZone/home/rods/file.txt mimeType application/json
+```
+
+Update version:
+
+```bash
+drscmd drsupdate --path /tempZone/home/rods/file.txt version v2
+```
+
+Replace the alias set using repeatable `-a` flags:
+
+```bash
+drscmd drsupdate --path /tempZone/home/rods/file.txt alias \
+  -a sample-2 \
+  -a alternate-id-2
+```
+
+For alias updates, the provided aliases become the complete alias set. Any existing alias that is not included in the
+new `-a/--alias` list is removed.
+
+Supported update items are:
+
+- `mimeType`
+- `version`
+- `description`
+- `alias`
+
+The target must already be a DRS object. If the target path or id does not resolve to an existing DRS object, the
+command fails.
+
+Show command help:
+
+```bash
+drscmd drsupdate --help
+```
+
+### Remove a single-object DRS registration
+
+By iRODS path:
+
+```bash
+drscmd drsrm --path /tempZone/home/rods/file.txt
+```
+
+By DRS id:
+
+```bash
+drscmd drsrm --id <drs-id>
 ```
 
 This removes the DRS AVUs from the data object but does not delete the data object itself.
@@ -128,7 +223,9 @@ Each command has its own help screen. The current command-specific help entry po
 
 - `drscmd iinit --help`
 - `drscmd drsinfo --help`
+- `drscmd drsls --help`
 - `drscmd drsmake --help`
+- `drscmd drsupdate --help`
 - `drscmd drsrm --help`
 
 If a command is invoked with a usage error, such as a missing required path or conflicting selector flags, `drscmd`

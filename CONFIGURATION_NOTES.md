@@ -60,6 +60,12 @@ Examples of supported environment variable overrides:
 
 ```bash
 DRS_LISTEN_PORT=8080
+DRS_ACCESS_METHODS=http,irods,local,s3
+DRS_HTTP_ACCESS_BASE_URL=https://drs.example.org
+DRS_IRODS_ACCESS_HOST=irods.example.org
+DRS_IRODS_ACCESS_PORT=1247
+DRS_LOCAL_ACCESS_ROOT_PATH=/mnt/irods
+DRS_S3_ACCESS_ENDPOINT=https://s3.example.org
 DRS_IRODS_HOST=irods-provider
 DRS_IRODS_PORT=1247
 DRS_IRODS_ZONE=tempZone
@@ -67,11 +73,65 @@ DRS_IRODS_DRS_ADMIN_USER=rods
 DRS_OIDC_URL=https://keycloak.example.org
 DRS_OIDC_REALM=drs
 DRS_OIDC_CLIENT_ID=irods-go-drs
+DRS_OIDC_SKIP_TLS_VERIFY=false
 DRS_DRS_LOG_LEVEL=debug
 ```
 
 The DRS server listen port is configured through `DrsListenPort` in `drs-config.yaml` or `DRS_LISTEN_PORT` in the
 environment. If it is omitted, the service defaults to port `8080`.
+
+### Access method configuration
+
+The DRS object response can include stubbed `access_methods` generated from configuration. These are currently
+configuration-driven placeholders intended to shape the API and make room for later transport implementations.
+
+Supported configured method names are:
+
+* `http`
+* `irods`
+* `local`
+* `s3`
+
+Enable them in `drs-config.yaml` with `AccessMethods`:
+
+```yaml
+AccessMethods:
+  - http
+  - irods
+  - local
+  - s3
+HTTPAccessBaseURL: https://drs.example.org
+IRODSAccessHost: irods.example.org
+IRODSAccessPort: 1247
+LocalAccessRootPath: /mnt/irods
+S3AccessEndpoint: https://s3.example.org
+```
+
+Or with environment variables:
+
+```bash
+DRS_ACCESS_METHODS=http,irods,local,s3
+DRS_HTTP_ACCESS_BASE_URL=https://drs.example.org
+DRS_IRODS_ACCESS_HOST=irods.example.org
+DRS_IRODS_ACCESS_PORT=1247
+DRS_LOCAL_ACCESS_ROOT_PATH=/mnt/irods
+DRS_S3_ACCESS_ENDPOINT=https://s3.example.org
+```
+
+Current stub behavior:
+
+* `http` currently emits an `access_id` only. It is intended to resolve later through the DRS `/access` flow, likely backed by an iRODS ticket.
+* `irods` currently emits an `access_id` only. It is intended to resolve later through the DRS `/access` flow into an `irods://...` access URL, likely backed by an iRODS ticket.
+* `local` generates a `local:///absolute/path` URL by mapping the iRODS logical path under `LocalAccessRootPath`.
+* `s3` currently emits a stub `access_id` only. It does not yet resolve to a working S3 URL.
+
+`LocalAccessRootPath` may be absolute or relative:
+
+* If it is absolute, that path is used directly.
+* If it is relative, it is resolved relative to the directory containing `drs-config.yaml`.
+
+At this stage these access methods are intentionally incomplete and should be treated as stubs for future work,
+especially `http`, `irods`, and `s3`.
 
 ### Service info JSON configuration
 
@@ -147,6 +207,26 @@ and the matching environment variables:
 DRS_IRODS_DRS_ADMIN_PASSWORD_FILE=/path/to/irods-admin-password.txt
 DRS_OIDC_CLIENT_SECRET_FILE=/path/to/oidc-client-secret.txt
 ```
+
+### OIDC TLS verification
+
+For local development environments that use a self-signed Keycloak certificate, the OIDC client can be configured to
+skip TLS certificate verification during token introspection.
+
+In `drs-config.yaml`:
+
+```yaml
+OidcSkipTLSVerify: true
+```
+
+Or with an environment override:
+
+```bash
+DRS_OIDC_SKIP_TLS_VERIFY=true
+```
+
+This should only be used for local development or controlled test environments. Leave it unset or `false` for normal
+deployments so HTTPS certificate validation remains enabled.
 
 Direct secret values are still supported, but the effective precedence is:
 

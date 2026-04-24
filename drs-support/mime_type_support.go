@@ -13,12 +13,20 @@ import (
 // MimeTypeSupport resolves MIME types from data object paths using the Go standard library.
 type MimeTypeSupport struct{}
 
+var extensionMimeTypes = map[string]string{
+	".md": "text/markdown",
+}
+
 // DeriveFromDataObjectPath returns the MIME type for a data object path based on its file extension.
 // Unknown or extensionless paths return the empty string.
 func (s MimeTypeSupport) DeriveFromDataObjectPath(dataObjectPath string) string {
 	ext := strings.TrimSpace(filepath.Ext(strings.TrimSpace(dataObjectPath)))
 	if ext == "" {
 		return ""
+	}
+
+	if mimeType, ok := extensionMimeTypes[strings.ToLower(ext)]; ok {
+		return mimeType
 	}
 
 	contentType := mime.TypeByExtension(ext)
