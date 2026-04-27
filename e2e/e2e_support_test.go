@@ -5,7 +5,10 @@ package e2e
 
 import (
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -70,17 +73,27 @@ func requireE2EBaseURL(t *testing.T) string {
 func requireE2EBearerToken(t *testing.T) string {
 	t.Helper()
 
-	token := strings.TrimSpace(os.Getenv("DRS_TEST_BEARER_TOKEN"))
+	token := optionalE2EBearerToken(t)
 	if token == "" {
-		if cfg := optionalE2EFileConfig(t); cfg != nil {
-			token = strings.TrimSpace(cfg.E2E.BearerToken)
-		}
-	}
-	if token == "" {
-		t.Skip("DRS_TEST_BEARER_TOKEN is not set")
+		t.Skip("no bearer token configured in E2E.BearerToken or DRS_TEST_BEARER_TOKEN")
 	}
 
 	return token
+}
+
+func optionalE2EBearerToken(t *testing.T) string {
+	t.Helper()
+
+	token := strings.TrimSpace(os.Getenv("DRS_TEST_BEARER_TOKEN"))
+	if token != "" {
+		return token
+	}
+
+	if cfg := optionalE2EFileConfig(t); cfg != nil {
+		return strings.TrimSpace(cfg.E2E.BearerToken)
+	}
+
+	return ""
 }
 
 func newE2EHTTPClient() *http.Client {
@@ -99,6 +112,100 @@ func newE2EHTTPClient() *http.Client {
 		Transport: transport,
 		Timeout:   30 * time.Second,
 	}
+}
+
+func newE2ERequest(t *testing.T, method string, url string, body io.Reader) *http.Request {
+	t.Helper()
+
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	return req
+}
+
+func setBearerAuth(req *http.Request, token string) {
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+}
+
+func requireE2EPrimaryTestUser(t *testing.T) string {
+	t.Helper()
+
+	cfg := requireE2EIRODSConfig(t)
+	return strings.TrimSpace(cfg.IrodsPrimaryTestUser)
+}
+
+func requireE2EEffectiveUser(t *testing.T) string {
+	t.Helper()
+
+	if username := strings.TrimSpace(usernameFromE2EBearerToken(optionalE2EBearerToken(t))); username != "" {
+		return username
+	}
+
+	return requireE2EPrimaryTestUser(t)
+}
+
+func requireE2EIRODSConfig(t *testing.T) *drs_support.DrsConfig {
+	t.Helper()
+
+	cfg := optionalE2EDrsConfig(t)
+	if cfg == nil {
+		t.Fatal("missing e2e DRS config")
+	}
+
+	requireNonEmptyE2EValue(t, "IrodsHost", cfg.IrodsHost)
+	if cfg.IrodsPort == 0 {
+		t.Fatal("missing required e2e config value IrodsPort")
+	}
+	requireNonEmptyE2EValue(t, "IrodsZone", cfg.IrodsZone)
+	requireNonEmptyE2EValue(t, "IrodsAdminUser", cfg.IrodsAdminUser)
+	requireNonEmptyE2EValue(t, "IrodsAdminPassword", cfg.IrodsAdminPassword)
+	requireNonEmptyE2EValue(t, "IrodsPrimaryTestUser", cfg.IrodsPrimaryTestUser)
+	requireNonEmptyE2EValue(t, "IrodsAuthScheme", cfg.IrodsAuthScheme)
+
+	return cfg
+}
+
+func requireNonEmptyE2EValue(t *testing.T, field string, value string) {
+	t.Helper()
+
+	if strings.TrimSpace(value) == "" {
+		t.Fatalf("missing required e2e config value %s", field)
+	}
+}
+
+func usernameFromE2EBearerToken(accessToken string) string {
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return ""
+	}
+
+	parts := strings.Split(accessToken, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return ""
+	}
+
+	for _, field := range []string{"preferred_username", "username", "sub"} {
+		if value, ok := payload[field].(string); ok {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value
+			}
+		}
+	}
+
+	return ""
 }
 
 func optionalE2EDrsConfig(t *testing.T) *drs_support.DrsConfig {
@@ -168,7 +275,10 @@ func readE2ETestConfig(configFile string) (*e2eTestConfig, error) {
 	}
 
 	cfg := &e2eTestConfig{}
-	if err := v.Unmarshal(cfg); err != nil {
+	if err := v.Unmarshal(&cfg.DrsConfig); err != nil {
+		return nil, err
+	}
+	if err := v.UnmarshalKey("E2E", &cfg.E2E); err != nil {
 		return nil, err
 	}
 

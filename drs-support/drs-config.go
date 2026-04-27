@@ -43,6 +43,7 @@ type DrsConfig struct {
 	OidcRealm                        string
 	OidcScope                        string
 	OidcSkipTLSVerify                bool
+	OidcInsecureSkipVerify           bool
 }
 
 func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
@@ -106,6 +107,7 @@ func bindEnvVars(v *viper.Viper) error {
 		"OidcRealm":                        {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
 		"OidcScope":                        {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
 		"OidcSkipTLSVerify":                {"DRS_OIDC_SKIP_TLS_VERIFY", "DRS_OIDCSKIPTLSVERIFY"},
+		"OidcInsecureSkipVerify":           {"DRS_OIDC_INSECURE_SKIP_VERIFY", "DRS_OIDCINSECURESKIPVERIFY"},
 	}
 
 	for key, envNames := range envBindings {
@@ -252,6 +254,8 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	C.IRODSAccessHost = strings.TrimSpace(C.IRODSAccessHost)
 	C.LocalAccessRootPath = resolveConfigPath(C.LocalAccessRootPath, configDir)
 	C.S3AccessEndpoint = strings.TrimSpace(C.S3AccessEndpoint)
+	C.OidcSkipTLSVerify = C.OidcSkipTLSVerify || C.OidcInsecureSkipVerify
+	C.OidcInsecureSkipVerify = C.OidcSkipTLSVerify
 
 	if C.DrsListenPort == 0 {
 		C.DrsListenPort = 8080

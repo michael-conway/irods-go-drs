@@ -27,4 +27,4 @@ OidcClientId: drs-api
 OidcClientSecretFile: ./resources/oidc-client-secret.txt
 OidcRealm: drs
 OidcScope: openid profile email
-OidcSkipTLSVerify: true
+OidcInsecureSkipVerify: true

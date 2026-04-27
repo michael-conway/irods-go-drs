@@ -93,6 +93,7 @@ Current shared live-test inputs:
 - `IrodsAdminPassword`
 - `IrodsPrimaryTestUser`
 - `IrodsSecondaryTestUser`
+- `OidcInsecureSkipVerify`
 
 Current test-user strategy:
 
@@ -107,5 +108,11 @@ Current live-test variables:
 - `DRS_E2E_BASE_URL`
 - `DRS_TEST_BEARER_TOKEN`
 - `DRS_E2E_SKIP_TLS_VERIFY`
+
+Current OIDC TLS setting names:
+
+- prefer `OidcInsecureSkipVerify` in YAML
+- prefer `DRS_OIDC_INSECURE_SKIP_VERIFY` in env
+- keep `OidcSkipTLSVerify` and `DRS_OIDC_SKIP_TLS_VERIFY` only as compatibility aliases
 
 For console and CLI-oriented workflows, assume `gocmd` is available on `PATH`.

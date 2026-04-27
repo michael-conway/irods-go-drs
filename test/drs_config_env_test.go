@@ -82,6 +82,24 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	}
 }
 
+func TestReadDrsConfigEnvOverrideOidcInsecureSkipVerifyAlias(t *testing.T) {
+	t.Setenv("DRS_OIDC_INSECURE_SKIP_VERIFY", "true")
+
+	var confs = [1]string{"./resources/"}
+	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
+	if err != nil {
+		t.Fatalf("error reading drs config: %s", err)
+	}
+
+	if !config.OidcSkipTLSVerify {
+		t.Fatal("expected env override alias to enable OidcSkipTLSVerify")
+	}
+
+	if !config.OidcInsecureSkipVerify {
+		t.Fatal("expected env override alias to populate OidcInsecureSkipVerify")
+	}
+}
+
 func TestReadDrsConfigMissingFileReturnsError(t *testing.T) {
 	_, err := drs_support.ReadDrsConfig("does-not-exist", "yaml", []string{"./resources/"})
 	if err == nil {
@@ -203,5 +221,39 @@ func TestReadDrsConfigTrimsWhitespaceFromInputs(t *testing.T) {
 	expectedServiceInfoPath := filepath.Join(dir, "service-info.json")
 	if config.ServiceInfoFilePath != expectedServiceInfoPath {
 		t.Fatalf("expected trimmed service info path to resolve to %q, got %q", expectedServiceInfoPath, config.ServiceInfoFilePath)
+	}
+}
+
+func TestReadDrsConfigSupportsOidcInsecureSkipVerifyKey(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "custom-drs-config.yaml")
+	configBody := "" +
+		"DrsIdAvuValue: oidc-insecure\n" +
+		"IrodsHost: localhost\n" +
+		"IrodsPort: 1247\n" +
+		"IrodsZone: tempZone\n" +
+		"IrodsAdminUser: rods\n" +
+		"IrodsAuthScheme: native\n" +
+		"IrodsNegotiationPolicy: native\n" +
+		"OidcUrl: https://localhost:8443\n" +
+		"OidcInsecureSkipVerify: true\n"
+
+	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	t.Setenv(drs_support.ConfigFileEnvVar, configPath)
+
+	config, err := drs_support.ReadDrsConfig("does-not-exist", "yaml", []string{"./resources/"})
+	if err != nil {
+		t.Fatalf("error reading drs config with %s override: %s", drs_support.ConfigFileEnvVar, err)
+	}
+
+	if !config.OidcSkipTLSVerify {
+		t.Fatal("expected OidcInsecureSkipVerify config key to enable OidcSkipTLSVerify")
+	}
+
+	if !config.OidcInsecureSkipVerify {
+		t.Fatal("expected OidcInsecureSkipVerify config key to be preserved")
 	}
 }

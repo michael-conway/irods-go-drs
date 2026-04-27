@@ -56,7 +56,7 @@ func requireBearerToken(t *testing.T) string {
 
 	token := optionalBearerToken()
 	if token == "" {
-		t.Skipf("%s is not set", testBearerTokenEnvVar)
+		t.Skip("no bearer token configured in E2E.BearerToken or DRS_TEST_BEARER_TOKEN")
 	}
 
 	return token
@@ -173,7 +173,10 @@ func readIntegrationTestConfig(configFile string) (*integrationTestConfig, error
 	}
 
 	cfg := &integrationTestConfig{}
-	if err := v.Unmarshal(cfg); err != nil {
+	if err := v.Unmarshal(&cfg.DrsConfig); err != nil {
+		return nil, err
+	}
+	if err := v.UnmarshalKey("E2E", &cfg.E2E); err != nil {
 		return nil, err
 	}
 

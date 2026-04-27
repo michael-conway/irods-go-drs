@@ -17,7 +17,7 @@ OidcClientId: irods-go-drs
 OidcClientSecret: change-me
 OidcRealm: drs
 OidcScope: openid profile email
-OidcSkipTLSVerify: false
+OidcInsecureSkipVerify: false
 
 E2E:
   BaseURL: http://127.0.0.1:8080
