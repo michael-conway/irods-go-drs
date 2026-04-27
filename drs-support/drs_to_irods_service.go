@@ -41,6 +41,8 @@ type InternalDrsObject struct {
 	AbsolutePath string
 	// Zone that contains object.
 	IrodsZone string
+	// Resource that currently serves the selected replica for this object.
+	ResourceName string
 	// Object size in bytes.
 	Size int64
 	// Timestamp of content create in RFC3339.
@@ -631,6 +633,7 @@ func internalDrsObjectFromEntry(entry *irodsfs.Entry, irodsZone string, metas []
 
 	dataObject := entry.ToDataObject()
 	if len(dataObject.Replicas) > 0 && dataObject.Replicas[0] != nil {
+		object.ResourceName = strings.TrimSpace(dataObject.Replicas[0].ResourceName)
 		object.Checksum = checksumFromReplica(dataObject.Replicas[0])
 	}
 

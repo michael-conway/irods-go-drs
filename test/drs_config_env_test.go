@@ -16,12 +16,11 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "11")
 	t.Setenv("DRS_SERVICE_INFO_FILE_PATH", "/tmp/service-info.json")
 	t.Setenv("DRS_OIDC_SKIP_TLS_VERIFY", "true")
-	t.Setenv("DRS_ACCESS_METHODS", "http,irods,local,s3")
-	t.Setenv("DRS_HTTP_ACCESS_BASE_URL", "https://download.example.org")
-	t.Setenv("DRS_IRODS_ACCESS_HOST", "irods-access.example.org")
-	t.Setenv("DRS_IRODS_ACCESS_PORT", "2247")
-	t.Setenv("DRS_LOCAL_ACCESS_ROOT_PATH", "/srv/irods-mount")
-	t.Setenv("DRS_S3_ACCESS_ENDPOINT", "https://s3.example.org")
+	t.Setenv("DRS_HTTPS_ACCESS_METHOD_SUPPORTED", "true")
+	t.Setenv("DRS_HTTPS_ACCESS_METHOD_BASE_URL", "https://download.example.org/api/v1/path/contents?irods_path=")
+	t.Setenv("DRS_HTTPS_ACCESS_USE_TICKET", "true")
+	t.Setenv("DRS_IRODS_ACCESS_METHOD_SUPPORTED", "true")
+	t.Setenv("DRS_FILE_ACCESS_METHOD_SUPPORTED", "true")
 
 	var confs = [1]string{"./resources/"}
 	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
@@ -57,28 +56,23 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 		t.Fatal("expected env override for OidcSkipTLSVerify")
 	}
 
-	if len(config.AccessMethods) != 4 || config.AccessMethods[0] != "http" || config.AccessMethods[3] != "s3" {
-		t.Fatalf("expected env override for AccessMethods, got %+v", config.AccessMethods)
+	if !config.HttpsAccessMethodSupported {
+		t.Fatal("expected env override for HttpsAccessMethodSupported")
 	}
 
-	if config.HTTPAccessBaseURL != "https://download.example.org" {
-		t.Fatalf("expected env override for HTTPAccessBaseURL, got %q", config.HTTPAccessBaseURL)
+	if config.HttpsAccessMethodBaseURL != "https://download.example.org/api/v1/path/contents?irods_path=" {
+		t.Fatalf("expected env override for HttpsAccessMethodBaseURL, got %q", config.HttpsAccessMethodBaseURL)
+	}
+	if !config.HttpsAccessUseTicket {
+		t.Fatal("expected env override for HttpsAccessUseTicket")
 	}
 
-	if config.IRODSAccessHost != "irods-access.example.org" {
-		t.Fatalf("expected env override for IRODSAccessHost, got %q", config.IRODSAccessHost)
+	if !config.IrodsAccessMethodSupported {
+		t.Fatal("expected env override for IrodsAccessMethodSupported")
 	}
 
-	if config.IRODSAccessPort != 2247 {
-		t.Fatalf("expected env override for IRODSAccessPort, got %d", config.IRODSAccessPort)
-	}
-
-	if config.LocalAccessRootPath != "/srv/irods-mount" {
-		t.Fatalf("expected env override for LocalAccessRootPath, got %q", config.LocalAccessRootPath)
-	}
-
-	if config.S3AccessEndpoint != "https://s3.example.org" {
-		t.Fatalf("expected env override for S3AccessEndpoint, got %q", config.S3AccessEndpoint)
+	if !config.FileAccessMethodSupported {
+		t.Fatal("expected env override for FileAccessMethodSupported")
 	}
 }
 
@@ -131,10 +125,10 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 		"DrsListenPort: 9191\n" +
 		"ServiceInfoSampleIntervalMinutes: 13\n" +
 		"ServiceInfoFilePath: service-info.json\n" +
-		"AccessMethods:\n" +
-		"  - http\n" +
-		"  - local\n" +
-		"HTTPAccessBaseURL: https://download.example.org\n" +
+		"HttpsAccessMethodSupported: true\n" +
+		"HttpsAccessMethodBaseURL: https://download.example.org/api/v1/path/contents?irods_path=\n" +
+		"HttpsAccessUseTicket: true\n" +
+		"FileAccessMethodSupported: true\n" +
 		"LocalAccessRootPath: local-root\n" +
 		"IrodsHost: env-file-host\n" +
 		"IrodsPort: 1247\n" +
@@ -175,8 +169,15 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 		t.Fatalf("expected service info path from %s override to resolve to %q, got %q", drs_support.ConfigFileEnvVar, expectedServiceInfoPath, config.ServiceInfoFilePath)
 	}
 
-	if len(config.AccessMethods) != 2 || config.AccessMethods[0] != "http" || config.AccessMethods[1] != "local" {
-		t.Fatalf("expected configured access methods from %s override, got %+v", drs_support.ConfigFileEnvVar, config.AccessMethods)
+	if !config.HttpsAccessMethodSupported {
+		t.Fatalf("expected configured https access method from %s override", drs_support.ConfigFileEnvVar)
+	}
+
+	if config.HttpsAccessMethodBaseURL != "https://download.example.org/api/v1/path/contents?irods_path=" {
+		t.Fatalf("expected configured https access method base URL from %s override, got %q", drs_support.ConfigFileEnvVar, config.HttpsAccessMethodBaseURL)
+	}
+	if !config.HttpsAccessUseTicket {
+		t.Fatalf("expected configured https access ticket mode from %s override", drs_support.ConfigFileEnvVar)
 	}
 
 	expectedLocalRoot := filepath.Join(dir, "local-root")

@@ -26,11 +26,12 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	req.Host = "drs.example.org"
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
-			AccessMethods:       []string{"http", "irods", "local", "s3"},
-			HTTPAccessBaseURL:   "https://download.example.org",
-			IRODSAccessHost:     "irods.example.org",
-			IRODSAccessPort:     1247,
-			LocalAccessRootPath: "/mnt/irods",
+			IrodsAccessMethodSupported: false,
+			FileAccessMethodSupported:  false,
+			HttpsAccessMethodSupported: true,
+			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+			HttpsAccessUseTicket:       true,
+			OidcUrl:                    "https://issuer.example.org",
 		},
 		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
 	}))
@@ -76,24 +77,27 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 		t.Fatalf("expected aliases to be mapped, got %+v", response.Aliases)
 	}
 
-	if len(response.AccessMethods) != 4 {
-		t.Fatalf("expected 4 access methods, got %+v", response.AccessMethods)
+	if len(response.AccessMethods) != 1 {
+		t.Fatalf("expected 1 access method, got %+v", response.AccessMethods)
 	}
 
-	if response.AccessMethods[0].Type_ != "http" || response.AccessMethods[0].AccessId != "http:object-123" || response.AccessMethods[0].AccessUrl != nil {
-		t.Fatalf("expected http access method, got %+v", response.AccessMethods[0])
+	if response.AccessMethods[0].Type_ != "https" || response.AccessMethods[0].AccessId != "irods-go-rest-https" || response.AccessMethods[0].AccessUrl != nil || response.AccessMethods[0].Available {
+		t.Fatalf("expected https access method, got %+v", response.AccessMethods[0])
 	}
-
-	if response.AccessMethods[1].Type_ != "irods" || response.AccessMethods[1].AccessId != "irods:object-123" || response.AccessMethods[1].AccessUrl != nil {
-		t.Fatalf("expected irods access method, got %+v", response.AccessMethods[1])
+	if response.AccessMethods[0].Cloud != "irods:tempZone" {
+		t.Fatalf("expected irods cloud name, got %+v", response.AccessMethods[0])
 	}
-
-	if response.AccessMethods[2].Type_ != "local" || response.AccessMethods[2].AccessUrl == nil || response.AccessMethods[2].AccessUrl.Url != "local:///mnt/irods/tempZone/home/test1/file.txt" {
-		t.Fatalf("expected local access method, got %+v", response.AccessMethods[2])
+	if response.AccessMethods[0].Region != "demoResc" {
+		t.Fatalf("expected resource-backed region, got %+v", response.AccessMethods[0])
 	}
-
-	if response.AccessMethods[3].Type_ != "s3" || response.AccessMethods[3].AccessId != "s3:object-123" {
-		t.Fatalf("expected s3 access method stub, got %+v", response.AccessMethods[3])
+	if response.AccessMethods[0].Authorizations == nil {
+		t.Fatalf("expected access method authorizations, got %+v", response.AccessMethods[0])
+	}
+	if len(response.AccessMethods[0].Authorizations.SupportedTypes) != 2 || response.AccessMethods[0].Authorizations.SupportedTypes[0] != "BasicAuth" || response.AccessMethods[0].Authorizations.SupportedTypes[1] != "BearerAuth" {
+		t.Fatalf("expected supported auth types, got %+v", response.AccessMethods[0].Authorizations)
+	}
+	if len(response.AccessMethods[0].Authorizations.BearerAuthIssuers) != 1 || response.AccessMethods[0].Authorizations.BearerAuthIssuers[0] != "https://issuer.example.org" {
+		t.Fatalf("expected bearer auth issuer from oidc url, got %+v", response.AccessMethods[0].Authorizations)
 	}
 }
 
@@ -398,9 +402,10 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 				ModifyTime: updateTime,
 				IRODSReplicas: []irodstypes.IRODSReplica{
 					{
-						Owner:      "test1",
-						CreateTime: createTime,
-						ModifyTime: updateTime,
+						Owner:        "test1",
+						ResourceName: "demoResc",
+						CreateTime:   createTime,
+						ModifyTime:   updateTime,
 						Checksum: &irodstypes.IRODSChecksum{
 							Algorithm:           irodstypes.ChecksumAlgorithmSHA256,
 							Checksum:            []byte("abc123"),
@@ -419,9 +424,10 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 				ModifyTime: updateTime,
 				IRODSReplicas: []irodstypes.IRODSReplica{
 					{
-						Owner:      "test1",
-						CreateTime: createTime,
-						ModifyTime: updateTime,
+						Owner:        "test1",
+						ResourceName: "demoResc",
+						CreateTime:   createTime,
+						ModifyTime:   updateTime,
 						Checksum: &irodstypes.IRODSChecksum{
 							Algorithm:           irodstypes.ChecksumAlgorithmSHA256,
 							Checksum:            []byte("def456"),

@@ -4,9 +4,6 @@ DrsLogLevel: info
 DrsListenPort: 8080
 ServiceInfoSampleIntervalMinutes: 5
 ServiceInfoFilePath: service-info.json
-AccessMethods:
-  - http
-  - irods
 HTTPAccessBaseURL: http://localhost:8080
 IRODSAccessHost: localhost
 IRODSAccessPort: 1247
@@ -19,7 +16,7 @@ IrodsAdminUser: rods
 IrodsAdminPasswordFile: ./resources/irods-admin-password.txt
 IrodsPrimaryTestUser: test1
 IrodsPrimaryTestPassword: test1
-IrodsSecondaryTestUser: test2
+IrodsSecondaryTestUser: test2ob
 IrodsSecondaryTestPassword: test2
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: native
@@ -30,3 +27,10 @@ OidcClientSecretFile: ./resources/oidc-client-secret.txt
 OidcRealm: drs
 OidcScope: openid profile email
 OidcInsecureSkipVerify: true
+
+IrodsAccessMethodSupported: false
+FileAccessMethodSupported: false
+HttpsAccessMethodSupported: true
+HttpsAccessMethodBaseURL: http://localhost:8080/api/v1/path/contents?irods_path=
+HttpsAccessUseTicket: true
+

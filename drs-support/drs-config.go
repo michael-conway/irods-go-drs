@@ -19,6 +19,11 @@ type DrsConfig struct {
 	DrsListenPort                    int
 	ServiceInfoSampleIntervalMinutes int
 	ServiceInfoFilePath              string
+	IrodsAccessMethodSupported       bool
+	FileAccessMethodSupported        bool
+	HttpsAccessMethodSupported       bool
+	HttpsAccessMethodBaseURL         string
+	HttpsAccessUseTicket             bool
 	AccessMethods                    []string
 	HTTPAccessBaseURL                string
 	IRODSAccessHost                  string
@@ -85,6 +90,11 @@ func bindEnvVars(v *viper.Viper) error {
 		"DrsListenPort":                    {"DRS_LISTEN_PORT", "DRS_DRSLISTENPORT"},
 		"ServiceInfoSampleIntervalMinutes": {"DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "DRS_SERVICEINFOSAMPLEINTERVALMINUTES"},
 		"ServiceInfoFilePath":              {"DRS_SERVICE_INFO_FILE_PATH", "DRS_SERVICEINFOFILEPATH"},
+		"IrodsAccessMethodSupported":       {"DRS_IRODS_ACCESS_METHOD_SUPPORTED", "DRS_IRODSACCESSMETHODSUPPORTED"},
+		"FileAccessMethodSupported":        {"DRS_FILE_ACCESS_METHOD_SUPPORTED", "DRS_FILEACCESSMETHODSUPPORTED"},
+		"HttpsAccessMethodSupported":       {"DRS_HTTPS_ACCESS_METHOD_SUPPORTED", "DRS_HTTPSACCESSMETHODSUPPORTED"},
+		"HttpsAccessMethodBaseURL":         {"DRS_HTTPS_ACCESS_METHOD_BASE_URL", "DRS_HTTPSACCESSMETHODBASEURL"},
+		"HttpsAccessUseTicket":             {"DRS_HTTPS_ACCESS_USE_TICKET", "DRS_HTTPSACCESSUSETICKET"},
 		"AccessMethods":                    {"DRS_ACCESS_METHODS", "DRS_ACCESSMETHODS"},
 		"HTTPAccessBaseURL":                {"DRS_HTTP_ACCESS_BASE_URL", "DRS_HTTPACCESSBASEURL"},
 		"IRODSAccessHost":                  {"DRS_IRODS_ACCESS_HOST", "DRS_IRODSACCESSHOST"},
@@ -253,6 +263,7 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	}
 
 	C.ServiceInfoFilePath = resolveConfigPath(C.ServiceInfoFilePath, configDir)
+	C.HttpsAccessMethodBaseURL = strings.TrimSpace(C.HttpsAccessMethodBaseURL)
 	C.AccessMethods = resolveStringSliceConfig(v, "AccessMethods")
 	C.HTTPAccessBaseURL = strings.TrimSpace(C.HTTPAccessBaseURL)
 	C.IRODSAccessHost = strings.TrimSpace(C.IRODSAccessHost)

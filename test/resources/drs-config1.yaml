@@ -3,12 +3,11 @@ DrsAvuUnit: irods:drs
 DrsLogLevel: info
 DrsListenPort: 8080
 ServiceInfoSampleIntervalMinutes: 7
-AccessMethods:
-  - http
-  - irods
-HTTPAccessBaseURL: https://download.example.org
-IRODSAccessHost: irods.example.org
-IRODSAccessPort: 1247
+IrodsAccessMethodSupported: false
+FileAccessMethodSupported: false
+HttpsAccessMethodSupported: true
+HttpsAccessMethodBaseURL: https://download.example.org/api/v1/path/contents?irods_path=
+HttpsAccessUseTicket: true
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone

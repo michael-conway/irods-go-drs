@@ -7,12 +7,14 @@ import (
 )
 
 type DrsAccessMethod struct {
-	Type      string
-	URL       string
-	AccessID  string
-	Cloud     string
-	Region    string
-	Available bool
+	Type               string
+	URL                string
+	AccessID           string
+	Cloud              string
+	Region             string
+	Available          bool
+	SupportedAuthTypes []string
+	BearerAuthIssuers  []string
 }
 
 func BuildAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
@@ -20,11 +22,25 @@ func BuildAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMe
 		return nil
 	}
 
+	if usesStructuredAccessMethodConfig(cfg) {
+		methods := make([]DrsAccessMethod, 0, 3)
+		if accessMethod, ok := buildHTTPSAccessMethod(cfg, object); ok {
+			methods = append(methods, accessMethod)
+		}
+		if accessMethod, ok := buildIRODSAccessMethod(cfg, object); ok {
+			methods = append(methods, accessMethod)
+		}
+		if accessMethod, ok := buildFileAccessMethod(cfg, object); ok {
+			methods = append(methods, accessMethod)
+		}
+		return methods
+	}
+
 	methods := make([]DrsAccessMethod, 0, len(cfg.AccessMethods))
 	for _, method := range cfg.AccessMethods {
 		switch strings.ToLower(strings.TrimSpace(method)) {
 		case "http":
-			if accessMethod, ok := buildHTTPAccessMethod(cfg, object); ok {
+			if accessMethod, ok := buildLegacyHTTPAccessMethod(cfg, object); ok {
 				methods = append(methods, accessMethod)
 			}
 		case "irods":
@@ -45,7 +61,36 @@ func BuildAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMe
 	return methods
 }
 
-func buildHTTPAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
+func usesStructuredAccessMethodConfig(cfg *DrsConfig) bool {
+	if cfg == nil {
+		return false
+	}
+
+	return cfg.HttpsAccessMethodSupported || cfg.IrodsAccessMethodSupported || cfg.FileAccessMethodSupported || strings.TrimSpace(cfg.HttpsAccessMethodBaseURL) != ""
+}
+
+func buildHTTPSAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
+	if cfg == nil || !cfg.HttpsAccessMethodSupported {
+		return DrsAccessMethod{}, false
+	}
+
+	baseURL := strings.TrimSpace(cfg.HttpsAccessMethodBaseURL)
+	if baseURL == "" || strings.TrimSpace(object.AbsolutePath) == "" {
+		return DrsAccessMethod{}, false
+	}
+
+	return DrsAccessMethod{
+		Type:               "https",
+		AccessID:           "irods-go-rest-https",
+		Cloud:              buildIRODSCloudName(object),
+		Region:             strings.TrimSpace(object.ResourceName),
+		Available:          false,
+		SupportedAuthTypes: []string{"BasicAuth", "BearerAuth"},
+		BearerAuthIssuers:  buildBearerAuthIssuers(cfg),
+	}, true
+}
+
+func buildLegacyHTTPAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
 	if strings.TrimSpace(cfg.HTTPAccessBaseURL) == "" {
 		return DrsAccessMethod{}, false
 	}
@@ -58,6 +103,10 @@ func buildHTTPAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccess
 }
 
 func buildIRODSAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
+	if usesStructuredAccessMethodConfig(cfg) && !cfg.IrodsAccessMethodSupported {
+		return DrsAccessMethod{}, false
+	}
+
 	host := strings.TrimSpace(cfg.IRODSAccessHost)
 	if host == "" {
 		host = strings.TrimSpace(cfg.IrodsHost)
@@ -77,6 +126,14 @@ func buildIRODSAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAcces
 		AccessID:  "irods:" + object.Id,
 		Available: false,
 	}, true
+}
+
+func buildFileAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
+	if cfg == nil || !cfg.FileAccessMethodSupported {
+		return DrsAccessMethod{}, false
+	}
+
+	return buildLocalAccessMethod(cfg, object)
 }
 
 func buildLocalAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
@@ -104,4 +161,30 @@ func buildS3AccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMe
 		AccessID:  "s3:" + object.Id,
 		Available: false,
 	}, true
+}
+
+func buildIRODSCloudName(object *InternalDrsObject) string {
+	if object == nil {
+		return ""
+	}
+
+	zone := strings.TrimSpace(object.IrodsZone)
+	if zone == "" {
+		return ""
+	}
+
+	return "irods:" + zone
+}
+
+func buildBearerAuthIssuers(cfg *DrsConfig) []string {
+	if cfg == nil {
+		return nil
+	}
+
+	issuer := strings.TrimSpace(cfg.OidcUrl)
+	if issuer == "" {
+		return nil
+	}
+
+	return []string{issuer}
 }

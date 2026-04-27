@@ -20,11 +20,14 @@ func TestReadDrsConfig(t *testing.T) {
 	if actual.ServiceInfoSampleIntervalMinutes != 7 {
 		t.Fatalf("expected service info sample interval from config to be 7, got %d", actual.ServiceInfoSampleIntervalMinutes)
 	}
-	if len(actual.AccessMethods) != 2 || actual.AccessMethods[0] != "http" || actual.AccessMethods[1] != "irods" {
-		t.Fatalf("expected access methods from config, got %+v", actual.AccessMethods)
+	if !actual.HttpsAccessMethodSupported {
+		t.Fatal("expected https access method to be enabled from config")
 	}
-	if actual.HTTPAccessBaseURL != "https://download.example.org" {
-		t.Fatalf("expected HTTP access base URL from config, got %q", actual.HTTPAccessBaseURL)
+	if actual.HttpsAccessMethodBaseURL != "https://download.example.org/api/v1/path/contents?irods_path=" {
+		t.Fatalf("expected https access method base URL from config, got %q", actual.HttpsAccessMethodBaseURL)
+	}
+	if !actual.HttpsAccessUseTicket {
+		t.Fatal("expected https access ticket mode from config")
 	}
 }
 

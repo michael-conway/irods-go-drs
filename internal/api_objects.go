@@ -259,6 +259,13 @@ func accessMethodsFromInternal(methods []drs_support.DrsAccessMethod) []AccessMe
 			}
 		}
 
+		if len(method.SupportedAuthTypes) > 0 || len(method.BearerAuthIssuers) > 0 {
+			accessMethod.Authorizations = &AllOfAccessMethodAuthorizations{
+				SupportedTypes:    append([]string(nil), method.SupportedAuthTypes...),
+				BearerAuthIssuers: append([]string(nil), method.BearerAuthIssuers...),
+			}
+		}
+
 		response = append(response, accessMethod)
 	}
 
