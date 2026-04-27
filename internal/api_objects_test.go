@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,6 +186,100 @@ func TestOptionsObjectReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestOptionsBulkObjectReturnsAuthorizations(t *testing.T) {
+	oldConfigReader := readRouteDrsConfig
+	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
+		return &drs_support.DrsConfig{
+			OidcUrl:   "https://issuer.example.org",
+			OidcRealm: "drs",
+		}, nil
+	}
+	defer func() { readRouteDrsConfig = oldConfigReader }()
+
+	oldFactory := createAdminRouteFileSystem
+	createAdminRouteFileSystem = func(drsConfig *drs_support.DrsConfig, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createAdminRouteFileSystem = oldFactory }()
+
+	body := strings.NewReader(`{"bulk_object_ids":["object-123","object-456"]}`)
+	req := httptest.NewRequest(http.MethodOptions, "/ga4gh/drs/v1/objects", body)
+
+	rec := httptest.NewRecorder()
+	OptionsBulkObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response InlineResponse2002
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if response.Summary == nil || response.Summary.Requested != 2 || response.Summary.Resolved != 2 || response.Summary.Unresolved != 0 {
+		t.Fatalf("expected summary counts 2/2/0, got %+v", response.Summary)
+	}
+
+	if len(response.ResolvedDrsObject) != 2 {
+		t.Fatalf("expected 2 resolved objects, got %+v", response.ResolvedDrsObject)
+	}
+
+	if response.ResolvedDrsObject[0].DrsObjectId != "object-123" || response.ResolvedDrsObject[1].DrsObjectId != "object-456" {
+		t.Fatalf("expected resolved ids in request order, got %+v", response.ResolvedDrsObject)
+	}
+
+	if len(response.ResolvedDrsObject[0].BearerAuthIssuers) != 1 || response.ResolvedDrsObject[0].BearerAuthIssuers[0] != "https://issuer.example.org/realms/drs" {
+		t.Fatalf("expected bearer issuer, got %+v", response.ResolvedDrsObject[0].BearerAuthIssuers)
+	}
+}
+
+func TestOptionsBulkObjectReturnsUnresolvedForMissingIDs(t *testing.T) {
+	oldConfigReader := readRouteDrsConfig
+	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
+		return &drs_support.DrsConfig{}, nil
+	}
+	defer func() { readRouteDrsConfig = oldConfigReader }()
+
+	oldFactory := createAdminRouteFileSystem
+	createAdminRouteFileSystem = func(drsConfig *drs_support.DrsConfig, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createAdminRouteFileSystem = oldFactory }()
+
+	body := strings.NewReader(`{"bulk_object_ids":["object-123","missing"]}`)
+	req := httptest.NewRequest(http.MethodOptions, "/ga4gh/drs/v1/objects", body)
+
+	rec := httptest.NewRecorder()
+	OptionsBulkObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response InlineResponse2002
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if response.Summary == nil || response.Summary.Requested != 2 || response.Summary.Resolved != 1 || response.Summary.Unresolved != 1 {
+		t.Fatalf("expected summary counts 2/1/1, got %+v", response.Summary)
+	}
+
+	if len(response.ResolvedDrsObject) != 1 || response.ResolvedDrsObject[0].DrsObjectId != "object-123" {
+		t.Fatalf("expected one resolved id, got %+v", response.ResolvedDrsObject)
+	}
+
+	if response.UnresolvedDrsObjects == nil || len(*response.UnresolvedDrsObjects) != 1 {
+		t.Fatalf("expected unresolved block, got %+v", response.UnresolvedDrsObjects)
+	}
+
+	unresolved := (*response.UnresolvedDrsObjects)[0]
+	if unresolved.ErrorCode != http.StatusNotFound || len(unresolved.ObjectIds) != 1 || unresolved.ObjectIds[0] != "missing" {
+		t.Fatalf("expected unresolved 404 for missing id, got %+v", unresolved)
+	}
+}
+
 func TestDrsObjectFromInternalIncludesExpandedContents(t *testing.T) {
 	object := &drs_support.InternalDrsObject{
 		Id:           "bundle-1",
@@ -232,6 +327,13 @@ func TestBearerAuthIssuerFromConfig(t *testing.T) {
 	}
 }
 
+func TestNormalizedBulkObjectIDs(t *testing.T) {
+	actual := normalizedBulkObjectIDs([]string{" object-123 ", "", "object-456"})
+	if len(actual) != 2 || actual[0] != "object-123" || actual[1] != "object-456" {
+		t.Fatalf("expected trimmed non-empty ids, got %+v", actual)
+	}
+}
+
 type routeTestFileSystem struct {
 	account        *irodstypes.IRODSAccount
 	entriesByPath  map[string]*irodsfs.Entry
@@ -266,6 +368,27 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 					},
 				},
 			},
+			"/tempZone/home/test1/file-2.txt": {
+				ID:         2,
+				Type:       irodsfs.FileEntry,
+				Name:       "file-2.txt",
+				Path:       "/tempZone/home/test1/file-2.txt",
+				Size:       64,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+				IRODSReplicas: []irodstypes.IRODSReplica{
+					{
+						Owner:      "test1",
+						CreateTime: createTime,
+						ModifyTime: updateTime,
+						Checksum: &irodstypes.IRODSChecksum{
+							Algorithm:           irodstypes.ChecksumAlgorithmSHA256,
+							Checksum:            []byte("def456"),
+							IRODSChecksumString: "sha2:def456",
+						},
+					},
+				},
+			},
 		},
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			"/tempZone/home/test1/file.txt": {
@@ -275,6 +398,11 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "test description", Units: drs_support.DrsAvuUnit},
 				{Name: drs_support.DrsAvuAliasAttrib, Value: "alias-1", Units: drs_support.DrsAvuUnit},
 				{Name: drs_support.DrsAvuAliasAttrib, Value: "alias-2", Units: drs_support.DrsAvuUnit},
+			},
+			"/tempZone/home/test1/file-2.txt": {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "object-456", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuMimeTypeAttrib, Value: "text/plain", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuVersionAttrib, Value: "def456", Units: drs_support.DrsAvuUnit},
 			},
 		},
 	}

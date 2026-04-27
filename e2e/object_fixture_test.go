@@ -27,6 +27,14 @@ type e2eObjectFixture struct {
 	expectedUser string
 }
 
+type e2eBulkObjectFixture struct {
+	rootPath     string
+	objectPaths  []string
+	objectIDs    []string
+	missingID    string
+	expectedUser string
+}
+
 func requireE2EObjectFixture(t *testing.T) *e2eObjectFixture {
 	t.Helper()
 	fixture, err := buildE2EObjectFixture(t)
@@ -113,4 +121,62 @@ func newE2EIRODSFilesystem(t *testing.T, effectiveUser string) *irodsfs.FileSyst
 	}
 
 	return filesystem
+}
+
+func requireE2EBulkObjectFixture(t *testing.T) *e2eBulkObjectFixture {
+	t.Helper()
+	fixture, err := buildE2EBulkObjectFixture(t)
+	if err != nil {
+		t.Fatalf("build bulk e2e object fixture: %v", err)
+	}
+	return fixture
+}
+
+func buildE2EBulkObjectFixture(t *testing.T) (*e2eBulkObjectFixture, error) {
+	t.Helper()
+
+	filesystem := newE2EIRODSFilesystem(t, requireE2EEffectiveUser(t))
+
+	cfg := requireE2EIRODSConfig(t)
+	testUser := filesystem.GetAccount().ClientUser
+	rootPath := fmt.Sprintf("/%s/home/%s/drs-bulk-e2e-%d", cfg.IrodsZone, testUser, time.Now().UnixNano())
+	if err := filesystem.MakeDir(rootPath, true); err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("create bulk e2e fixture root %q: %w", rootPath, err)
+	}
+
+	objectPaths := make([]string, 0, 3)
+	objectIDs := make([]string, 0, 3)
+	for i := 1; i <= 3; i++ {
+		objectPath := path.Join(rootPath, fmt.Sprintf("object-%d.txt", i))
+		content := []byte(fmt.Sprintf("drs bulk e2e object %d\n", i))
+		if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer(content), objectPath, "", false, true, nil); err != nil {
+			filesystem.Release()
+			return nil, fmt.Errorf("upload bulk e2e fixture object %q: %w", objectPath, err)
+		}
+
+		objectID, err := drs_support.CreateDrsObjectFromDataObject(filesystem, objectPath, "", fmt.Sprintf("bulk e2e description %d", i), []string{fmt.Sprintf("bulk-e2e-alias-%d", i)})
+		if err != nil {
+			filesystem.Release()
+			return nil, fmt.Errorf("create bulk DRS fixture object for %q: %w", objectPath, err)
+		}
+
+		objectPaths = append(objectPaths, objectPath)
+		objectIDs = append(objectIDs, objectID)
+	}
+
+	t.Cleanup(func() {
+		defer filesystem.Release()
+		if err := filesystem.RemoveDir(rootPath, true, true); err != nil && filesystem.Exists(rootPath) {
+			t.Errorf("cleanup bulk e2e fixture root %q: %v", rootPath, err)
+		}
+	})
+
+	return &e2eBulkObjectFixture{
+		rootPath:     rootPath,
+		objectPaths:  objectPaths,
+		objectIDs:    objectIDs,
+		missingID:    fmt.Sprintf("missing-bulk-e2e-%d", time.Now().UnixNano()),
+		expectedUser: testUser,
+	}, nil
 }

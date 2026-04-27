@@ -107,8 +107,40 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {
+	drsConfig, err := readRouteDrsConfig()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read DRS config: %v", err))
+		return
+	}
+
+	var request BulkObjectIdNoPassport
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
+		return
+	}
+
+	objectIDs := normalizedBulkObjectIDs(request.BulkObjectIds)
+	if len(objectIDs) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "bulk_object_ids must contain at least one object id")
+		return
+	}
+
+	filesystem, err := createAdminRouteFileSystem(drsConfig, "irods-go-drs-options-bulk-object")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		return
+	}
+	defer filesystem.Release()
+
+	response, err := bulkAuthorizationsFromIDs(filesystem, drsConfig, objectIDs)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func OptionsObject(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +297,56 @@ func authorizationsFromConfig(objectID string, drsConfig *drs_support.DrsConfig)
 	}
 
 	return response
+}
+
+func bulkAuthorizationsFromIDs(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectIDs []string) (*InlineResponse2002, error) {
+	resolved := make([]Authorizations, 0, len(objectIDs))
+	missingIDs := make([]string, 0)
+
+	for _, objectID := range objectIDs {
+		if _, err := drs_support.GetDrsObjectByID(filesystem, objectID); err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				missingIDs = append(missingIDs, objectID)
+				continue
+			}
+
+			return nil, fmt.Errorf("resolve DRS object %q: %w", objectID, err)
+		}
+
+		resolved = append(resolved, authorizationsFromConfig(objectID, drsConfig))
+	}
+
+	response := &InlineResponse2002{
+		Summary: &Summary{
+			Requested:  int32(len(objectIDs)),
+			Resolved:   int32(len(resolved)),
+			Unresolved: int32(len(missingIDs)),
+		},
+		ResolvedDrsObject: resolved,
+	}
+
+	if len(missingIDs) > 0 {
+		unresolved := []UnresolvedInner{{
+			ErrorCode: http.StatusNotFound,
+			ObjectIds: append([]string(nil), missingIDs...),
+		}}
+		response.UnresolvedDrsObjects = &unresolved
+	}
+
+	return response, nil
+}
+
+func normalizedBulkObjectIDs(objectIDs []string) []string {
+	resolved := make([]string, 0, len(objectIDs))
+	for _, objectID := range objectIDs {
+		objectID = strings.TrimSpace(objectID)
+		if objectID == "" {
+			continue
+		}
+		resolved = append(resolved, objectID)
+	}
+
+	return resolved
 }
 
 func bearerAuthIssuerFromConfig(drsConfig *drs_support.DrsConfig) string {

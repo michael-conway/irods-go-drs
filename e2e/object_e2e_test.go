@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -159,6 +160,68 @@ func TestOptionsObjectE2E(t *testing.T) {
 	if expectedIssuer != "" {
 		if len(response.BearerAuthIssuers) != 1 || response.BearerAuthIssuers[0] != expectedIssuer {
 			t.Fatalf("expected bearer issuer %q, got %+v", expectedIssuer, response.BearerAuthIssuers)
+		}
+	}
+}
+
+func TestOptionsBulkObjectE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	fixture := requireE2EBulkObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	requestBody, err := json.Marshal(internal.BulkObjectIdNoPassport{BulkObjectIds: fixture.objectIDs})
+	if err != nil {
+		t.Fatalf("marshal bulk request body: %v", err)
+	}
+
+	req := newE2ERequest(t, http.MethodOptions, strings.TrimRight(baseURL, "/")+"/ga4gh/drs/v1/objects", bytes.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("bulk options request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if contentType := resp.Header.Get("Content-Type"); contentType != "application/json; charset=UTF-8" {
+		t.Fatalf("expected json content type, got %q", contentType)
+	}
+
+	var response internal.InlineResponse2002
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("decode bulk options response: %v", err)
+	}
+
+	if response.Summary == nil || response.Summary.Requested != int32(len(fixture.objectIDs)) || response.Summary.Resolved != int32(len(fixture.objectIDs)) || response.Summary.Unresolved != 0 {
+		t.Fatalf("expected summary counts %d/%d/0, got %+v", len(fixture.objectIDs), len(fixture.objectIDs), response.Summary)
+	}
+
+	if len(response.ResolvedDrsObject) != len(fixture.objectIDs) {
+		t.Fatalf("expected %d resolved ids, got %+v", len(fixture.objectIDs), response.ResolvedDrsObject)
+	}
+
+	for i, objectID := range fixture.objectIDs {
+		if response.ResolvedDrsObject[i].DrsObjectId != objectID {
+			t.Fatalf("expected resolved id %q at index %d, got %+v", objectID, i, response.ResolvedDrsObject)
+		}
+	}
+
+	cfg := requireE2EIRODSConfig(t)
+	expectedIssuer := strings.TrimRight(cfg.OidcUrl, "/")
+	if strings.TrimSpace(cfg.OidcRealm) != "" {
+		expectedIssuer += "/realms/" + strings.TrimSpace(cfg.OidcRealm)
+	}
+
+	if expectedIssuer != "" {
+		for _, authorization := range response.ResolvedDrsObject {
+			if len(authorization.BearerAuthIssuers) != 1 || authorization.BearerAuthIssuers[0] != expectedIssuer {
+				t.Fatalf("expected bearer issuer %q, got %+v", expectedIssuer, authorization.BearerAuthIssuers)
+			}
 		}
 	}
 }
