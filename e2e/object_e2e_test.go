@@ -116,6 +116,53 @@ func TestGetMissingObjectBearerAuthE2E(t *testing.T) {
 	}
 }
 
+func TestOptionsObjectE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	fixture := requireE2EObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	req := newE2ERequest(t, http.MethodOptions, getObjectURL(baseURL, fixture.objectID), nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("options object request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if contentType := resp.Header.Get("Content-Type"); contentType != "application/json; charset=UTF-8" {
+		t.Fatalf("expected json content type, got %q", contentType)
+	}
+
+	var response internal.Authorizations
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+
+	if response.DrsObjectId != fixture.objectID {
+		t.Fatalf("expected DRS id %q, got %q", fixture.objectID, response.DrsObjectId)
+	}
+
+	if len(response.SupportedTypes) != 2 || response.SupportedTypes[0] != "BasicAuth" || response.SupportedTypes[1] != "BearerAuth" {
+		t.Fatalf("expected basic and bearer support, got %+v", response.SupportedTypes)
+	}
+
+	cfg := requireE2EIRODSConfig(t)
+	expectedIssuer := strings.TrimRight(cfg.OidcUrl, "/")
+	if strings.TrimSpace(cfg.OidcRealm) != "" {
+		expectedIssuer += "/realms/" + strings.TrimSpace(cfg.OidcRealm)
+	}
+
+	if expectedIssuer != "" {
+		if len(response.BearerAuthIssuers) != 1 || response.BearerAuthIssuers[0] != expectedIssuer {
+			t.Fatalf("expected bearer issuer %q, got %+v", expectedIssuer, response.BearerAuthIssuers)
+		}
+	}
+}
+
 func getObjectURL(baseURL string, objectID string) string {
 	return strings.TrimRight(baseURL, "/") + "/ga4gh/drs/v1/objects/" + url.PathEscape(objectID)
 }

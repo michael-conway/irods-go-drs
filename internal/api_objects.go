@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"path"
 	"strings"
 
@@ -33,6 +34,19 @@ var createRouteFileSystem = func(account *types.IRODSAccount, applicationName st
 		return nil, err
 	}
 	return filesystem, nil
+}
+
+var createAdminRouteFileSystem = func(drsConfig *drs_support.DrsConfig, applicationName string) (RouteFileSystem, error) {
+	if drsConfig == nil {
+		return nil, fmt.Errorf("missing DRS config")
+	}
+
+	account := drsConfig.ToIrodsAccount()
+	return createRouteFileSystem(&account, applicationName)
+}
+
+var readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
+	return readDrsConfigNoPanic(drs_support.DefaultConfigName, drs_support.DefaultConfigType, nil)
 }
 
 func GetAccessURL(w http.ResponseWriter, r *http.Request) {
@@ -98,8 +112,43 @@ func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func OptionsObject(w http.ResponseWriter, r *http.Request) {
+	drsConfig, err := readRouteDrsConfig()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read DRS config: %v", err))
+		return
+	}
+
+	vars := mux.Vars(r)
+	objectID := strings.TrimSpace(vars["object_id"])
+	if objectID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing object_id")
+		return
+	}
+
+	filesystem, err := createAdminRouteFileSystem(drsConfig, "irods-go-drs-options-object")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		return
+	}
+	defer filesystem.Release()
+
+	if _, err := drs_support.GetDrsObjectByID(filesystem, objectID); err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "required") {
+			status = http.StatusBadRequest
+		}
+
+		writeJSONError(w, status, err.Error())
+		return
+	}
+
+	response := authorizationsFromConfig(objectID, drsConfig)
+
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func PostAccessURL(w http.ResponseWriter, r *http.Request) {
@@ -203,4 +252,35 @@ func buildContentsDrsURIs(r *http.Request, objectID string) []string {
 	}
 
 	return []string{selfURI}
+}
+
+func authorizationsFromConfig(objectID string, drsConfig *drs_support.DrsConfig) Authorizations {
+	response := Authorizations{
+		DrsObjectId:    strings.TrimSpace(objectID),
+		SupportedTypes: []string{"BasicAuth", "BearerAuth"},
+	}
+
+	if issuer := bearerAuthIssuerFromConfig(drsConfig); issuer != "" {
+		response.BearerAuthIssuers = []string{issuer}
+	}
+
+	return response
+}
+
+func bearerAuthIssuerFromConfig(drsConfig *drs_support.DrsConfig) string {
+	if drsConfig == nil {
+		return ""
+	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(drsConfig.OidcUrl), "/")
+	if baseURL == "" {
+		return ""
+	}
+
+	realm := strings.TrimSpace(drsConfig.OidcRealm)
+	if realm == "" {
+		return baseURL
+	}
+
+	return baseURL + "/realms/" + neturl.PathEscape(realm)
 }

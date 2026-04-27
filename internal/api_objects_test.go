@@ -117,6 +117,74 @@ func TestGetObjectReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestOptionsObjectReturnsAuthorizations(t *testing.T) {
+	oldConfigReader := readRouteDrsConfig
+	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
+		return &drs_support.DrsConfig{
+			OidcUrl:   "https://issuer.example.org",
+			OidcRealm: "drs",
+		}, nil
+	}
+	defer func() { readRouteDrsConfig = oldConfigReader }()
+
+	oldFactory := createAdminRouteFileSystem
+	createAdminRouteFileSystem = func(drsConfig *drs_support.DrsConfig, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createAdminRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodOptions, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	OptionsObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response Authorizations
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if response.DrsObjectId != "object-123" {
+		t.Fatalf("expected DRS object id object-123, got %q", response.DrsObjectId)
+	}
+
+	if len(response.SupportedTypes) != 2 || response.SupportedTypes[0] != "BasicAuth" || response.SupportedTypes[1] != "BearerAuth" {
+		t.Fatalf("expected basic and bearer auth support, got %+v", response.SupportedTypes)
+	}
+
+	if len(response.BearerAuthIssuers) != 1 || response.BearerAuthIssuers[0] != "https://issuer.example.org/realms/drs" {
+		t.Fatalf("expected configured bearer issuer, got %+v", response.BearerAuthIssuers)
+	}
+}
+
+func TestOptionsObjectReturnsNotFound(t *testing.T) {
+	oldConfigReader := readRouteDrsConfig
+	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
+		return &drs_support.DrsConfig{}, nil
+	}
+	defer func() { readRouteDrsConfig = oldConfigReader }()
+
+	oldFactory := createAdminRouteFileSystem
+	createAdminRouteFileSystem = func(drsConfig *drs_support.DrsConfig, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createAdminRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodOptions, "/ga4gh/drs/v1/objects/missing", nil)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "missing"})
+
+	rec := httptest.NewRecorder()
+	OptionsObject(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
 func TestDrsObjectFromInternalIncludesExpandedContents(t *testing.T) {
 	object := &drs_support.InternalDrsObject{
 		Id:           "bundle-1",
@@ -144,6 +212,23 @@ func TestDrsObjectFromInternalIncludesExpandedContents(t *testing.T) {
 
 	if len(response.Contents[0].DrsUri) != 1 || response.Contents[0].DrsUri[0] != "drs://drs.example.org/child-1" {
 		t.Fatalf("expected child drs_uri to be built, got %+v", response.Contents[0].DrsUri)
+	}
+}
+
+func TestBearerAuthIssuerFromConfig(t *testing.T) {
+	issuer := bearerAuthIssuerFromConfig(&drs_support.DrsConfig{
+		OidcUrl:   "https://issuer.example.org/",
+		OidcRealm: "drs",
+	})
+	if issuer != "https://issuer.example.org/realms/drs" {
+		t.Fatalf("expected issuer URL, got %q", issuer)
+	}
+
+	noRealmIssuer := bearerAuthIssuerFromConfig(&drs_support.DrsConfig{
+		OidcUrl: "https://issuer.example.org/",
+	})
+	if noRealmIssuer != "https://issuer.example.org" {
+		t.Fatalf("expected base OIDC URL without realm, got %q", noRealmIssuer)
 	}
 }
 
