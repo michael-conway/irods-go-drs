@@ -1,187 +1,80 @@
 # Development Notes
 
-## AI Summary
+Use this file for the main working rules in `irods-go-drs`.
 
-This block is intended as a short operational summary for Codex or another AI assistant working in this repository.
+## Service shape
 
-`irods-go-drs` is the GA4GH DRS-facing service for iRODS. The main architectural rule is that `internal/` should stay thin and HTTP-centric, while `drs-support/` holds the real DRS/iRODS behavior. Route handlers should parse requests, call support-layer operations, map results into OpenAPI models, and translate typed failures into HTTP responses. Avoid putting iRODS metadata logic, manifest traversal, bundle logic, or access-method derivation directly into `internal/`.
+`irods-go-drs` is the DRS-facing service for iRODS.
 
-Key domain assumptions:
+Keep the code split this way:
 
-* a DRS object always maps to an iRODS data object, never to a collection
-* a compound DRS object is a manifest-backed iRODS data object, not an AVU-expanded tree
-* compound membership is determined by reading manifest file content, not by serializing structure into AVUs
-* DRS metadata is stored as shallow AVUs on the data object
-* checksum and version should be derived from real iRODS checksum state when possible
-* access method generation belongs in `drs-support` and is currently configuration-driven and partially stubbed
+- `internal/` handles HTTP, request parsing, and response mapping
+- `drs-support/` holds DRS and iRODS behavior
 
-Current access-method direction:
+If you are adding logic, prefer to add it in `drs-support/` first and keep `internal/` thin.
 
-* `http` and `irods` should use `access_id` and later resolve through `/access`, likely by generating iRODS tickets
-* `local` may emit a direct configured local path mapping
-* `s3` is a stub placeholder for future work
+## Core model
 
-Testing and workflow assumptions:
+- A DRS object maps to an iRODS data object, not a collection.
+- DRS metadata is stored as shallow AVUs on the data object.
+- Compound objects are manifest-backed data objects.
+- Compound membership comes from manifest content, not AVUs.
+- Checksum and version should come from real iRODS state when possible.
 
-* package unit tests live next to code
-* broader integration tests live under `test/`
-* docker-compose-backed system tests live under `e2e/`
-* `DRS_TEST_BEARER_TOKEN` is the shared bearer token variable for integration/e2e work
-* `gocmd` on `PATH` is assumed for `drscmd` and CLI-oriented workflows
+Current AVUs:
 
-When extending behavior, prefer strengthening `drs-support` first, then expose it through `internal` with minimal glue code.
+- `iRODS:DRS:ID`
+- `iRODS:DRS:VERSION`
+- `iRODS:DRS:MIME_TYPE`
+- `iRODS:DRS:DESCRIPTION`
+- `iRODS:DRS:ALIAS`
+- `iRODS:DRS:COMPOUND_MANIFEST`
 
-## API Docs and Swagger
+Metadata unit:
 
-When the DRS REST service is running, the embedded Swagger UI is available at `/swagger`.
+- `iRODS:DRS`
 
-The raw OpenAPI document served by the service is available at `/openapi.yaml`.
+## Compound objects
 
-For a default local startup on port `8080`, that means:
+A compound object is a JSON manifest stored as an iRODS data object.
 
-* Swagger UI: `http://localhost:8080/swagger`
-* OpenAPI spec: `http://localhost:8080/openapi.yaml`
+Keep these rules:
 
-## iRODS Conventions
+- the manifest file is the DRS object
+- the manifest points to child DRS IDs
+- a child can be another manifest-backed object
+- manifests do not point back to parents
 
-### DRS Objects
+## Access methods
 
-A DRS object always maps to an iRODS data object, never to an iRODS collection. Collections may still be useful for
-organization, but they are not addressable as DRS objects in this implementation.
+Access method generation belongs in `drs-support`.
 
-The creation of a DRS object is accomplished by decorating an iRODS data object with AVU metadata. The current AVU
-scheme in `drs_support` is:
+Current direction:
 
-* `iRODS:DRS:ID` - unique identifier for the DRS object.
-* `iRODS:DRS:VERSION` - version of the DRS object. If absent, the implementation may fall back to the checksum value.
-* `iRODS:DRS:MIME_TYPE` - mime type of the DRS object.
-* `iRODS:DRS:DESCRIPTION` - description of the DRS object.
-* `iRODS:DRS:ALIAS` - alternate identifiers for the DRS object.
-* `iRODS:DRS:COMPOUND_MANIFEST` - marker indicating that the data object content is a DRS manifest.
+- `http` should resolve later through `/access`
+- `irods` should resolve later through `/access`
+- `local` may return a direct mapped path
+- `s3` is still a stub
 
-Metadata AVU unit: `iRODS:DRS`
+## Local docs
 
-The DRS metadata layer is intentionally shallow. It records identity and descriptive metadata in AVUs, but does not
-serialize compound membership or object trees into AVU values.
+When the service is running:
 
-### DRS Compound Objects
-
-A compound object is also represented by an iRODS data object. Specifically, it is a generated JSON manifest file that
-has its own DRS ID and is marked with `iRODS:DRS:COMPOUND_MANIFEST`.
-
-Compound Objects design:
-
-* each compound object manifest is stored as a normal iRODS data object
-* the manifest file itself is the DRS object for that compound object
-* the manifest content is JSON and contains child DRS IDs plus optional relationship metadata such as `name` or `role`
-* a child may be either a standard iRODS-backed DRS object or another manifest-backed DRS object
-* nesting is therefore expressed by manifest files pointing to other manifest files by DRS ID
-* manifest files do not point back to parents, because multiple compound objects may reuse the same child manifest or data object
-
-This means compound membership is determined by parsing the manifest file bytes, not by reading AVUs. The AVU marker
-only answers the question “is this object a manifest?”
-
-Validator and traversal behavior should follow that model:
-
-* for a non-compound object, validate checksum, size, and created/modified timestamps against observed iRODS state and update metadata if needed
-* for a compound object, read and parse the manifest JSON, validate the manifest structure, then recursively descend through child DRS IDs
-* broken manifest integrity should be recorded in a report, not treated as a fatal exception path
-
-### Access Methods
-
-Access method generation should remain in `drs-support`, with `internal` only mapping the support-layer results into
-the OpenAPI `access_methods` response model.
-
-The current implementation is intentionally stubbed and configuration-driven.
-
-Current configured stub types:
-
-* `http` - emits an `access_id` that will later resolve through `/access`, likely backed by an iRODS ticket.
-* `irods` - emits an `access_id` that will later resolve through `/access` into an `irods://host:port/zone/path/to/data/object` URL, likely backed by an iRODS ticket.
-* `local` - emits a `local:///absolute/path` URL using a configured storage-root mapping.
-* `s3` - emits a placeholder `access_id` only; no S3 resolution logic exists yet.
-
-The intent is to keep all transport-specific derivation rules in `drs-support` so the REST layer remains thin while
-the access story evolves.
-
-### DRS Ruleset?
-
-Consider iRODS policies for DRS, including versioning on data object change, immuntability? DRS object validation, 
-such as scans for missing DRS objects in bundles, etc?
-
+- Swagger UI: `http://localhost:8080/swagger`
+- OpenAPI spec: `http://localhost:8080/openapi.yaml`
 
 ## Testing
 
-### Development and Test Environment
+Use three layers:
 
-For live functional testing of the DRS console and related workflows, the local development environment should include:
+- unit tests next to the package, run with `go test ./...`
+- integration tests under `test/`, run with `go test -tags=integration ./test/...`
+- end-to-end tests under `e2e/`, run with `go test -tags=e2e ./e2e/...`
 
-* a reachable iRODS test environment, such as the docker compose stack under `deployments/docker-test-framework/5-0`
-* valid iRODS test credentials
-* `gocmd` installed and available on `PATH`
+Shared live-test variables:
 
-The `gocmd` requirement is intentional. Current development and manual functional test flows assume that `gocmd` can be
-used to initialize and manage the iCommands-compatible environment and session state that `drscmd` will later consume.
-If a test or harness depends on relative iRODS path resolution or the saved iRODS cwd, it should assume that `gocmd`
-has already been used to establish that state.
+- `DRS_E2E_BASE_URL`
+- `DRS_TEST_BEARER_TOKEN`
+- `DRS_E2E_SKIP_TLS_VERIFY`
 
-### Unit versus Integration Testing
-
-Use three layers: package unit tests, broader integration tests, and docker-compose-backed end-to-end tests.
-
-Keep package unit tests as normal `*_test.go` files next to the code they validate.
-
-* No tags.
-* Fast, isolated, run with `go test ./...`.
-
-Keep broader integration tests under `test/`.
-
-Mark them with a build tag. Put them in files like `*_integration_test.go`.
-
-Add at top of each file:
-
-```
-//go:build integration
-// +build integration
-```
-
-Run only when requested:
-
-```
-go test -tags=integration ./test/...
-
-```
-
-Use `DRS_TEST_BEARER_TOKEN` for integration tests that need an Authorization header. The shared test helper will attach
-`Authorization: Bearer <token>` automatically when that environment variable is set. Tests that require a bearer token
-should call the helper that skips when the token is missing.
-
-Keep docker-compose-backed HTTP system tests under `e2e/`.
-
-Mark them with the `e2e` build tag:
-
-```
-//go:build e2e
-// +build e2e
-```
-
-Run only when requested:
-
-```
-go test -tags=e2e ./e2e/...
-```
-
-Current E2E environment variable conventions:
-
-* `DRS_E2E_BASE_URL`
-* `DRS_TEST_BEARER_TOKEN`
-* `DRS_E2E_SKIP_TLS_VERIFY`
-
-These tests assume the docker compose framework under `deployments/docker-test-framework/5-0` is already running and
-the DRS service is reachable over HTTP.
-
-CI split (recommended).
-
-* Job 1: unit tests on every push/PR.
-* Job 2: integration tests with `-tags=integration`.
-* Job 3: start docker compose, provision auth as needed, then run E2E tests with `-tags=e2e`.
+For console and CLI-oriented workflows, assume `gocmd` is available on `PATH`.
