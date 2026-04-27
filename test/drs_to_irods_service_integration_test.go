@@ -1,37 +1,17 @@
 //go:build integration
 // +build integration
 
-// Test setup:
-// This integration test expects the iRODS docker compose stack in
-// deployments/docker-test-framework/5-0 to be running and reachable.
-//
-// Optional environment variables:
-//
-//	DRS_TEST_IRODS_HOST
-//	DRS_TEST_IRODS_PORT
-//	DRS_TEST_IRODS_ZONE
-//	DRS_TEST_IRODS_USER
-//	DRS_TEST_IRODS_PASSWORD
-//
-// Default behavior when those variables are unset:
-//
-//	host=localhost
-//	port=1247
-//	zone=tempZone
-//	user=test1
-//	password=test
 package test
 
 import (
 	"bytes"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
+	irodslowfs "github.com/cyverse/go-irodsclient/irods/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
@@ -47,6 +27,7 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer(content), objectPath, "", false, true, nil); err != nil {
 		t.Fatalf("upload object %q: %v", objectPath, err)
 	}
+	requireIntegrationObjectChecksum(t, filesystem, objectPath)
 
 	drsID, err := drs_support.CreateDrsObjectFromDataObject(
 		filesystem,
@@ -77,7 +58,7 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 	}
 
 	expectedChecksumType := strings.ToLower(string(entry.IRODSReplicas[0].Checksum.Algorithm))
-	expectedChecksumValue := entry.IRODSReplicas[0].Checksum.IRODSChecksumString
+	expectedChecksumValue := normalizedIntegrationChecksumValue(entry.IRODSReplicas[0].Checksum.IRODSChecksumString)
 	expectedMimeType := drs_support.DeriveMimeTypeFromDataObjectPath(objectPath)
 
 	metas, err := filesystem.ListMetadata(objectPath)
@@ -105,6 +86,40 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 	if !strings.Contains(err.Error(), "already a DRS object") {
 		t.Fatalf("expected already a DRS object error, got %v", err)
 	}
+}
+
+func requireIntegrationObjectChecksum(t *testing.T, filesystem *irodsfs.FileSystem, irodsPath string) {
+	t.Helper()
+
+	conn, err := filesystem.GetMetadataConnection(true)
+	if err != nil {
+		t.Fatalf("get metadata connection for %q: %v", irodsPath, err)
+	}
+	defer func() {
+		_ = filesystem.ReturnMetadataConnection(conn)
+	}()
+
+	checksum, err := irodslowfs.GetDataObjectChecksum(conn, irodsPath, "")
+	if err != nil {
+		t.Fatalf("compute checksum for %q: %v", irodsPath, err)
+	}
+	if checksum == nil || strings.TrimSpace(checksum.IRODSChecksumString) == "" {
+		t.Fatalf("expected computed checksum for %q to be populated", irodsPath)
+	}
+}
+
+func normalizedIntegrationChecksumValue(irodsChecksum string) string {
+	trimmed := strings.TrimSpace(irodsChecksum)
+	if trimmed == "" {
+		return ""
+	}
+
+	parts := strings.SplitN(trimmed, ":", 2)
+	if len(parts) == 2 {
+		return parts[1]
+	}
+
+	return trimmed
 }
 
 func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
@@ -218,17 +233,20 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 func newIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
 	t.Helper()
 
-	account, err := irodstypes.CreateIRODSAccount(
-		integrationIRODSHost(),
-		integrationIRODSPort(t),
-		integrationIRODSUser(),
-		integrationIRODSZone(),
-		irodstypes.AuthSchemeNative,
-		integrationIRODSPassword(),
-		"",
+	cfg := requireIntegrationIrodsConfig(t)
+	account, err := irodstypes.CreateIRODSProxyAccount(
+		cfg.IrodsHost,
+		cfg.IrodsPort,
+		cfg.IrodsPrimaryTestUser,
+		cfg.IrodsZone,
+		cfg.IrodsAdminUser,
+		cfg.IrodsZone,
+		irodstypes.GetAuthScheme(cfg.IrodsAuthScheme),
+		cfg.IrodsAdminPassword,
+		cfg.IrodsDefaultResource,
 	)
 	if err != nil {
-		t.Fatalf("create iRODS account: %v", err)
+		t.Fatalf("create iRODS proxy account: %v", err)
 	}
 
 	filesystem, err := irodsfs.NewFileSystemWithDefault(account, "irods-go-drs-integration-test")
@@ -237,43 +255,6 @@ func newIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
 	}
 
 	return filesystem
-}
-
-func integrationIRODSHost() string {
-	return getenvDefault("DRS_TEST_IRODS_HOST", "localhost")
-}
-
-func integrationIRODSPort(t *testing.T) int {
-	t.Helper()
-
-	raw := getenvDefault("DRS_TEST_IRODS_PORT", "1247")
-	port, err := strconv.Atoi(raw)
-	if err != nil {
-		t.Fatalf("invalid DRS_TEST_IRODS_PORT %q: %v", raw, err)
-	}
-
-	return port
-}
-
-func integrationIRODSZone() string {
-	return getenvDefault("DRS_TEST_IRODS_ZONE", "tempZone")
-}
-
-func integrationIRODSUser() string {
-	return getenvDefault("DRS_TEST_IRODS_USER", "test1")
-}
-
-func integrationIRODSPassword() string {
-	return getenvDefault("DRS_TEST_IRODS_PASSWORD", "test")
-}
-
-func getenvDefault(key string, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-
-	return value
 }
 
 func assertMetadataValue(t *testing.T, metas []*irodstypes.IRODSMeta, name string, expected string) {
@@ -299,7 +280,8 @@ func assertMetadataValues(t *testing.T, metas []*irodstypes.IRODSMeta, name stri
 func makeIntegrationTestDir(t *testing.T, filesystem *irodsfs.FileSystem) string {
 	t.Helper()
 
-	testDir := fmt.Sprintf("/%s/home/%s/drs-integration-%d", integrationIRODSZone(), integrationIRODSUser(), time.Now().UnixNano())
+	cfg := requireIntegrationIrodsConfig(t)
+	testDir := fmt.Sprintf("/%s/home/%s/drs-integration-%d", cfg.IrodsZone, cfg.IrodsPrimaryTestUser, time.Now().UnixNano())
 	if err := filesystem.MakeDir(testDir, true); err != nil {
 		t.Fatalf("make dir %q: %v", testDir, err)
 	}

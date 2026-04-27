@@ -28,9 +28,11 @@ type DrsConfig struct {
 	IrodsHost                        string
 	IrodsPort                        int
 	IrodsZone                        string
-	IrodsDrsAdminUser                string
-	IrodsDrsAdminPassword            string
-	IrodsDrsAdminPasswordFile        string
+	IrodsAdminUser                   string
+	IrodsAdminPassword               string
+	IrodsAdminPasswordFile           string
+	IrodsPrimaryTestUser             string
+	IrodsSecondaryTestUser           string
 	IrodsAuthScheme                  string
 	IrodsNegotiationPolicy           string
 	IrodsDefaultResource             string
@@ -55,11 +57,11 @@ func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
 		CSNegotiationPolicy:     negotiationPolicy,
 		Host:                    cfg.IrodsHost,
 		Port:                    cfg.IrodsPort,
-		ClientUser:              cfg.IrodsDrsAdminUser,
+		ClientUser:              cfg.IrodsAdminUser,
 		ClientZone:              cfg.IrodsZone,
-		ProxyUser:               cfg.IrodsDrsAdminUser,
+		ProxyUser:               cfg.IrodsAdminUser,
 		ProxyZone:               cfg.IrodsZone,
-		Password:                cfg.IrodsDrsAdminPassword,
+		Password:                cfg.IrodsAdminPassword,
 		DefaultResource:         cfg.IrodsDefaultResource,
 	}
 
@@ -89,9 +91,11 @@ func bindEnvVars(v *viper.Viper) error {
 		"IrodsHost":                        {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
 		"IrodsPort":                        {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
 		"IrodsZone":                        {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
-		"IrodsDrsAdminUser":                {"DRS_IRODS_DRS_ADMIN_USER", "DRS_IRODSDRSADMINUSER"},
-		"IrodsDrsAdminPassword":            {"DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
-		"IrodsDrsAdminPasswordFile":        {"DRS_IRODS_DRS_ADMIN_PASSWORD_FILE", "DRS_IRODSDRSADMINPASSWORDFILE"},
+		"IrodsAdminUser":                   {"DRS_IRODS_ADMIN_USER", "DRS_IRODSADMINUSER", "DRS_IRODS_DRS_ADMIN_USER", "DRS_IRODSDRSADMINUSER"},
+		"IrodsAdminPassword":               {"DRS_IRODS_ADMIN_PASSWORD", "DRS_IRODSADMINPASSWORD", "DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
+		"IrodsAdminPasswordFile":           {"DRS_IRODS_ADMIN_PASSWORD_FILE", "DRS_IRODSADMINPASSWORDFILE", "DRS_IRODS_DRS_ADMIN_PASSWORD_FILE", "DRS_IRODSDRSADMINPASSWORDFILE"},
+		"IrodsPrimaryTestUser":             {"DRS_IRODS_PRIMARY_TEST_USER", "DRS_IRODSPRIMARYTESTUSER"},
+		"IrodsSecondaryTestUser":           {"DRS_IRODS_SECONDARY_TEST_USER", "DRS_IRODSSECONDARYTESTUSER"},
 		"IrodsAuthScheme":                  {"DRS_IRODS_AUTH_SCHEME", "DRS_IRODSAUTHSCHEME"},
 		"IrodsNegotiationPolicy":           {"DRS_IRODS_NEGOTIATION_POLICY", "DRS_IRODSNEGOTIATIONPOLICY"},
 		"IrodsDefaultResource":             {"DRS_IRODS_DEFAULT_RESOURCE", "DRS_IRODSDEFAULTRESOURCE"},
@@ -232,7 +236,7 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 		return nil, fmt.Errorf("unable to decode into struct: %w", err)
 	}
 
-	C.IrodsDrsAdminPassword, err = resolveSecret(C.IrodsDrsAdminPassword, C.IrodsDrsAdminPasswordFile, "iRODS admin password", configDir)
+	C.IrodsAdminPassword, err = resolveSecret(C.IrodsAdminPassword, C.IrodsAdminPasswordFile, "iRODS admin password", configDir)
 	if err != nil {
 		return nil, err
 	}

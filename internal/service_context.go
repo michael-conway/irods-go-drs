@@ -92,10 +92,10 @@ func NewDrsServiceContext(ctx context.Context, drsConfig *drs_support.DrsConfig)
 			drsConfig.IrodsPort,
 			userName,
 			drsConfig.IrodsZone,
-			drsConfig.IrodsDrsAdminUser,
+			drsConfig.IrodsAdminUser,
 			drsConfig.IrodsZone,
 			types.GetAuthScheme(drsConfig.IrodsAuthScheme),
-			drsConfig.IrodsDrsAdminPassword,
+			drsConfig.IrodsAdminPassword,
 			drsConfig.IrodsDefaultResource,
 		)
 		if err != nil {

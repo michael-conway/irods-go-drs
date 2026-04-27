@@ -1,0 +1,25 @@
+DrsLogLevel: info
+DrsListenPort: 8080
+
+IrodsHost: localhost
+IrodsPort: 1247
+IrodsZone: tempZone
+IrodsAdminUser: rods
+IrodsAdminPassword: rods
+IrodsPrimaryTestUser: test1
+IrodsSecondaryTestUser: test2
+IrodsAuthScheme: native
+IrodsNegotiationPolicy: request_server_negotiation
+IrodsDefaultResource: demoResc
+
+OidcUrl: https://localhost:8443
+OidcClientId: irods-go-drs
+OidcClientSecret: change-me
+OidcRealm: drs
+OidcScope: openid profile email
+OidcSkipTLSVerify: false
+
+E2E:
+  BaseURL: http://127.0.0.1:8080
+  SkipTLSVerify: false
+  BearerToken: ""

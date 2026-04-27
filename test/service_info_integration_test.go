@@ -16,6 +16,8 @@ import (
 )
 
 func TestServiceInfoEndpointIntegration(t *testing.T) {
+	requireIntegrationDrsConfig(t)
+
 	serviceInfoPath := writeServiceInfoFixture(t, `{
 		"name":"Configured DRS",
 		"organization":{"name":"CyVerse"},

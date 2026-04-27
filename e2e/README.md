@@ -28,13 +28,56 @@ go test -tags=e2e ./e2e/...
 
 ## Environment
 
-The current convention for E2E tests is:
+The current convention for E2E tests matches the shared live-test config style
+used in `irods-go-rest`.
 
+Use one shared config file and point the test helpers at it with:
+
+* `DRS_E2E_CONFIG_FILE`
+
+Optional overrides still exist for convenience, but the shared config file is
+the intended source of truth.
+
+The current E2E inputs are:
+
+* `DRS_E2E_CONFIG_FILE` - required shared config file for both `test/` integration runs and `e2e/` runs
 * `DRS_E2E_BASE_URL` - base URL of the running DRS service
 * `DRS_TEST_BEARER_TOKEN` - bearer token for authenticated endpoint tests
 * `DRS_E2E_SKIP_TLS_VERIFY` - optional, set to `true` when the docker test framework uses self-signed TLS
 
-Tests should skip cleanly when required environment variables are not present.
+The shared config file may contain:
+
+* normal top-level DRS runtime settings
+* an `E2E` section for test-only values
+
+For direct iRODS-backed test setup in integration helpers, keep these top-level
+fields in the same file:
+
+* `IrodsAdminUser`
+* `IrodsAdminPassword`
+* `IrodsPrimaryTestUser`
+* `IrodsSecondaryTestUser`
+
+The test helpers use proxy authentication through the admin account and default
+the effective test user to `IrodsPrimaryTestUser`.
+
+Current `E2E` fields:
+
+* `E2E.BaseURL`
+* `E2E.SkipTLSVerify`
+* `E2E.BearerToken`
+
+Example:
+
+```bash
+export DRS_E2E_CONFIG_FILE=./e2e/drs-config.e2e.sample.yaml
+go test -tags=e2e ./e2e/...
+go test -tags=integration ./test/...
+```
+
+Sample file:
+
+* [e2e/drs-config.e2e.sample.yaml](/Users/conwaymc/Documents/workspace-gabble/irods-go-drs/e2e/drs-config.e2e.sample.yaml)
 
 ## Source of Truth
 

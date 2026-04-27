@@ -10,13 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
+	"github.com/spf13/viper"
 )
 
 type drscmdMakeOutput struct {
@@ -36,6 +38,18 @@ type drscmdInfoOutput struct {
 type drscmdRemoveOutput struct {
 	Path string `json:"path"`
 }
+
+const toolIntegrationConfigFileEnvVar = "DRS_E2E_CONFIG_FILE"
+
+type toolIntegrationTestConfig struct {
+	drs_support.DrsConfig `mapstructure:",squash"`
+}
+
+var (
+	toolIntegrationConfigOnce  sync.Once
+	toolIntegrationConfigValue *drs_support.DrsConfig
+	toolIntegrationConfigErr   error
+)
 
 func TestDrsCmdIntegrationHarness(t *testing.T) {
 	if _, err := exec.LookPath("gocmd"); err != nil {
@@ -70,12 +84,12 @@ func TestDrsCmdIntegrationHarness(t *testing.T) {
 
 	runIntegrationCommand(t, tempHome, gocache, drscmdBinary,
 		"iinit",
-		"-h", integrationIRODSHost(),
+		"-h", integrationIRODSHost(t),
 		"-o", fmt.Sprintf("%d", integrationIRODSPort(t)),
-		"-u", integrationIRODSUser(),
-		"-z", integrationIRODSZone(),
-		"-p", integrationIRODSPassword(),
-		"-t", "native",
+		"-u", integrationIRODSUser(t),
+		"-z", integrationIRODSZone(t),
+		"-p", integrationIRODSPassword(t),
+		"-t", integrationIRODSAuthScheme(t),
 	)
 
 	runIntegrationCommand(t, tempHome, gocache, "gocmd", "cd", testDir)
@@ -119,11 +133,16 @@ func TestDrsCmdIntegrationHarness(t *testing.T) {
 }
 
 func integrationRepoRoot(t *testing.T) string {
-	t.Helper()
+	if t != nil {
+		t.Helper()
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("get working dir: %v", err)
+		if t != nil {
+			t.Fatalf("get working dir: %v", err)
+		}
+		return ""
 	}
 
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
@@ -166,17 +185,20 @@ func decodeCommandJSON(t *testing.T, output string, target any) {
 func newToolIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
 	t.Helper()
 
-	account, err := irodstypes.CreateIRODSAccount(
-		integrationIRODSHost(),
-		integrationIRODSPort(t),
-		integrationIRODSUser(),
-		integrationIRODSZone(),
-		irodstypes.AuthSchemeNative,
-		integrationIRODSPassword(),
-		"",
+	cfg := requireToolIntegrationConfig(t)
+	account, err := irodstypes.CreateIRODSProxyAccount(
+		cfg.IrodsHost,
+		cfg.IrodsPort,
+		cfg.IrodsPrimaryTestUser,
+		cfg.IrodsZone,
+		cfg.IrodsAdminUser,
+		cfg.IrodsZone,
+		irodstypes.GetAuthScheme(cfg.IrodsAuthScheme),
+		cfg.IrodsAdminPassword,
+		cfg.IrodsDefaultResource,
 	)
 	if err != nil {
-		t.Fatalf("create iRODS account: %v", err)
+		t.Fatalf("create iRODS proxy account: %v", err)
 	}
 
 	filesystem, err := irodsfs.NewFileSystemWithDefault(account, "irods-go-drs-drscmd-integration-test")
@@ -190,7 +212,8 @@ func newToolIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
 func makeToolIntegrationTestDir(t *testing.T, filesystem *irodsfs.FileSystem) string {
 	t.Helper()
 
-	testDir := fmt.Sprintf("/%s/home/%s/drscmd-integration-%d", integrationIRODSZone(), integrationIRODSUser(), time.Now().UnixNano())
+	cfg := requireToolIntegrationConfig(t)
+	testDir := fmt.Sprintf("/%s/home/%s/drscmd-integration-%d", cfg.IrodsZone, cfg.IrodsPrimaryTestUser, time.Now().UnixNano())
 	if err := filesystem.MakeDir(testDir, true); err != nil {
 		t.Fatalf("make dir %q: %v", testDir, err)
 	}
@@ -204,39 +227,114 @@ func makeToolIntegrationTestDir(t *testing.T, filesystem *irodsfs.FileSystem) st
 	return testDir
 }
 
-func integrationIRODSHost() string {
-	return getenvDefault("DRS_TEST_IRODS_HOST", "localhost")
+func integrationIRODSHost(t *testing.T) string {
+	t.Helper()
+	return requireToolIntegrationConfig(t).IrodsHost
 }
 
 func integrationIRODSPort(t *testing.T) int {
 	t.Helper()
+	return requireToolIntegrationConfig(t).IrodsPort
+}
 
-	raw := getenvDefault("DRS_TEST_IRODS_PORT", "1247")
-	port, err := strconv.Atoi(raw)
+func integrationIRODSZone(t *testing.T) string {
+	t.Helper()
+	return requireToolIntegrationConfig(t).IrodsZone
+}
+
+func integrationIRODSUser(t *testing.T) string {
+	t.Helper()
+	return requireToolIntegrationConfig(t).IrodsAdminUser
+}
+
+func integrationIRODSPassword(t *testing.T) string {
+	t.Helper()
+	return requireToolIntegrationConfig(t).IrodsAdminPassword
+}
+
+func integrationIRODSAuthScheme(t *testing.T) string {
+	t.Helper()
+	return requireToolIntegrationConfig(t).IrodsAuthScheme
+}
+
+func requireToolIntegrationConfig(t *testing.T) *drs_support.DrsConfig {
+	t.Helper()
+
+	toolIntegrationConfigOnce.Do(func() {
+		loadToolIntegrationConfig()
+	})
+
+	if toolIntegrationConfigErr != nil {
+		t.Fatalf("%v", toolIntegrationConfigErr)
+	}
+
+	cfg := toolIntegrationConfigValue
+	if cfg == nil {
+		t.Fatalf("integration tests require %s to point at the shared E2E config file", toolIntegrationConfigFileEnvVar)
+	}
+
+	if strings.TrimSpace(cfg.IrodsHost) == "" || cfg.IrodsPort <= 0 || strings.TrimSpace(cfg.IrodsZone) == "" ||
+		strings.TrimSpace(cfg.IrodsAdminUser) == "" || strings.TrimSpace(cfg.IrodsAdminPassword) == "" ||
+		strings.TrimSpace(cfg.IrodsPrimaryTestUser) == "" || strings.TrimSpace(cfg.IrodsAuthScheme) == "" {
+		t.Fatalf("integration tests require iRODS admin and primary test-user settings in %s", toolIntegrationConfigFileEnvVar)
+	}
+
+	return cfg
+}
+
+func loadToolIntegrationConfig() {
+	configFile := strings.TrimSpace(os.Getenv(toolIntegrationConfigFileEnvVar))
+	if configFile == "" {
+		toolIntegrationConfigErr = fmt.Errorf("integration tests require %s to point at the shared E2E config file", toolIntegrationConfigFileEnvVar)
+		return
+	}
+
+	repoRoot, err := filepath.Abs(filepath.Join(integrationRepoRoot(nil), "."))
 	if err != nil {
-		t.Fatalf("invalid DRS_TEST_IRODS_PORT %q: %v", raw, err)
+		toolIntegrationConfigErr = err
+		return
 	}
 
-	return port
-}
-
-func integrationIRODSZone() string {
-	return getenvDefault("DRS_TEST_IRODS_ZONE", "tempZone")
-}
-
-func integrationIRODSUser() string {
-	return getenvDefault("DRS_TEST_IRODS_USER", "test1")
-}
-
-func integrationIRODSPassword() string {
-	return getenvDefault("DRS_TEST_IRODS_PASSWORD", "test")
-}
-
-func getenvDefault(key string, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
+	if !filepath.IsAbs(configFile) {
+		configFile = filepath.Join(repoRoot, configFile)
 	}
 
-	return value
+	v := viper.New()
+	v.SetConfigFile(configFile)
+	if err := v.ReadInConfig(); err != nil {
+		toolIntegrationConfigErr = err
+		return
+	}
+
+	fileCfg := &toolIntegrationTestConfig{}
+	if err := v.Unmarshal(fileCfg); err != nil {
+		toolIntegrationConfigErr = err
+		return
+	}
+
+	if err := os.Setenv(drs_support.ConfigFileEnvVar, configFile); err != nil {
+		toolIntegrationConfigErr = err
+		return
+	}
+
+	cfg, err := drs_support.ReadDrsConfig("", "", nil)
+	if err != nil {
+		toolIntegrationConfigErr = err
+		return
+	}
+
+	if strings.TrimSpace(cfg.IrodsAdminUser) == "" {
+		cfg.IrodsAdminUser = strings.TrimSpace(fileCfg.IrodsAdminUser)
+	}
+	if strings.TrimSpace(cfg.IrodsAdminPassword) == "" {
+		cfg.IrodsAdminPassword = strings.TrimSpace(fileCfg.IrodsAdminPassword)
+	}
+	if strings.TrimSpace(cfg.IrodsPrimaryTestUser) == "" {
+		cfg.IrodsPrimaryTestUser = strings.TrimSpace(fileCfg.IrodsPrimaryTestUser)
+	}
+	if strings.TrimSpace(cfg.IrodsSecondaryTestUser) == "" {
+		cfg.IrodsSecondaryTestUser = strings.TrimSpace(fileCfg.IrodsSecondaryTestUser)
+	}
+
+	toolIntegrationConfigValue = cfg
 }

@@ -12,8 +12,10 @@ IRODSAccessPort: 1247
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone
-IrodsDrsAdminUser: rods
-IrodsDrsAdminPasswordFile: irods-admin-password.txt
+IrodsAdminUser: rods
+IrodsAdminPasswordFile: irods-admin-password.txt
+IrodsPrimaryTestUser: test1
+IrodsSecondaryTestUser: test2
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: native
 IrodsDefaultResource:

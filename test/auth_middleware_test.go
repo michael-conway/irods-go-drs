@@ -227,12 +227,12 @@ func TestRouteAuthMiddlewareAndServiceContextMiddlewarePopulateContext(t *testin
 		result: &gocloak.IntroSpectTokenResult{Active: &active},
 	}
 	drsConfig := &drs_support.DrsConfig{
-		IrodsHost:             "localhost",
-		IrodsPort:             1247,
-		IrodsZone:             "tempZone",
-		IrodsDrsAdminUser:     "rods",
-		IrodsDrsAdminPassword: "rods",
-		IrodsAuthScheme:       "native",
+		IrodsHost:          "localhost",
+		IrodsPort:          1247,
+		IrodsZone:          "tempZone",
+		IrodsAdminUser:     "rods",
+		IrodsAdminPassword: "rods",
+		IrodsAuthScheme:    "native",
 	}
 
 	router := mux.NewRouter()

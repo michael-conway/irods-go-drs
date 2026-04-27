@@ -96,8 +96,8 @@ func TestReadDrsConfigSecretFileSupport(t *testing.T) {
 		t.Fatalf("error reading drs config: %s", err)
 	}
 
-	if config.IrodsDrsAdminPassword != "rods" {
-		t.Fatalf("expected secret file value for IrodsDrsAdminPassword, got %q", config.IrodsDrsAdminPassword)
+	if config.IrodsAdminPassword != "rods" {
+		t.Fatalf("expected secret file value for IrodsAdminPassword, got %q", config.IrodsAdminPassword)
 	}
 
 	if config.OidcClientSecret != "test-oidc-secret" {
@@ -121,7 +121,7 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 		"IrodsHost: env-file-host\n" +
 		"IrodsPort: 1247\n" +
 		"IrodsZone: tempZone\n" +
-		"IrodsDrsAdminUser: rods\n" +
+		"IrodsAdminUser: rods\n" +
 		"IrodsAuthScheme: native\n" +
 		"IrodsNegotiationPolicy: native\n"
 
@@ -177,7 +177,7 @@ func TestReadDrsConfigTrimsWhitespaceFromInputs(t *testing.T) {
 		"IrodsHost: trimmed-host\n" +
 		"IrodsPort: 1247\n" +
 		"IrodsZone: tempZone\n" +
-		"IrodsDrsAdminUser: rods\n" +
+		"IrodsAdminUser: rods\n" +
 		"IrodsAuthScheme: native\n" +
 		"IrodsNegotiationPolicy: native\n"
 
