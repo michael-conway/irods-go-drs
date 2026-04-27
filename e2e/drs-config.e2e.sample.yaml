@@ -7,7 +7,9 @@ IrodsZone: tempZone
 IrodsAdminUser: rods
 IrodsAdminPassword: rods
 IrodsPrimaryTestUser: test1
+IrodsPrimaryTestPassword: test1
 IrodsSecondaryTestUser: test2
+IrodsSecondaryTestPassword: test2
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: request_server_negotiation
 IrodsDefaultResource: demoResc

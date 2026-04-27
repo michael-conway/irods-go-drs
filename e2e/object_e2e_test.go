@@ -96,6 +96,40 @@ func TestGetObjectBearerAuthE2E(t *testing.T) {
 	}
 }
 
+func TestGetObjectBasicAuthE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	username := requireE2EPrimaryTestUser(t)
+	password := requireE2EPrimaryTestPassword(t)
+	fixture := requireE2EBasicObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	req := newE2ERequest(t, http.MethodGet, getObjectURL(baseURL, fixture.objectID), nil)
+	setBasicAuth(req, username, password)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("get object with basic auth: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var object internal.DrsObject
+	if err := json.NewDecoder(resp.Body).Decode(&object); err != nil {
+		t.Fatalf("decode object response: %v", err)
+	}
+
+	if object.Id != fixture.objectID {
+		t.Fatalf("expected DRS id %q, got %q", fixture.objectID, object.Id)
+	}
+	if object.Name != fixture.objectName {
+		t.Fatalf("expected object name %q, got %q", fixture.objectName, object.Name)
+	}
+}
+
 func TestGetMissingObjectBearerAuthE2E(t *testing.T) {
 	baseURL := requireE2EBaseURL(t)
 	token := requireE2EBearerToken(t)

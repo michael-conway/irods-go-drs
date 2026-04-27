@@ -129,11 +129,27 @@ func setBearerAuth(req *http.Request, token string) {
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 }
 
+func setBasicAuth(req *http.Request, username string, password string) {
+	req.SetBasicAuth(strings.TrimSpace(username), strings.TrimSpace(password))
+}
+
 func requireE2EPrimaryTestUser(t *testing.T) string {
 	t.Helper()
 
 	cfg := requireE2EIRODSConfig(t)
 	return strings.TrimSpace(cfg.IrodsPrimaryTestUser)
+}
+
+func requireE2EPrimaryTestPassword(t *testing.T) string {
+	t.Helper()
+
+	cfg := requireE2EIRODSConfig(t)
+	password := strings.TrimSpace(cfg.IrodsPrimaryTestPassword)
+	if password == "" {
+		t.Skip("no primary test password configured in IrodsPrimaryTestPassword")
+	}
+
+	return password
 }
 
 func requireE2EEffectiveUser(t *testing.T) string {
@@ -336,8 +352,14 @@ func applySharedDrsConfigFallbacks(cfg *drs_support.DrsConfig, fileCfg *e2eTestC
 	if strings.TrimSpace(cfg.IrodsPrimaryTestUser) == "" {
 		cfg.IrodsPrimaryTestUser = strings.TrimSpace(fileCfg.IrodsPrimaryTestUser)
 	}
+	if strings.TrimSpace(cfg.IrodsPrimaryTestPassword) == "" {
+		cfg.IrodsPrimaryTestPassword = strings.TrimSpace(fileCfg.IrodsPrimaryTestPassword)
+	}
 	if strings.TrimSpace(cfg.IrodsSecondaryTestUser) == "" {
 		cfg.IrodsSecondaryTestUser = strings.TrimSpace(fileCfg.IrodsSecondaryTestUser)
+	}
+	if strings.TrimSpace(cfg.IrodsSecondaryTestPassword) == "" {
+		cfg.IrodsSecondaryTestPassword = strings.TrimSpace(fileCfg.IrodsSecondaryTestPassword)
 	}
 	if strings.TrimSpace(cfg.IrodsAuthScheme) == "" {
 		cfg.IrodsAuthScheme = strings.TrimSpace(fileCfg.IrodsAuthScheme)

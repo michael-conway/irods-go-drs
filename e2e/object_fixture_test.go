@@ -35,6 +35,15 @@ type e2eBulkObjectFixture struct {
 	expectedUser string
 }
 
+type e2eBasicObjectFixture struct {
+	rootPath     string
+	objectPath   string
+	objectID     string
+	description  string
+	objectName   string
+	expectedUser string
+}
+
 func requireE2EObjectFixture(t *testing.T) *e2eObjectFixture {
 	t.Helper()
 	fixture, err := buildE2EObjectFixture(t)
@@ -177,6 +186,61 @@ func buildE2EBulkObjectFixture(t *testing.T) (*e2eBulkObjectFixture, error) {
 		objectPaths:  objectPaths,
 		objectIDs:    objectIDs,
 		missingID:    fmt.Sprintf("missing-bulk-e2e-%d", time.Now().UnixNano()),
+		expectedUser: testUser,
+	}, nil
+}
+
+func requireE2EBasicObjectFixture(t *testing.T) *e2eBasicObjectFixture {
+	t.Helper()
+	fixture, err := buildE2EBasicObjectFixture(t)
+	if err != nil {
+		t.Fatalf("build basic e2e object fixture: %v", err)
+	}
+	return fixture
+}
+
+func buildE2EBasicObjectFixture(t *testing.T) (*e2eBasicObjectFixture, error) {
+	t.Helper()
+
+	cfg := requireE2EIRODSConfig(t)
+	testUser := strings.TrimSpace(cfg.IrodsPrimaryTestUser)
+	filesystem := newE2EIRODSFilesystem(t, testUser)
+
+	rootPath := fmt.Sprintf("/%s/home/%s/drs-basic-e2e", cfg.IrodsZone, testUser)
+	if err := filesystem.MakeDir(rootPath, true); err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("create basic e2e fixture root %q: %w", rootPath, err)
+	}
+
+	objectPath := path.Join(rootPath, "object.txt")
+	if !filesystem.Exists(objectPath) {
+		content := []byte("drs basic e2e object\n")
+		if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer(content), objectPath, "", false, true, nil); err != nil {
+			filesystem.Release()
+			return nil, fmt.Errorf("upload basic e2e fixture object %q: %w", objectPath, err)
+		}
+	}
+
+	description := "basic e2e description"
+	var objectID string
+	if object, err := drs_support.GetDrsObjectByIRODSPath(filesystem, objectPath); err == nil && object != nil && strings.TrimSpace(object.Id) != "" {
+		objectID = strings.TrimSpace(object.Id)
+	} else {
+		objectID, err = drs_support.CreateDrsObjectFromDataObject(filesystem, objectPath, "", description, []string{"basic-e2e-alias"})
+		if err != nil {
+			filesystem.Release()
+			return nil, fmt.Errorf("create basic DRS fixture object for %q: %w", objectPath, err)
+		}
+	}
+
+	filesystem.Release()
+
+	return &e2eBasicObjectFixture{
+		rootPath:     rootPath,
+		objectPath:   objectPath,
+		objectID:     objectID,
+		description:  description,
+		objectName:   path.Base(objectPath),
 		expectedUser: testUser,
 	}, nil
 }

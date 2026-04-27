@@ -35,23 +35,28 @@ func NewRouteAuthMiddleware(authenticator RequestAuthenticator) mux.MiddlewareFu
 				return
 			}
 
-			if authenticator == nil {
-				writeJSONError(w, http.StatusInternalServerError, "auth middleware is enabled but no authenticator is configured")
-				return
-			}
+			var introspection *gocloak.IntroSpectTokenResult
+			if scheme == "bearer" {
+				if authenticator == nil {
+					writeJSONError(w, http.StatusInternalServerError, "auth middleware is enabled but no authenticator is configured")
+					return
+				}
 
-			introspection, err := authenticator.AuthenticateToken(r.Context(), token)
-			if err != nil {
-				writeJSONError(w, http.StatusUnauthorized, fmt.Sprintf("authentication failed: %v", err))
-				return
+				introspection, err = authenticator.AuthenticateToken(r.Context(), token)
+				if err != nil {
+					writeJSONError(w, http.StatusUnauthorized, fmt.Sprintf("authentication failed: %v", err))
+					return
+				}
 			}
 
 			if scheme == "bearer" && strings.TrimSpace(username) == "" {
 				username = usernameFromBearerToken(token)
 			}
 
-			ctx := context.WithValue(r.Context(), tokenIntrospectionContextKey, introspection)
-			ctx = context.WithValue(ctx, authSchemeContextKey, scheme)
+			ctx := context.WithValue(r.Context(), authSchemeContextKey, scheme)
+			if introspection != nil {
+				ctx = context.WithValue(ctx, tokenIntrospectionContextKey, introspection)
+			}
 			ctx = context.WithValue(ctx, usernameContextKey, username)
 			ctx = context.WithValue(ctx, basicPasswordContextKey, basicPassword)
 			next.ServeHTTP(w, r.WithContext(ctx))

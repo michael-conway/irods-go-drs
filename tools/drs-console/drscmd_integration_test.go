@@ -332,8 +332,14 @@ func loadToolIntegrationConfig() {
 	if strings.TrimSpace(cfg.IrodsPrimaryTestUser) == "" {
 		cfg.IrodsPrimaryTestUser = strings.TrimSpace(fileCfg.IrodsPrimaryTestUser)
 	}
+	if strings.TrimSpace(cfg.IrodsPrimaryTestPassword) == "" {
+		cfg.IrodsPrimaryTestPassword = strings.TrimSpace(fileCfg.IrodsPrimaryTestPassword)
+	}
 	if strings.TrimSpace(cfg.IrodsSecondaryTestUser) == "" {
 		cfg.IrodsSecondaryTestUser = strings.TrimSpace(fileCfg.IrodsSecondaryTestUser)
+	}
+	if strings.TrimSpace(cfg.IrodsSecondaryTestPassword) == "" {
+		cfg.IrodsSecondaryTestPassword = strings.TrimSpace(fileCfg.IrodsSecondaryTestPassword)
 	}
 
 	toolIntegrationConfigValue = cfg

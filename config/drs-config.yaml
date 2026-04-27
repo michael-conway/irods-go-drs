@@ -18,7 +18,9 @@ IrodsZone: tempZone
 IrodsAdminUser: rods
 IrodsAdminPasswordFile: ./resources/irods-admin-password.txt
 IrodsPrimaryTestUser: test1
+IrodsPrimaryTestPassword: test1
 IrodsSecondaryTestUser: test2
+IrodsSecondaryTestPassword: test2
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: native
 IrodsDefaultResource:

@@ -118,6 +118,47 @@ func TestGetObjectReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestGetBulkObjectsReturnsBadRequestUntilImplemented(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects", strings.NewReader(`{"passports":["example"]}`))
+	rec := httptest.NewRecorder()
+
+	GetBulkObjects(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if !strings.Contains(response["message"], "issue #22") {
+		t.Fatalf("expected issue reference in response, got %+v", response)
+	}
+}
+
+func TestPostObjectReturnsBadRequestUntilImplemented(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects/object-123", strings.NewReader(`{"passports":["example"]}`))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+	rec := httptest.NewRecorder()
+
+	PostObject(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if !strings.Contains(response["message"], "issue #22") {
+		t.Fatalf("expected issue reference in response, got %+v", response)
+	}
+}
+
 func TestOptionsObjectReturnsAuthorizations(t *testing.T) {
 	oldConfigReader := readRouteDrsConfig
 	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {

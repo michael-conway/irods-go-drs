@@ -32,7 +32,9 @@ type DrsConfig struct {
 	IrodsAdminPassword               string
 	IrodsAdminPasswordFile           string
 	IrodsPrimaryTestUser             string
+	IrodsPrimaryTestPassword         string
 	IrodsSecondaryTestUser           string
+	IrodsSecondaryTestPassword       string
 	IrodsAuthScheme                  string
 	IrodsNegotiationPolicy           string
 	IrodsDefaultResource             string
@@ -96,7 +98,9 @@ func bindEnvVars(v *viper.Viper) error {
 		"IrodsAdminPassword":               {"DRS_IRODS_ADMIN_PASSWORD", "DRS_IRODSADMINPASSWORD", "DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
 		"IrodsAdminPasswordFile":           {"DRS_IRODS_ADMIN_PASSWORD_FILE", "DRS_IRODSADMINPASSWORDFILE", "DRS_IRODS_DRS_ADMIN_PASSWORD_FILE", "DRS_IRODSDRSADMINPASSWORDFILE"},
 		"IrodsPrimaryTestUser":             {"DRS_IRODS_PRIMARY_TEST_USER", "DRS_IRODSPRIMARYTESTUSER"},
+		"IrodsPrimaryTestPassword":         {"DRS_IRODS_PRIMARY_TEST_PASSWORD", "DRS_IRODSPRIMARYTESTPASSWORD"},
 		"IrodsSecondaryTestUser":           {"DRS_IRODS_SECONDARY_TEST_USER", "DRS_IRODSSECONDARYTESTUSER"},
+		"IrodsSecondaryTestPassword":       {"DRS_IRODS_SECONDARY_TEST_PASSWORD", "DRS_IRODSSECONDARYTESTPASSWORD"},
 		"IrodsAuthScheme":                  {"DRS_IRODS_AUTH_SCHEME", "DRS_IRODSAUTHSCHEME"},
 		"IrodsNegotiationPolicy":           {"DRS_IRODS_NEGOTIATION_POLICY", "DRS_IRODSNEGOTIATIONPOLICY"},
 		"IrodsDefaultResource":             {"DRS_IRODS_DEFAULT_RESOURCE", "DRS_IRODSDEFAULTRESOURCE"},

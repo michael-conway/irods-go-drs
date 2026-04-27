@@ -29,7 +29,9 @@ DRS_IRODS_PORT=1247
 DRS_IRODS_ZONE=tempZone
 DRS_IRODS_ADMIN_USER=rods
 DRS_IRODS_PRIMARY_TEST_USER=test1
+DRS_IRODS_PRIMARY_TEST_PASSWORD=test1
 DRS_IRODS_SECONDARY_TEST_USER=test2
+DRS_IRODS_SECONDARY_TEST_PASSWORD=test2
 
 DRS_OIDC_URL=https://localhost:8443
 DRS_OIDC_REALM=drs
@@ -86,12 +88,17 @@ For integration and E2E work, keep the test users in the same config file:
 IrodsAdminUser: rods
 IrodsAdminPasswordFile: /run/secrets/irods_admin_password
 IrodsPrimaryTestUser: test1
+IrodsPrimaryTestPassword: test1
 IrodsSecondaryTestUser: test2
+IrodsSecondaryTestPassword: test2
 ```
 
 The test helpers use proxy authentication through `IrodsAdminUser` and
 `IrodsAdminPassword`, and they default the effective test user to
 `IrodsPrimaryTestUser`.
+
+If you add Basic-authenticated E2E tests, use `IrodsPrimaryTestPassword` and
+`IrodsSecondaryTestPassword` as the source of truth for those user credentials.
 
 Do not use the old YAML keys:
 

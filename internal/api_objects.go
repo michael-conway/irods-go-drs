@@ -60,8 +60,9 @@ func GetBulkAccessURL(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetBulkObjects(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
+	// Passport-based bulk object POST is not implemented yet.
+	// See https://github.com/michael-conway/irods-go-drs/issues/22.
+	writeJSONError(w, http.StatusBadRequest, "POST /ga4gh/drs/v1/objects is not implemented yet; see issue #22")
 }
 
 func GetObject(w http.ResponseWriter, r *http.Request) {
@@ -189,8 +190,9 @@ func PostAccessURL(w http.ResponseWriter, r *http.Request) {
 }
 
 func PostObject(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
+	// Passport-based single-object POST is not implemented yet.
+	// See https://github.com/michael-conway/irods-go-drs/issues/22.
+	writeJSONError(w, http.StatusBadRequest, "POST /ga4gh/drs/v1/objects/{object_id} is not implemented yet; see issue #22")
 }
 
 func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool) DrsObject {

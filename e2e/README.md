@@ -62,7 +62,9 @@ fields in the same file:
 * `IrodsAdminUser`
 * `IrodsAdminPassword`
 * `IrodsPrimaryTestUser`
+* `IrodsPrimaryTestPassword`
 * `IrodsSecondaryTestUser`
+* `IrodsSecondaryTestPassword`
 
 Do not use the old YAML keys `IrodsDrsAdminUser`,
 `IrodsDrsAdminPassword`, or `IrodsDrsAdminPasswordFile`.
@@ -70,6 +72,10 @@ Do not use the old YAML keys `IrodsDrsAdminUser`,
 The test helpers use proxy authentication through the admin account and default
 the effective test user to `IrodsPrimaryTestUser` when no bearer token is
 available.
+
+For Basic-authenticated E2E coverage, use `IrodsPrimaryTestPassword` or
+`IrodsSecondaryTestPassword` from that same shared config file when building the
+Authorization header.
 
 For bearer-authenticated object-route E2E tests, the bearer token should belong
 to that same user, or at least expose a matching `preferred_username`,

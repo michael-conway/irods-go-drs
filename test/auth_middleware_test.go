@@ -66,15 +66,12 @@ func TestRouteAuthMiddlewareRejectsMissingAuthorization(t *testing.T) {
 }
 
 func TestRouteAuthMiddlewareAcceptsBasicTokenInPassword(t *testing.T) {
-	active := true
-	authenticator := &fakeAuthenticator{
-		result: &gocloak.IntroSpectTokenResult{Active: &active},
-	}
+	authenticator := &fakeAuthenticator{}
 
 	router := mux.NewRouter()
 	router.Handle("/ga4gh/drs/v1/objects/{object_id}", internal.NewRouteAuthMiddleware(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := internal.TokenIntrospectionFromContext(r.Context()); !ok {
-			t.Fatal("expected introspection details on request context")
+		if _, ok := internal.TokenIntrospectionFromContext(r.Context()); ok {
+			t.Fatal("did not expect token introspection details for basic auth")
 		}
 		if scheme, ok := internal.AuthSchemeFromContext(r.Context()); !ok || scheme != "basic" {
 			t.Fatalf("expected auth scheme basic in context, got %q, ok=%t", scheme, ok)
@@ -100,12 +97,8 @@ func TestRouteAuthMiddlewareAcceptsBasicTokenInPassword(t *testing.T) {
 		t.Fatalf("expected 200 for authenticated request, got %d", resp.Code)
 	}
 
-	if !authenticator.called {
-		t.Fatal("expected protected route to call authenticator")
-	}
-
-	if authenticator.lastAccess != "token-456" {
-		t.Fatalf("expected Basic auth password to be passed as token, got %q", authenticator.lastAccess)
+	if authenticator.called {
+		t.Fatal("did not expect basic auth to call bearer token authenticator")
 	}
 }
 
@@ -256,10 +249,6 @@ func TestRouteAuthMiddlewareReturnsServerErrorWithoutAuthenticator(t *testing.T)
 }
 
 func TestRouteAuthMiddlewareAndServiceContextMiddlewarePopulateContext(t *testing.T) {
-	active := true
-	authenticator := &fakeAuthenticator{
-		result: &gocloak.IntroSpectTokenResult{Active: &active},
-	}
 	drsConfig := &drs_support.DrsConfig{
 		IrodsHost:          "localhost",
 		IrodsPort:          1247,
@@ -284,7 +273,7 @@ func TestRouteAuthMiddlewareAndServiceContextMiddlewarePopulateContext(t *testin
 		w.WriteHeader(http.StatusOK)
 	})
 	handlerWithContext := internal.NewRouteServiceContextMiddleware(drsConfig)(handler)
-	handlerWithAuth := internal.NewRouteAuthMiddleware(authenticator)(handlerWithContext)
+	handlerWithAuth := internal.NewRouteAuthMiddleware(nil)(handlerWithContext)
 
 	router.Handle("/ga4gh/drs/v1/objects/{object_id}", handlerWithAuth).Methods(http.MethodGet).Name("GetObject")
 
