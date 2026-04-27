@@ -46,6 +46,10 @@ func NewRouteAuthMiddleware(authenticator RequestAuthenticator) mux.MiddlewareFu
 				return
 			}
 
+			if scheme == "bearer" && strings.TrimSpace(username) == "" {
+				username = usernameFromBearerToken(token)
+			}
+
 			ctx := context.WithValue(r.Context(), tokenIntrospectionContextKey, introspection)
 			ctx = context.WithValue(ctx, authSchemeContextKey, scheme)
 			ctx = context.WithValue(ctx, usernameContextKey, username)
@@ -114,6 +118,39 @@ func tokenUsernameAndPasswordFromBasicAuthValue(authValue string) (string, strin
 	}
 
 	return credentials, "", "", nil
+}
+
+func usernameFromBearerToken(accessToken string) string {
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return ""
+	}
+
+	parts := strings.Split(accessToken, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return ""
+	}
+
+	for _, field := range []string{"preferred_username", "username", "sub"} {
+		if value, ok := payload[field].(string); ok {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value
+			}
+		}
+	}
+
+	return ""
 }
 
 func TokenIntrospectionFromContext(ctx context.Context) (*gocloak.IntroSpectTokenResult, bool) {

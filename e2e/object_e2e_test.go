@@ -1,0 +1,131 @@
+//go:build e2e
+// +build e2e
+
+package e2e
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"testing"
+
+	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
+	"github.com/michael-conway/irods-go-drs/internal"
+)
+
+func TestGetObjectRequiresAuthenticationE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	fixture := requireE2EObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	req := newE2ERequest(t, http.MethodGet, getObjectURL(baseURL, fixture.objectID), nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("get object without auth: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without auth, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetObjectBearerAuthE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	token := requireE2EBearerToken(t)
+	fixture := requireE2EObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	req := newE2ERequest(t, http.MethodGet, getObjectURL(baseURL, fixture.objectID), nil)
+	setBearerAuth(req, token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("get object with bearer auth: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if contentType := resp.Header.Get("Content-Type"); contentType != "application/json; charset=UTF-8" {
+		t.Fatalf("expected json content type, got %q", contentType)
+	}
+
+	var object internal.DrsObject
+	if err := json.NewDecoder(resp.Body).Decode(&object); err != nil {
+		t.Fatalf("decode object response: %v", err)
+	}
+
+	if object.Id != fixture.objectID {
+		t.Fatalf("expected DRS id %q, got %q", fixture.objectID, object.Id)
+	}
+	if object.Name != fixture.objectName {
+		t.Fatalf("expected object name %q, got %q", fixture.objectName, object.Name)
+	}
+	if object.Description != fixture.description {
+		t.Fatalf("expected description %q, got %q", fixture.description, object.Description)
+	}
+	if object.MimeType != drs_support.DeriveMimeTypeFromDataObjectPath(fixture.objectPath) {
+		t.Fatalf("expected mime type %q, got %q", drs_support.DeriveMimeTypeFromDataObjectPath(fixture.objectPath), object.MimeType)
+	}
+	if object.Version == "" {
+		t.Fatal("expected non-empty object version")
+	}
+	if object.Size <= 0 {
+		t.Fatalf("expected positive object size, got %d", object.Size)
+	}
+	if len(object.Checksums) == 0 || strings.TrimSpace(object.Checksums[0].Checksum) == "" {
+		t.Fatalf("expected object checksum in response, got %+v", object.Checksums)
+	}
+	if len(object.Aliases) != len(fixture.aliases) {
+		t.Fatalf("expected %d aliases, got %d", len(fixture.aliases), len(object.Aliases))
+	}
+	for _, expectedAlias := range fixture.aliases {
+		if !containsString(object.Aliases, expectedAlias) {
+			t.Fatalf("expected alias %q in %+v", expectedAlias, object.Aliases)
+		}
+	}
+	if !strings.Contains(object.SelfUri, "/"+fixture.objectID) {
+		t.Fatalf("expected self uri to contain object id %q, got %q", fixture.objectID, object.SelfUri)
+	}
+}
+
+func TestGetMissingObjectBearerAuthE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	token := requireE2EBearerToken(t)
+	fixture := requireE2EObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	req := newE2ERequest(t, http.MethodGet, getObjectURL(baseURL, fixture.missingID), nil)
+	setBearerAuth(req, token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("get missing object with bearer auth: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 404, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+}
+
+func getObjectURL(baseURL string, objectID string) string {
+	return strings.TrimRight(baseURL, "/") + "/ga4gh/drs/v1/objects/" + url.PathEscape(objectID)
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+
+	return false
+}

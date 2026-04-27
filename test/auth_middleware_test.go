@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -204,6 +205,39 @@ func TestRouteAuthMiddlewareStoresEmptyUsernameWhenMissing(t *testing.T) {
 	}
 }
 
+func TestRouteAuthMiddlewareExtractsBearerUsernameFromJWTClaims(t *testing.T) {
+	active := true
+	authenticator := &fakeAuthenticator{
+		result: &gocloak.IntroSpectTokenResult{Active: &active},
+	}
+
+	router := mux.NewRouter()
+	router.Handle("/ga4gh/drs/v1/objects/{object_id}", internal.NewRouteAuthMiddleware(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := internal.UsernameFromContext(r.Context())
+		if !ok {
+			t.Fatal("expected username key in context")
+		}
+		if user != "test1" {
+			t.Fatalf("expected bearer username from jwt claims, got %q", user)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))).Methods(http.MethodGet).Name("GetObject")
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/example", nil)
+	req.Header.Set("Authorization", "Bearer "+unsignedJWT(t, map[string]any{
+		"preferred_username": "test1",
+		"sub":                "subject-123",
+	}))
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for authenticated request, got %d", resp.Code)
+	}
+}
+
 func TestRouteAuthMiddlewareReturnsServerErrorWithoutAuthenticator(t *testing.T) {
 	router := mux.NewRouter()
 	router.Handle("/ga4gh/drs/v1/objects/{object_id}", internal.NewRouteAuthMiddleware(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -227,12 +261,12 @@ func TestRouteAuthMiddlewareAndServiceContextMiddlewarePopulateContext(t *testin
 		result: &gocloak.IntroSpectTokenResult{Active: &active},
 	}
 	drsConfig := &drs_support.DrsConfig{
-		IrodsHost:             "localhost",
-		IrodsPort:             1247,
-		IrodsZone:             "tempZone",
-		IrodsDrsAdminUser:     "rods",
-		IrodsDrsAdminPassword: "rods",
-		IrodsAuthScheme:       "native",
+		IrodsHost:          "localhost",
+		IrodsPort:          1247,
+		IrodsZone:          "tempZone",
+		IrodsAdminUser:     "rods",
+		IrodsAdminPassword: "rods",
+		IrodsAuthScheme:    "native",
 	}
 
 	router := mux.NewRouter()
@@ -263,4 +297,23 @@ func TestRouteAuthMiddlewareAndServiceContextMiddlewarePopulateContext(t *testin
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200 for authenticated request, got %d", resp.Code)
 	}
+}
+
+func unsignedJWT(t *testing.T, claims map[string]any) string {
+	t.Helper()
+
+	headerBytes, err := json.Marshal(map[string]any{
+		"alg": "none",
+		"typ": "JWT",
+	})
+	if err != nil {
+		t.Fatalf("marshal jwt header: %v", err)
+	}
+
+	claimBytes, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal jwt claims: %v", err)
+	}
+
+	return base64.RawURLEncoding.EncodeToString(headerBytes) + "." + base64.RawURLEncoding.EncodeToString(claimBytes) + "."
 }

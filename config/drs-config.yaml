@@ -15,8 +15,10 @@ S3AccessEndpoint:
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone
-IrodsDrsAdminUser: rods
-IrodsDrsAdminPasswordFile: ./resources/irods-admin-password.txt
+IrodsAdminUser: rods
+IrodsAdminPasswordFile: ./resources/irods-admin-password.txt
+IrodsPrimaryTestUser: test1
+IrodsSecondaryTestUser: test2
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: native
 IrodsDefaultResource:
@@ -25,4 +27,4 @@ OidcClientId: drs-api
 OidcClientSecretFile: ./resources/oidc-client-secret.txt
 OidcRealm: drs
 OidcScope: openid profile email
-OidcSkipTLSVerify: true
+OidcInsecureSkipVerify: true

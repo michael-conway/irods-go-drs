@@ -45,7 +45,7 @@ func TestConfigToIrodsAccount(t *testing.T) {
 		t.Errorf("error reading drs config: %s", err)
 	}
 	actual := config.ToIrodsAccount()
-	if actual.ClientUser != config.IrodsDrsAdminUser {
+	if actual.ClientUser != config.IrodsAdminUser {
 		t.Fail()
 	}
 
