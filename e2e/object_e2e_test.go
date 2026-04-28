@@ -130,6 +130,63 @@ func TestGetObjectBasicAuthE2E(t *testing.T) {
 	}
 }
 
+func TestGetAccessURLBasicAuthE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	username := requireE2EPrimaryTestUser(t)
+	password := requireE2EPrimaryTestPassword(t)
+	fixture := requireE2EBasicObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	req := newE2ERequest(t, http.MethodGet, getObjectAccessURL(baseURL, fixture.objectID, "irods-go-rest-https"), nil)
+	setBasicAuth(req, username, password)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("get access url with basic auth: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var accessURL internal.AccessUrl
+	if err := json.NewDecoder(resp.Body).Decode(&accessURL); err != nil {
+		t.Fatalf("decode access url response: %v", err)
+	}
+
+	if strings.TrimSpace(accessURL.Url) == "" {
+		t.Fatal("expected non-empty access url")
+	}
+	if len(accessURL.Headers) != 1 || !strings.HasPrefix(accessURL.Headers[0], "Authorization: Bearer irods-ticket:") {
+		t.Fatalf("expected irods ticket bearer header, got %+v", accessURL.Headers)
+	}
+
+	downloadReq := newE2ERequest(t, http.MethodGet, accessURL.Url, nil)
+	applyAccessURLHeaders(downloadReq, accessURL.Headers)
+
+	downloadResp, err := client.Do(downloadReq)
+	if err != nil {
+		t.Fatalf("download via access url: %v", err)
+	}
+	defer downloadResp.Body.Close()
+
+	if downloadResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(downloadResp.Body)
+		t.Fatalf("expected 200 from download url, got %d: %s", downloadResp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	body, err := io.ReadAll(downloadResp.Body)
+	if err != nil {
+		t.Fatalf("read download body: %v", err)
+	}
+
+	if string(body) != "drs basic e2e object\n" {
+		t.Fatalf("expected downloaded content %q, got %q", "drs basic e2e object\n", string(body))
+	}
+}
+
 func TestGetMissingObjectBearerAuthE2E(t *testing.T) {
 	baseURL := requireE2EBaseURL(t)
 	token := requireE2EBearerToken(t)
@@ -262,6 +319,27 @@ func TestOptionsBulkObjectE2E(t *testing.T) {
 
 func getObjectURL(baseURL string, objectID string) string {
 	return strings.TrimRight(baseURL, "/") + "/ga4gh/drs/v1/objects/" + url.PathEscape(objectID)
+}
+
+func getObjectAccessURL(baseURL string, objectID string, accessID string) string {
+	return getObjectURL(baseURL, objectID) + "/access/" + url.PathEscape(accessID)
+}
+
+func applyAccessURLHeaders(req *http.Request, headers []string) {
+	for _, header := range headers {
+		name, value, found := strings.Cut(header, ":")
+		if !found {
+			continue
+		}
+
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name == "" || value == "" {
+			continue
+		}
+
+		req.Header.Add(name, value)
+	}
 }
 
 func containsString(values []string, target string) bool {
