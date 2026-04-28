@@ -84,13 +84,11 @@ func buildIRODSAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAcc
 	}
 
 	return []DrsAccessMethod{{
-		Type:               "irods",
-		AccessID:           "irods:" + object.Id,
-		Cloud:              buildIRODSCloudName(object),
-		Region:             primaryReplicaResourceName(object),
-		Available:          false,
-		SupportedAuthTypes: []string{"BasicAuth", "BearerAuth"},
-		BearerAuthIssuers:  buildBearerAuthIssuers(cfg),
+		Type:      "irods",
+		AccessID:  "irods",
+		Cloud:     buildIRODSCloudName(object),
+		Region:    primaryReplicaResourceName(object),
+		Available: false,
 	}}
 }
 

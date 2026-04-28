@@ -20,6 +20,7 @@ import (
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/gorilla/mux"
+	extension_irodsuri "github.com/michael-conway/go-irodsclient-extensions/irodsuri"
 	extension_tickets "github.com/michael-conway/go-irodsclient-extensions/tickets"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
@@ -124,6 +125,8 @@ func accessURLForObject(filesystem RouteFileSystem, drsConfig *drs_support.DrsCo
 	switch strings.TrimSpace(accessID) {
 	case "irods-go-rest-https":
 		return buildIRODSGoRestAccessURL(filesystem, drsConfig, objectID, object)
+	case "irods":
+		return buildIRODSAccessURL(filesystem, drsConfig, objectID, object)
 	default:
 		return nil, http.StatusNotFound, fmt.Errorf("access id %q not found for object %q", accessID, objectID)
 	}
@@ -164,6 +167,62 @@ func buildIRODSGoRestAccessURL(filesystem RouteFileSystem, drsConfig *drs_suppor
 	return &AccessUrl{
 		Url:     url,
 		Headers: headers,
+	}, http.StatusOK, nil
+}
+
+func buildIRODSAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
+	if !drsConfig.IrodsAccessMethodSupported {
+		return nil, http.StatusNotImplemented, fmt.Errorf("irods access method is not enabled")
+	}
+
+	host := strings.TrimSpace(drsConfig.IRODSAccessHost)
+	if host == "" {
+		host = strings.TrimSpace(drsConfig.IrodsHost)
+	}
+
+	port := drsConfig.IRODSAccessPort
+	if port == 0 {
+		port = drsConfig.IrodsPort
+	}
+
+	zone := strings.TrimSpace(object.IrodsZone)
+	if zone == "" {
+		zone = strings.TrimSpace(drsConfig.IrodsZone)
+	}
+
+	if host == "" || port <= 0 {
+		return nil, http.StatusInternalServerError, fmt.Errorf("irods access host and port must be configured")
+	}
+	if zone == "" {
+		return nil, http.StatusInternalServerError, fmt.Errorf("irods zone must be configured for object %q", objectID)
+	}
+	if strings.TrimSpace(object.AbsolutePath) == "" {
+		return nil, http.StatusInternalServerError, fmt.Errorf("irods absolute path is missing for object %q", objectID)
+	}
+
+	ticketID, _, err := extension_tickets.CreateAnonymousDataObjectBearerToken(
+		filesystem,
+		object.AbsolutePath,
+		int64(drsConfig.DefaultTicketUseLimit),
+		drsConfig.DefaultTicketLifetimeMinutes,
+	)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("create access ticket for object %q: %w", objectID, err)
+	}
+	if strings.TrimSpace(ticketID) == "" {
+		return nil, http.StatusInternalServerError, fmt.Errorf("created empty ticket id for object %q", objectID)
+	}
+
+	uri, err := extension_irodsuri.BuildWithTicket(host, port, &extension_irodsuri.UserInfo{
+		UserName: "anonymous",
+		Zone:     zone,
+	}, object.AbsolutePath, ticketID)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("build irods access URI for object %q: %w", objectID, err)
+	}
+
+	return &AccessUrl{
+		Url: uri.String(),
 	}, http.StatusOK, nil
 }
 

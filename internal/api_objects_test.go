@@ -13,6 +13,7 @@ import (
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/gorilla/mux"
+	extension_irodsuri "github.com/michael-conway/go-irodsclient-extensions/irodsuri"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -100,6 +101,56 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	}
 	if len(response.AccessMethods[0].Authorizations.BearerAuthIssuers) != 1 || response.AccessMethods[0].Authorizations.BearerAuthIssuers[0] != "https://issuer.example.org" {
 		t.Fatalf("expected bearer auth issuer from oidc url, got %+v", response.AccessMethods[0].Authorizations)
+	}
+}
+
+func TestGetObjectReturnsMappedDrsObjectWithIRODSAccessMethod(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req.Host = "drs.example.org"
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			IrodsAccessMethodSupported: true,
+			IRODSAccessHost:            "icat.example.org",
+			IRODSAccessPort:            1247,
+			OidcUrl:                    "https://issuer.example.org",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response DrsObject
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(response.AccessMethods) != 1 {
+		t.Fatalf("expected 1 access method, got %+v", response.AccessMethods)
+	}
+
+	if response.AccessMethods[0].Type_ != "irods" || response.AccessMethods[0].AccessId != "irods" || response.AccessMethods[0].AccessUrl != nil || response.AccessMethods[0].Available {
+		t.Fatalf("expected irods access method, got %+v", response.AccessMethods[0])
+	}
+	if response.AccessMethods[0].Cloud != "irods:tempZone" {
+		t.Fatalf("expected irods cloud name, got %+v", response.AccessMethods[0])
+	}
+	if response.AccessMethods[0].Region != "demoResc" {
+		t.Fatalf("expected resource-backed region, got %+v", response.AccessMethods[0])
+	}
+	if response.AccessMethods[0].Authorizations != nil {
+		t.Fatalf("expected no separate authorizations for embedded-ticket irods uri, got %+v", response.AccessMethods[0].Authorizations)
 	}
 }
 
@@ -466,6 +517,80 @@ func TestGetAccessURLReturnsDirectURLWhenTicketDisabled(t *testing.T) {
 	}
 	if len(fs.createdTickets) != 0 {
 		t.Fatalf("expected no created tickets, got %+v", fs.createdTickets)
+	}
+}
+
+func TestGetAccessURLReturnsIRODSTicketURI(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/irods", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			IrodsAccessMethodSupported:   true,
+			IRODSAccessHost:              "icat.example.org",
+			IRODSAccessPort:              1247,
+			IrodsZone:                    "tempZone",
+			DefaultTicketLifetimeMinutes: 30,
+			DefaultTicketUseLimit:        5,
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "irods",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	parsed, err := extension_irodsuri.Parse(response.Url)
+	if err != nil {
+		t.Fatalf("expected valid irods URI, got %q: %v", response.Url, err)
+	}
+
+	if parsed.Host != "icat.example.org" || parsed.Port != 1247 {
+		t.Fatalf("expected iRODS host/port, got %+v", parsed)
+	}
+	if parsed.Path != "/tempZone/home/test1/file.txt" {
+		t.Fatalf("expected irods path, got %+v", parsed)
+	}
+	if parsed.UserInfo == nil || parsed.UserInfo.UserName != "anonymous" || parsed.UserInfo.Zone != "tempZone" {
+		t.Fatalf("expected anonymous tempZone user info, got %+v", parsed.UserInfo)
+	}
+	if !strings.HasPrefix(parsed.Ticket, "ticket_") {
+		t.Fatalf("expected ticket query parameter, got %+v", parsed)
+	}
+	if len(response.Headers) != 0 {
+		t.Fatalf("expected no headers for irods URI access, got %+v", response.Headers)
+	}
+	if len(fs.createdTickets) != 1 {
+		t.Fatalf("expected one created ticket, got %+v", fs.createdTickets)
+	}
+	if fs.createdTickets[0].path != "/tempZone/home/test1/file.txt" {
+		t.Fatalf("expected ticket path to match object path, got %+v", fs.createdTickets[0])
+	}
+	if fs.createdTickets[0].name != parsed.Ticket {
+		t.Fatalf("expected URI ticket to match created ticket, got ticket %q and created %+v", parsed.Ticket, fs.createdTickets[0])
+	}
+	if fs.ticketUseLimits[fs.createdTickets[0].name] != 5 {
+		t.Fatalf("expected ticket use limit 5, got %+v", fs.ticketUseLimits)
+	}
+	if fs.ticketExpiryTimes[fs.createdTickets[0].name].IsZero() {
+		t.Fatalf("expected ticket expiry time to be set, got %+v", fs.ticketExpiryTimes)
 	}
 }
 

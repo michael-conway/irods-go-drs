@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	extension_irodsuri "github.com/michael-conway/go-irodsclient-extensions/irodsuri"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	"github.com/michael-conway/irods-go-drs/internal"
 )
@@ -93,6 +94,17 @@ func TestGetObjectBearerAuthE2E(t *testing.T) {
 	}
 	if !strings.Contains(object.SelfUri, "/"+fixture.objectID) {
 		t.Fatalf("expected self uri to contain object id %q, got %q", fixture.objectID, object.SelfUri)
+	}
+
+	irodsMethod := findAccessMethodByType(object.AccessMethods, "irods")
+	if irodsMethod == nil {
+		t.Fatalf("expected irods access method in %+v", object.AccessMethods)
+	}
+	if irodsMethod.AccessId != "irods" {
+		t.Fatalf("expected irods access id %q, got %+v", "irods", irodsMethod)
+	}
+	if irodsMethod.AccessUrl != nil {
+		t.Fatalf("expected deferred irods access method without inline url, got %+v", irodsMethod)
 	}
 }
 
@@ -184,6 +196,64 @@ func TestGetAccessURLBasicAuthE2E(t *testing.T) {
 
 	if string(body) != "drs basic e2e object\n" {
 		t.Fatalf("expected downloaded content %q, got %q", "drs basic e2e object\n", string(body))
+	}
+}
+
+func TestGetIRODSAccessURLBasicAuthE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	username := requireE2EPrimaryTestUser(t)
+	password := requireE2EPrimaryTestPassword(t)
+	fixture := requireE2EBasicObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	req := newE2ERequest(t, http.MethodGet, getObjectAccessURL(baseURL, fixture.objectID, "irods"), nil)
+	setBasicAuth(req, username, password)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("get irods access url with basic auth: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var accessURL internal.AccessUrl
+	if err := json.NewDecoder(resp.Body).Decode(&accessURL); err != nil {
+		t.Fatalf("decode access url response: %v", err)
+	}
+
+	if len(accessURL.Headers) != 0 {
+		t.Fatalf("expected no headers for irods uri access, got %+v", accessURL.Headers)
+	}
+
+	parsed, err := extension_irodsuri.Parse(accessURL.Url)
+	if err != nil {
+		t.Fatalf("parse returned irods uri %q: %v", accessURL.Url, err)
+	}
+
+	cfg := requireE2EIRODSConfig(t)
+	expectedHost := strings.TrimSpace(cfg.IRODSAccessHost)
+	if expectedHost == "" {
+		expectedHost = strings.TrimSpace(cfg.IrodsHost)
+	}
+	expectedPort := cfg.IRODSAccessPort
+	if expectedPort == 0 {
+		expectedPort = cfg.IrodsPort
+	}
+	if parsed.Host != expectedHost || parsed.Port != expectedPort {
+		t.Fatalf("expected iRODS access host/port %s:%d, got %+v", expectedHost, expectedPort, parsed)
+	}
+	if parsed.Path != fixture.objectPath {
+		t.Fatalf("expected irods uri path %q, got %+v", fixture.objectPath, parsed)
+	}
+	if parsed.UserInfo == nil || parsed.UserInfo.UserName != "anonymous" || parsed.UserInfo.Zone != strings.TrimSpace(cfg.IrodsZone) {
+		t.Fatalf("expected anonymous irods user info for zone %q, got %+v", strings.TrimSpace(cfg.IrodsZone), parsed.UserInfo)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(parsed.Ticket), "ticket_") {
+		t.Fatalf("expected ticket query parameter, got %+v", parsed)
 	}
 }
 
@@ -340,6 +410,16 @@ func applyAccessURLHeaders(req *http.Request, headers []string) {
 
 		req.Header.Add(name, value)
 	}
+}
+
+func findAccessMethodByType(methods []internal.AccessMethod, methodType string) *internal.AccessMethod {
+	for idx := range methods {
+		if strings.EqualFold(strings.TrimSpace(methods[idx].Type_), strings.TrimSpace(methodType)) {
+			return &methods[idx]
+		}
+	}
+
+	return nil
 }
 
 func containsString(values []string, target string) bool {

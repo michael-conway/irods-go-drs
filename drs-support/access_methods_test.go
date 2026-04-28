@@ -45,6 +45,46 @@ func TestBuildAccessMethodsBuildsConfiguredStubs(t *testing.T) {
 	}
 }
 
+func TestBuildAccessMethodsBuildsIRODSStub(t *testing.T) {
+	cfg := &DrsConfig{
+		IrodsAccessMethodSupported: true,
+		IRODSAccessHost:            "icat.example.org",
+		IRODSAccessPort:            1247,
+		OidcUrl:                    "https://issuer.example.org",
+	}
+
+	object := &InternalDrsObject{
+		Id:           "object-123",
+		AbsolutePath: "/tempZone/home/test1/file.txt",
+		IrodsZone:    "tempZone",
+		ResourceName: "demoResc",
+		Replicas: []InternalReplica{
+			{ResourceName: "demoResc"},
+		},
+	}
+
+	methods := BuildAccessMethods(cfg, object)
+	if len(methods) != 1 {
+		t.Fatalf("expected 1 access method, got %d", len(methods))
+	}
+
+	if methods[0].Type != "irods" || methods[0].AccessID != "irods" || methods[0].URL != "" || methods[0].Available {
+		t.Fatalf("unexpected irods access method: %+v", methods[0])
+	}
+	if methods[0].Cloud != "irods:tempZone" {
+		t.Fatalf("expected irods cloud name, got %+v", methods[0])
+	}
+	if methods[0].Region != "demoResc" {
+		t.Fatalf("expected resource-backed region, got %+v", methods[0])
+	}
+	if len(methods[0].SupportedAuthTypes) != 0 {
+		t.Fatalf("expected no supported auth types for embedded-ticket irods uri, got %+v", methods[0])
+	}
+	if len(methods[0].BearerAuthIssuers) != 0 {
+		t.Fatalf("expected no bearer auth issuers for embedded-ticket irods uri, got %+v", methods[0])
+	}
+}
+
 func TestBuildAccessMethodsSkipsUnconfiguredMethods(t *testing.T) {
 	cfg := &DrsConfig{
 		HttpsAccessMethodSupported: true,

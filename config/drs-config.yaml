@@ -25,7 +25,8 @@ OidcRealm: drs
 OidcScope: openid profile email
 OidcInsecureSkipVerify: true
 
-IrodsAccessMethodSupported: false
+IrodsAccessMethodSupported: true
+
 FileAccessMethodSupported: false
 HttpsAccessMethodSupported: true
 HttpsAccessMethodBaseURL: http://localhost:8080/api/v1/path/contents?irods_path=
