@@ -14,17 +14,22 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
-	"path"
 	"strings"
+	"time"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/gorilla/mux"
+	extension_tickets "github.com/michael-conway/go-irodsclient-extensions/tickets"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
 type RouteFileSystem interface {
 	drs_support.IRODSFilesystem
+	CreateTicket(ticketName string, ticketType types.TicketType, path string) error
+	ModifyTicketUseLimit(ticketName string, uses int64) error
+	ModifyTicketExpirationTime(ticketName string, expirationTime time.Time) error
+	DeleteTicket(ticketName string) error
 	Release()
 }
 
@@ -50,8 +55,116 @@ var readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
 }
 
 func GetAccessURL(w http.ResponseWriter, r *http.Request) {
+	serviceContext, ok := DrsServiceContextFromContext(r.Context())
+	if !ok || serviceContext == nil {
+		writeJSONError(w, http.StatusInternalServerError, "missing DRS service context")
+		return
+	}
+
+	if err := validateConfiguredHTTPSProvider(serviceContext.DrsConfig); err != nil {
+		writeJSONError(w, http.StatusNotImplemented, err.Error())
+		return
+	}
+
+	vars := mux.Vars(r)
+	objectID := strings.TrimSpace(vars["object_id"])
+	if objectID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing object_id")
+		return
+	}
+
+	accessID := strings.TrimSpace(vars["access_id"])
+	if accessID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing access_id")
+		return
+	}
+
+	filesystem, err := createRouteFileSystem(serviceContext.IrodsAccount, "irods-go-drs-get-access-url")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		return
+	}
+	defer filesystem.Release()
+
+	object, err := drs_support.GetDrsObjectByID(filesystem, objectID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "required") {
+			status = http.StatusBadRequest
+		}
+
+		writeJSONError(w, status, err.Error())
+		return
+	}
+
+	response, status, err := accessURLForObject(filesystem, serviceContext.DrsConfig, objectID, accessID, object)
+	if err != nil {
+		writeJSONError(w, status, err.Error())
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+func accessURLForObject(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, accessID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
+	if filesystem == nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("missing iRODS filesystem")
+	}
+	if drsConfig == nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("missing DRS config")
+	}
+	if object == nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("missing DRS object")
+	}
+
+	switch strings.TrimSpace(accessID) {
+	case "irods-go-rest-https":
+		return buildIRODSGoRestAccessURL(filesystem, drsConfig, objectID, object)
+	default:
+		return nil, http.StatusNotFound, fmt.Errorf("access id %q not found for object %q", accessID, objectID)
+	}
+}
+
+func buildIRODSGoRestAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
+	if !drsConfig.HttpsAccessMethodSupported {
+		return nil, http.StatusNotImplemented, fmt.Errorf("https access method is not enabled")
+	}
+	if strings.TrimSpace(drsConfig.HttpsAccessImplementation) != "" && strings.TrimSpace(drsConfig.HttpsAccessImplementation) != "irods-go-rest" {
+		return nil, http.StatusNotImplemented, fmt.Errorf("https provider %q is not implemented", strings.TrimSpace(drsConfig.HttpsAccessImplementation))
+	}
+
+	baseURL := strings.TrimSpace(drsConfig.HttpsAccessMethodBaseURL)
+	if baseURL == "" {
+		return nil, http.StatusInternalServerError, fmt.Errorf("https access method base URL is not configured")
+	}
+
+	url := baseURL + neturl.QueryEscape(strings.TrimSpace(object.AbsolutePath))
+	headers := []string{}
+
+	if drsConfig.HttpsAccessUseTicket {
+		ticketID, bearerToken, err := extension_tickets.CreateAnonymousDataObjectBearerToken(
+			filesystem,
+			object.AbsolutePath,
+			int64(drsConfig.DefaultTicketUseLimit),
+			drsConfig.DefaultTicketLifetimeMinutes,
+		)
+		if err != nil {
+			return nil, http.StatusInternalServerError, fmt.Errorf("create access ticket for object %q: %w", objectID, err)
+		}
+		if strings.TrimSpace(ticketID) == "" {
+			return nil, http.StatusInternalServerError, fmt.Errorf("created empty ticket id for object %q", objectID)
+		}
+		headers = append(headers, "Authorization: Bearer "+bearerToken)
+	}
+
+	return &AccessUrl{
+		Url:     url,
+		Headers: headers,
+	}, http.StatusOK, nil
 }
 
 func GetBulkAccessURL(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +189,11 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 	objectID := strings.TrimSpace(vars["object_id"])
 	if objectID == "" {
 		writeJSONError(w, http.StatusBadRequest, "missing object_id")
+		return
+	}
+
+	if err := validateConfiguredHTTPSProvider(serviceContext.DrsConfig); err != nil {
+		writeJSONError(w, http.StatusNotImplemented, err.Error())
 		return
 	}
 
@@ -114,6 +232,11 @@ func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validateConfiguredHTTPSProvider(drsConfig); err != nil {
+		writeJSONError(w, http.StatusNotImplemented, err.Error())
+		return
+	}
+
 	var request BulkObjectIdNoPassport
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
@@ -148,6 +271,11 @@ func OptionsObject(w http.ResponseWriter, r *http.Request) {
 	drsConfig, err := readRouteDrsConfig()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read DRS config: %v", err))
+		return
+	}
+
+	if err := validateConfiguredHTTPSProvider(drsConfig); err != nil {
+		writeJSONError(w, http.StatusNotImplemented, err.Error())
 		return
 	}
 
@@ -203,7 +331,7 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 
 	response := DrsObject{
 		Id:            object.Id,
-		Name:          path.Base(object.AbsolutePath),
+		Name:          object.AbsolutePath,
 		SelfUri:       buildSelfURI(r, object.Id),
 		Size:          object.Size,
 		CreatedTime:   object.CreatedTime,
@@ -356,6 +484,21 @@ func normalizedBulkObjectIDs(objectIDs []string) []string {
 	}
 
 	return resolved
+}
+
+func validateConfiguredHTTPSProvider(drsConfig *drs_support.DrsConfig) error {
+	if drsConfig == nil || !drsConfig.HttpsAccessMethodSupported {
+		return nil
+	}
+
+	switch strings.TrimSpace(drsConfig.HttpsAccessImplementation) {
+	case "", "irods-go-rest":
+		return nil
+	case "irods-https-api":
+		return fmt.Errorf("https access provider %q is not implemented", drsConfig.HttpsAccessImplementation)
+	default:
+		return fmt.Errorf("unsupported https access provider %q", drsConfig.HttpsAccessImplementation)
+	}
 }
 
 func bearerAuthIssuerFromConfig(drsConfig *drs_support.DrsConfig) string {

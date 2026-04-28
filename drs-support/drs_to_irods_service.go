@@ -34,6 +34,13 @@ type InternalChecksum struct {
 	Value string
 }
 
+type InternalReplica struct {
+	ResourceName      string
+	ResourceHierarchy string
+	Path              string
+	Status            string
+}
+
 type InternalDrsObject struct {
 	// An identifier unique to this DrsObject.
 	Id string
@@ -43,6 +50,8 @@ type InternalDrsObject struct {
 	IrodsZone string
 	// Resource that currently serves the selected replica for this object.
 	ResourceName string
+	// All discovered replicas for the data object.
+	Replicas []InternalReplica
 	// Object size in bytes.
 	Size int64
 	// Timestamp of content create in RFC3339.
@@ -632,6 +641,7 @@ func internalDrsObjectFromEntry(entry *irodsfs.Entry, irodsZone string, metas []
 	}
 
 	dataObject := entry.ToDataObject()
+	object.Replicas = replicasFromDataObject(dataObject)
 	if len(dataObject.Replicas) > 0 && dataObject.Replicas[0] != nil {
 		object.ResourceName = strings.TrimSpace(dataObject.Replicas[0].ResourceName)
 		object.Checksum = checksumFromReplica(dataObject.Replicas[0])
@@ -642,6 +652,28 @@ func internalDrsObjectFromEntry(entry *irodsfs.Entry, irodsZone string, metas []
 	}
 
 	return object, nil
+}
+
+func replicasFromDataObject(dataObject *irodstypes.IRODSDataObject) []InternalReplica {
+	if dataObject == nil || len(dataObject.Replicas) == 0 {
+		return nil
+	}
+
+	replicas := make([]InternalReplica, 0, len(dataObject.Replicas))
+	for _, replica := range dataObject.Replicas {
+		if replica == nil {
+			continue
+		}
+
+		replicas = append(replicas, InternalReplica{
+			ResourceName:      strings.TrimSpace(replica.ResourceName),
+			ResourceHierarchy: strings.TrimSpace(replica.ResourceHierarchy),
+			Path:              strings.TrimSpace(replica.Path),
+			Status:            strings.TrimSpace(replica.Status),
+		})
+	}
+
+	return replicas
 }
 
 // checksumFromReplica converts a go-irodsclient replica checksum into the internal checksum model,

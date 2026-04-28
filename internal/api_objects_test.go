@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 			IrodsAccessMethodSupported: false,
 			FileAccessMethodSupported:  false,
 			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
 			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
 			HttpsAccessUseTicket:       true,
 			OidcUrl:                    "https://issuer.example.org",
@@ -53,8 +55,8 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 		t.Fatalf("expected id object-123, got %q", response.Id)
 	}
 
-	if response.Name != "file.txt" {
-		t.Fatalf("expected name file.txt, got %q", response.Name)
+	if response.Name != "/tempZone/home/test1/file.txt" {
+		t.Fatalf("expected full iRODS path name, got %q", response.Name)
 	}
 
 	if response.SelfUri != "drs://drs.example.org/object-123" {
@@ -231,6 +233,27 @@ func TestOptionsObjectReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestOptionsObjectReturnsNotImplementedForUnsupportedHTTPSProvider(t *testing.T) {
+	oldConfigReader := readRouteDrsConfig
+	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
+		return &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-https-api",
+		}, nil
+	}
+	defer func() { readRouteDrsConfig = oldConfigReader }()
+
+	req := httptest.NewRequest(http.MethodOptions, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	OptionsObject(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
+	}
+}
+
 func TestOptionsBulkObjectReturnsAuthorizations(t *testing.T) {
 	oldConfigReader := readRouteDrsConfig
 	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
@@ -325,6 +348,157 @@ func TestOptionsBulkObjectReturnsUnresolvedForMissingIDs(t *testing.T) {
 	}
 }
 
+func TestOptionsBulkObjectReturnsNotImplementedForUnsupportedHTTPSProvider(t *testing.T) {
+	oldConfigReader := readRouteDrsConfig
+	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
+		return &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-https-api",
+		}, nil
+	}
+	defer func() { readRouteDrsConfig = oldConfigReader }()
+
+	body := strings.NewReader(`{"bulk_object_ids":["object-123","object-456"]}`)
+	req := httptest.NewRequest(http.MethodOptions, "/ga4gh/drs/v1/objects", body)
+
+	rec := httptest.NewRecorder()
+	OptionsBulkObject(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
+	}
+}
+
+func TestGetAccessURLReturnsIRODSGoRestTicketAccessURL(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/irods-go-rest-https", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported:   true,
+			HttpsAccessImplementation:    "irods-go-rest",
+			HttpsAccessMethodBaseURL:     "https://rest.example.org/api/v1/path/contents?irods_path=",
+			HttpsAccessUseTicket:         true,
+			DefaultTicketLifetimeMinutes: 30,
+			DefaultTicketUseLimit:        5,
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "irods-go-rest-https",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expectedURL := "https://rest.example.org/api/v1/path/contents?irods_path=" + neturl.QueryEscape("/tempZone/home/test1/file.txt")
+	if response.Url != expectedURL {
+		t.Fatalf("expected access url %q, got %q", expectedURL, response.Url)
+	}
+	if len(response.Headers) != 1 || !strings.HasPrefix(response.Headers[0], "Authorization: Bearer irods-ticket:ticket_") {
+		t.Fatalf("expected bearer ticket authorization header, got %+v", response.Headers)
+	}
+	if len(fs.createdTickets) != 1 {
+		t.Fatalf("expected one created ticket, got %+v", fs.createdTickets)
+	}
+	if fs.createdTickets[0].path != "/tempZone/home/test1/file.txt" {
+		t.Fatalf("expected ticket path to match object path, got %+v", fs.createdTickets[0])
+	}
+	if fs.ticketUseLimits[fs.createdTickets[0].name] != 5 {
+		t.Fatalf("expected ticket use limit 5, got %+v", fs.ticketUseLimits)
+	}
+	if fs.ticketExpiryTimes[fs.createdTickets[0].name].IsZero() {
+		t.Fatalf("expected ticket expiry time to be set, got %+v", fs.ticketExpiryTimes)
+	}
+}
+
+func TestGetAccessURLReturnsDirectURLWhenTicketDisabled(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/irods-go-rest-https", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "https://rest.example.org/api/v1/path/contents?irods_path=",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "irods-go-rest-https",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(response.Headers) != 0 {
+		t.Fatalf("expected no headers when ticket support is disabled, got %+v", response.Headers)
+	}
+	if len(fs.createdTickets) != 0 {
+		t.Fatalf("expected no created tickets, got %+v", fs.createdTickets)
+	}
+}
+
+func TestGetAccessURLReturnsNotFoundForUnknownAccessID(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/unknown", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "https://rest.example.org/api/v1/path/contents?irods_path=",
+			HttpsAccessUseTicket:       true,
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "unknown",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
 func TestDrsObjectFromInternalIncludesExpandedContents(t *testing.T) {
 	object := &drs_support.InternalDrsObject{
 		Id:           "bundle-1",
@@ -379,10 +553,45 @@ func TestNormalizedBulkObjectIDs(t *testing.T) {
 	}
 }
 
+func TestGetObjectReturnsNotImplementedForUnsupportedHTTPSImplementation(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-https-api",
+			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
+	}
+}
+
 type routeTestFileSystem struct {
-	account        *irodstypes.IRODSAccount
-	entriesByPath  map[string]*irodsfs.Entry
-	metadataByPath map[string][]*irodstypes.IRODSMeta
+	account           *irodstypes.IRODSAccount
+	entriesByPath     map[string]*irodsfs.Entry
+	metadataByPath    map[string][]*irodstypes.IRODSMeta
+	createdTickets    []routeCreatedTicket
+	ticketUseLimits   map[string]int64
+	ticketExpiryTimes map[string]time.Time
+}
+
+type routeCreatedTicket struct {
+	name string
+	path string
+	typ  irodstypes.TicketType
 }
 
 func newRouteTestFileSystem() *routeTestFileSystem {
@@ -452,6 +661,8 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 				{Name: drs_support.DrsAvuVersionAttrib, Value: "def456", Units: drs_support.DrsAvuUnit},
 			},
 		},
+		ticketUseLimits:   map[string]int64{},
+		ticketExpiryTimes: map[string]time.Time{},
 	}
 }
 
@@ -498,4 +709,25 @@ func (f *routeTestFileSystem) DeleteMetadataByAVU(irodsPath string, attName stri
 
 func (f *routeTestFileSystem) GetAccount() *irodstypes.IRODSAccount {
 	return f.account
+}
+
+func (f *routeTestFileSystem) CreateTicket(ticketName string, ticketType irodstypes.TicketType, path string) error {
+	f.createdTickets = append(f.createdTickets, routeCreatedTicket{name: ticketName, path: path, typ: ticketType})
+	return nil
+}
+
+func (f *routeTestFileSystem) ModifyTicketUseLimit(ticketName string, uses int64) error {
+	f.ticketUseLimits[ticketName] = uses
+	return nil
+}
+
+func (f *routeTestFileSystem) ModifyTicketExpirationTime(ticketName string, expirationTime time.Time) error {
+	f.ticketExpiryTimes[ticketName] = expirationTime
+	return nil
+}
+
+func (f *routeTestFileSystem) DeleteTicket(ticketName string) error {
+	delete(f.ticketUseLimits, ticketName)
+	delete(f.ticketExpiryTimes, ticketName)
+	return nil
 }

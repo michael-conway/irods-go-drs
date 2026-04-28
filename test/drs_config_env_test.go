@@ -17,8 +17,11 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_SERVICE_INFO_FILE_PATH", "/tmp/service-info.json")
 	t.Setenv("DRS_OIDC_SKIP_TLS_VERIFY", "true")
 	t.Setenv("DRS_HTTPS_ACCESS_METHOD_SUPPORTED", "true")
+	t.Setenv("DRS_HTTPS_ACCESS_IMPLEMENTATION", "irods-go-rest")
 	t.Setenv("DRS_HTTPS_ACCESS_METHOD_BASE_URL", "https://download.example.org/api/v1/path/contents?irods_path=")
 	t.Setenv("DRS_HTTPS_ACCESS_USE_TICKET", "true")
+	t.Setenv("DRS_DEFAULT_TICKET_LIFETIME_MINUTES", "1440")
+	t.Setenv("DRS_DEFAULT_TICKET_USE_LIMIT", "100")
 	t.Setenv("DRS_IRODS_ACCESS_METHOD_SUPPORTED", "true")
 	t.Setenv("DRS_FILE_ACCESS_METHOD_SUPPORTED", "true")
 
@@ -59,12 +62,21 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	if !config.HttpsAccessMethodSupported {
 		t.Fatal("expected env override for HttpsAccessMethodSupported")
 	}
+	if config.HttpsAccessImplementation != "irods-go-rest" {
+		t.Fatalf("expected env override for HttpsAccessImplementation, got %q", config.HttpsAccessImplementation)
+	}
 
 	if config.HttpsAccessMethodBaseURL != "https://download.example.org/api/v1/path/contents?irods_path=" {
 		t.Fatalf("expected env override for HttpsAccessMethodBaseURL, got %q", config.HttpsAccessMethodBaseURL)
 	}
 	if !config.HttpsAccessUseTicket {
 		t.Fatal("expected env override for HttpsAccessUseTicket")
+	}
+	if config.DefaultTicketLifetimeMinutes != 1440 {
+		t.Fatalf("expected env override for DefaultTicketLifetimeMinutes, got %d", config.DefaultTicketLifetimeMinutes)
+	}
+	if config.DefaultTicketUseLimit != 100 {
+		t.Fatalf("expected env override for DefaultTicketUseLimit, got %d", config.DefaultTicketUseLimit)
 	}
 
 	if !config.IrodsAccessMethodSupported {
@@ -126,8 +138,11 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 		"ServiceInfoSampleIntervalMinutes: 13\n" +
 		"ServiceInfoFilePath: service-info.json\n" +
 		"HttpsAccessMethodSupported: true\n" +
+		"HttpsAccessImplementation: irods-go-rest\n" +
 		"HttpsAccessMethodBaseURL: https://download.example.org/api/v1/path/contents?irods_path=\n" +
 		"HttpsAccessUseTicket: true\n" +
+		"DefaultTicketLifetimeMinutes: 720\n" +
+		"DefaultTicketUseLimit: 50\n" +
 		"FileAccessMethodSupported: true\n" +
 		"LocalAccessRootPath: local-root\n" +
 		"IrodsHost: env-file-host\n" +
@@ -172,12 +187,21 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 	if !config.HttpsAccessMethodSupported {
 		t.Fatalf("expected configured https access method from %s override", drs_support.ConfigFileEnvVar)
 	}
+	if config.HttpsAccessImplementation != "irods-go-rest" {
+		t.Fatalf("expected configured https access implementation from %s override, got %q", drs_support.ConfigFileEnvVar, config.HttpsAccessImplementation)
+	}
 
 	if config.HttpsAccessMethodBaseURL != "https://download.example.org/api/v1/path/contents?irods_path=" {
 		t.Fatalf("expected configured https access method base URL from %s override, got %q", drs_support.ConfigFileEnvVar, config.HttpsAccessMethodBaseURL)
 	}
 	if !config.HttpsAccessUseTicket {
 		t.Fatalf("expected configured https access ticket mode from %s override", drs_support.ConfigFileEnvVar)
+	}
+	if config.DefaultTicketLifetimeMinutes != 720 {
+		t.Fatalf("expected configured default ticket lifetime from %s override, got %d", drs_support.ConfigFileEnvVar, config.DefaultTicketLifetimeMinutes)
+	}
+	if config.DefaultTicketUseLimit != 50 {
+		t.Fatalf("expected configured default ticket use limit from %s override, got %d", drs_support.ConfigFileEnvVar, config.DefaultTicketUseLimit)
 	}
 
 	expectedLocalRoot := filepath.Join(dir, "local-root")

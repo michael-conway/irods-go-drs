@@ -1,14 +1,11 @@
 DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
-DrsListenPort: 8080
+DrsListenPort: 8888
 ServiceInfoSampleIntervalMinutes: 5
 ServiceInfoFilePath: service-info.json
-HTTPAccessBaseURL: http://localhost:8080
 IRODSAccessHost: localhost
 IRODSAccessPort: 1247
-LocalAccessRootPath:
-S3AccessEndpoint:
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone
@@ -33,4 +30,8 @@ FileAccessMethodSupported: false
 HttpsAccessMethodSupported: true
 HttpsAccessMethodBaseURL: http://localhost:8080/api/v1/path/contents?irods_path=
 HttpsAccessUseTicket: true
+HttpsAccessImplementation: irods-go-rest
+
+DefaultTicketLifetimeMinutes: 720
+DefaultTicketUseLimit: 50
 

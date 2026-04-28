@@ -7,6 +7,7 @@ func TestBuildAccessMethodsBuildsConfiguredStubs(t *testing.T) {
 		IrodsAccessMethodSupported: false,
 		FileAccessMethodSupported:  false,
 		HttpsAccessMethodSupported: true,
+		HttpsAccessImplementation:  "irods-go-rest",
 		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
 		OidcUrl:                    "https://issuer.example.org",
 	}
@@ -16,6 +17,10 @@ func TestBuildAccessMethodsBuildsConfiguredStubs(t *testing.T) {
 		AbsolutePath: "/tempZone/home/test1/file.txt",
 		IrodsZone:    "tempZone",
 		ResourceName: "demoResc",
+		Replicas: []InternalReplica{
+			{ResourceName: "demoResc"},
+			{ResourceName: "archiveResc"},
+		},
 	}
 
 	methods := BuildAccessMethods(cfg, object)
@@ -56,22 +61,23 @@ func TestBuildAccessMethodsSkipsUnconfiguredMethods(t *testing.T) {
 	}
 }
 
-func TestBuildAccessMethodsSupportsLegacyConfig(t *testing.T) {
+func TestBuildAccessMethodsSkipsUnsupportedHTTPSImplementation(t *testing.T) {
 	cfg := &DrsConfig{
-		AccessMethods:       []string{"http", "irods", "local", "s3"},
-		HTTPAccessBaseURL:   "https://drs.example.org",
-		IRODSAccessHost:     "irods.example.org",
-		IRODSAccessPort:     1247,
-		LocalAccessRootPath: "/mnt/irods",
+		HttpsAccessMethodSupported: true,
+		HttpsAccessImplementation:  "irods-https-api",
+		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
 	}
 
 	object := &InternalDrsObject{
 		Id:           "object-123",
 		AbsolutePath: "/tempZone/home/test1/file.txt",
+		Replicas: []InternalReplica{
+			{ResourceName: "demoResc"},
+		},
 	}
 
 	methods := BuildAccessMethods(cfg, object)
-	if len(methods) != 4 {
-		t.Fatalf("expected 4 legacy access methods, got %d", len(methods))
+	if len(methods) != 0 {
+		t.Fatalf("expected no methods for unsupported https implementation stub, got %+v", methods)
 	}
 }

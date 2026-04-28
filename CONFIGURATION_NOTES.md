@@ -118,32 +118,32 @@ IrodsAdminPasswordFile:
 
 ## Access methods
 
-Configured access methods are still partly stubbed. Supported names are:
-
-- `http`
-- `irods`
-- `local`
-- `s3`
+Configured access methods are now driven by structured booleans and provider
+settings in `drs-config.yaml`.
 
 Example:
 
 ```yaml
-AccessMethods:
-  - http
-  - irods
-  - local
-HTTPAccessBaseURL: https://drs.example.org
-IRODSAccessHost: irods.example.org
-IRODSAccessPort: 1247
+IrodsAccessMethodSupported: false
+FileAccessMethodSupported: false
+HttpsAccessMethodSupported: true
+HttpsAccessImplementation: irods-go-rest
+HttpsAccessMethodBaseURL: https://drs.example.org/api/v1/path/contents?irods_path=
+HttpsAccessUseTicket: true
 LocalAccessRootPath: /mnt/irods
 ```
 
 Current behavior:
 
-- `http` returns an `access_id`
+- `https` returns an `access_id` for later resolution through `/access`
 - `irods` returns an `access_id`
 - `local` returns a `local:///...` path
 - `s3` is a placeholder
+
+Current `https` implementations:
+
+- `irods-go-rest` is supported
+- `irods-http-api` is stubbed for future support
 
 ## Service-info JSON
 

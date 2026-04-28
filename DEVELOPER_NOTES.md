@@ -6,6 +6,10 @@ Use this file for the main working rules in `irods-go-drs`.
 
 `irods-go-drs` is the DRS-facing service for iRODS.
 
+Monitor shared higher-level iRODS client logic against `go-irodsclient-extensions`.
+
+If functionality here is also needed by `irods-go-rest` or other clients, consider refactoring it into `go-irodsclient-extensions` instead of duplicating it across service repositories.
+
 Keep the code split this way:
 
 - `internal/` handles HTTP, request parsing, and response mapping
@@ -49,9 +53,11 @@ Keep these rules:
 
 Access method generation belongs in `drs-support`.
 
+Ticket parsing, ticket creation helpers, and other reusable client workflows should be considered for extraction into `go-irodsclient-extensions` when they are not DRS-specific.
+
 Current direction:
 
-- `http` should resolve later through `/access`
+- `https` should resolve later through `/access`
 - `irods` should resolve later through `/access`
 - `local` may return a direct mapped path
 - `s3` is still a stub

@@ -95,7 +95,7 @@ func buildE2EObjectFixture(t *testing.T) (*e2eObjectFixture, error) {
 		missingID:    fmt.Sprintf("missing-e2e-%d", time.Now().UnixNano()),
 		description:  description,
 		aliases:      aliases,
-		objectName:   path.Base(objectPath),
+		objectName:   objectPath,
 		expectedUser: testUser,
 	}, nil
 }
@@ -240,7 +240,7 @@ func buildE2EBasicObjectFixture(t *testing.T) (*e2eBasicObjectFixture, error) {
 		objectPath:   objectPath,
 		objectID:     objectID,
 		description:  description,
-		objectName:   path.Base(objectPath),
+		objectName:   objectPath,
 		expectedUser: testUser,
 	}, nil
 }

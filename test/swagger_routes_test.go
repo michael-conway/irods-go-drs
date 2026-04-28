@@ -35,6 +35,7 @@ func TestSwaggerUIRoute(t *testing.T) {
 	router := internal.NewRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/swagger", nil)
+	req.Host = "drs.example.org:1234"
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -48,7 +49,7 @@ func TestSwaggerUIRoute(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !containsAll(body, "SwaggerUIBundle", "/openapi.yaml") {
+	if !containsAll(body, "SwaggerUIBundle", "openapi.yaml") {
 		t.Fatalf("unexpected response body: %q", body)
 	}
 }

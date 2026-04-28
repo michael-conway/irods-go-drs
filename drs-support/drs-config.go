@@ -22,10 +22,11 @@ type DrsConfig struct {
 	IrodsAccessMethodSupported       bool
 	FileAccessMethodSupported        bool
 	HttpsAccessMethodSupported       bool
+	HttpsAccessImplementation        string
 	HttpsAccessMethodBaseURL         string
 	HttpsAccessUseTicket             bool
-	AccessMethods                    []string
-	HTTPAccessBaseURL                string
+	DefaultTicketLifetimeMinutes     int
+	DefaultTicketUseLimit            int
 	IRODSAccessHost                  string
 	IRODSAccessPort                  int
 	LocalAccessRootPath              string
@@ -93,10 +94,11 @@ func bindEnvVars(v *viper.Viper) error {
 		"IrodsAccessMethodSupported":       {"DRS_IRODS_ACCESS_METHOD_SUPPORTED", "DRS_IRODSACCESSMETHODSUPPORTED"},
 		"FileAccessMethodSupported":        {"DRS_FILE_ACCESS_METHOD_SUPPORTED", "DRS_FILEACCESSMETHODSUPPORTED"},
 		"HttpsAccessMethodSupported":       {"DRS_HTTPS_ACCESS_METHOD_SUPPORTED", "DRS_HTTPSACCESSMETHODSUPPORTED"},
+		"HttpsAccessImplementation":        {"DRS_HTTPS_ACCESS_IMPLEMENTATION", "DRS_HTTPSACCESSIMPLEMENTATION"},
 		"HttpsAccessMethodBaseURL":         {"DRS_HTTPS_ACCESS_METHOD_BASE_URL", "DRS_HTTPSACCESSMETHODBASEURL"},
 		"HttpsAccessUseTicket":             {"DRS_HTTPS_ACCESS_USE_TICKET", "DRS_HTTPSACCESSUSETICKET"},
-		"AccessMethods":                    {"DRS_ACCESS_METHODS", "DRS_ACCESSMETHODS"},
-		"HTTPAccessBaseURL":                {"DRS_HTTP_ACCESS_BASE_URL", "DRS_HTTPACCESSBASEURL"},
+		"DefaultTicketLifetimeMinutes":     {"DRS_DEFAULT_TICKET_LIFETIME_MINUTES", "DRS_DEFAULTTICKETLIFETIMEMINUTES"},
+		"DefaultTicketUseLimit":            {"DRS_DEFAULT_TICKET_USE_LIMIT", "DRS_DEFAULTTICKETUSELIMIT"},
 		"IRODSAccessHost":                  {"DRS_IRODS_ACCESS_HOST", "DRS_IRODSACCESSHOST"},
 		"IRODSAccessPort":                  {"DRS_IRODS_ACCESS_PORT", "DRS_IRODSACCESSPORT"},
 		"LocalAccessRootPath":              {"DRS_LOCAL_ACCESS_ROOT_PATH", "DRS_LOCALACCESSROOTPATH"},
@@ -169,34 +171,6 @@ func resolveConfigPath(configPath string, configDir string) string {
 	return filepath.Join(configDir, configPath)
 }
 
-func resolveStringSliceConfig(v *viper.Viper, key string) []string {
-	values := v.GetStringSlice(key)
-	if len(values) == 0 {
-		raw := strings.TrimSpace(v.GetString(key))
-		if raw == "" {
-			return nil
-		}
-		values = []string{raw}
-	}
-
-	resolved := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		for _, candidate := range strings.Split(value, ",") {
-			normalized := strings.ToLower(strings.TrimSpace(candidate))
-			if normalized == "" {
-				continue
-			}
-			if _, ok := seen[normalized]; ok {
-				continue
-			}
-			seen[normalized] = struct{}{}
-			resolved = append(resolved, normalized)
-		}
-	}
-	return resolved
-}
-
 // ReadDrsConfig reads the configuration for DRS behaviors in irods
 // can take a number of paths that will be prefixed in the search path, or defaults
 // may be accepted, blank params for name and type default to irods-drs.yaml
@@ -263,9 +237,8 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	}
 
 	C.ServiceInfoFilePath = resolveConfigPath(C.ServiceInfoFilePath, configDir)
+	C.HttpsAccessImplementation = strings.ToLower(strings.TrimSpace(C.HttpsAccessImplementation))
 	C.HttpsAccessMethodBaseURL = strings.TrimSpace(C.HttpsAccessMethodBaseURL)
-	C.AccessMethods = resolveStringSliceConfig(v, "AccessMethods")
-	C.HTTPAccessBaseURL = strings.TrimSpace(C.HTTPAccessBaseURL)
 	C.IRODSAccessHost = strings.TrimSpace(C.IRODSAccessHost)
 	C.LocalAccessRootPath = resolveConfigPath(C.LocalAccessRootPath, configDir)
 	C.S3AccessEndpoint = strings.TrimSpace(C.S3AccessEndpoint)

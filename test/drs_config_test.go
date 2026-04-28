@@ -23,11 +23,20 @@ func TestReadDrsConfig(t *testing.T) {
 	if !actual.HttpsAccessMethodSupported {
 		t.Fatal("expected https access method to be enabled from config")
 	}
+	if actual.HttpsAccessImplementation != "irods-go-rest" {
+		t.Fatalf("expected https access implementation from config, got %q", actual.HttpsAccessImplementation)
+	}
 	if actual.HttpsAccessMethodBaseURL != "https://download.example.org/api/v1/path/contents?irods_path=" {
 		t.Fatalf("expected https access method base URL from config, got %q", actual.HttpsAccessMethodBaseURL)
 	}
 	if !actual.HttpsAccessUseTicket {
 		t.Fatal("expected https access ticket mode from config")
+	}
+	if actual.DefaultTicketLifetimeMinutes != 720 {
+		t.Fatalf("expected default ticket lifetime from config to be 720, got %d", actual.DefaultTicketLifetimeMinutes)
+	}
+	if actual.DefaultTicketUseLimit != 50 {
+		t.Fatalf("expected default ticket use limit from config to be 50, got %d", actual.DefaultTicketUseLimit)
 	}
 }
 

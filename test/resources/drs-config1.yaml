@@ -6,8 +6,11 @@ ServiceInfoSampleIntervalMinutes: 7
 IrodsAccessMethodSupported: false
 FileAccessMethodSupported: false
 HttpsAccessMethodSupported: true
+HttpsAccessImplementation: irods-go-rest
 HttpsAccessMethodBaseURL: https://download.example.org/api/v1/path/contents?irods_path=
 HttpsAccessUseTicket: true
+DefaultTicketLifetimeMinutes: 720
+DefaultTicketUseLimit: 50
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone

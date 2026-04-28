@@ -22,89 +22,51 @@ func BuildAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMe
 		return nil
 	}
 
-	if usesStructuredAccessMethodConfig(cfg) {
-		methods := make([]DrsAccessMethod, 0, 3)
-		if accessMethod, ok := buildHTTPSAccessMethod(cfg, object); ok {
-			methods = append(methods, accessMethod)
-		}
-		if accessMethod, ok := buildIRODSAccessMethod(cfg, object); ok {
-			methods = append(methods, accessMethod)
-		}
-		if accessMethod, ok := buildFileAccessMethod(cfg, object); ok {
-			methods = append(methods, accessMethod)
-		}
-		return methods
-	}
-
-	methods := make([]DrsAccessMethod, 0, len(cfg.AccessMethods))
-	for _, method := range cfg.AccessMethods {
-		switch strings.ToLower(strings.TrimSpace(method)) {
-		case "http":
-			if accessMethod, ok := buildLegacyHTTPAccessMethod(cfg, object); ok {
-				methods = append(methods, accessMethod)
-			}
-		case "irods":
-			if accessMethod, ok := buildIRODSAccessMethod(cfg, object); ok {
-				methods = append(methods, accessMethod)
-			}
-		case "local":
-			if accessMethod, ok := buildLocalAccessMethod(cfg, object); ok {
-				methods = append(methods, accessMethod)
-			}
-		case "s3":
-			if accessMethod, ok := buildS3AccessMethod(cfg, object); ok {
-				methods = append(methods, accessMethod)
-			}
-		}
-	}
-
+	methods := make([]DrsAccessMethod, 0, 4)
+	methods = append(methods, buildHTTPSAccessMethods(cfg, object)...)
+	methods = append(methods, buildIRODSAccessMethods(cfg, object)...)
+	methods = append(methods, buildFileAccessMethods(cfg, object)...)
+	methods = append(methods, buildS3AccessMethods(cfg, object)...)
 	return methods
 }
 
-func usesStructuredAccessMethodConfig(cfg *DrsConfig) bool {
-	if cfg == nil {
-		return false
-	}
-
-	return cfg.HttpsAccessMethodSupported || cfg.IrodsAccessMethodSupported || cfg.FileAccessMethodSupported || strings.TrimSpace(cfg.HttpsAccessMethodBaseURL) != ""
-}
-
-func buildHTTPSAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
-	if cfg == nil || !cfg.HttpsAccessMethodSupported {
-		return DrsAccessMethod{}, false
+func buildHTTPSAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
+	if cfg == nil || object == nil || !cfg.HttpsAccessMethodSupported {
+		return nil
 	}
 
 	baseURL := strings.TrimSpace(cfg.HttpsAccessMethodBaseURL)
 	if baseURL == "" || strings.TrimSpace(object.AbsolutePath) == "" {
-		return DrsAccessMethod{}, false
+		return nil
 	}
 
-	return DrsAccessMethod{
-		Type:               "https",
-		AccessID:           "irods-go-rest-https",
-		Cloud:              buildIRODSCloudName(object),
-		Region:             strings.TrimSpace(object.ResourceName),
-		Available:          false,
-		SupportedAuthTypes: []string{"BasicAuth", "BearerAuth"},
-		BearerAuthIssuers:  buildBearerAuthIssuers(cfg),
-	}, true
-}
+	switch implementation := strings.TrimSpace(cfg.HttpsAccessImplementation); implementation {
+	case "", "irods-go-rest":
+		region := primaryReplicaResourceName(object)
+		if region == "" {
+			return nil
+		}
 
-func buildLegacyHTTPAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
-	if strings.TrimSpace(cfg.HTTPAccessBaseURL) == "" {
-		return DrsAccessMethod{}, false
+		return []DrsAccessMethod{{
+			Type:               "https",
+			AccessID:           "irods-go-rest-https",
+			Cloud:              buildIRODSCloudName(object),
+			Region:             region,
+			Available:          false,
+			SupportedAuthTypes: []string{"BasicAuth", "BearerAuth"},
+			BearerAuthIssuers:  buildBearerAuthIssuers(cfg),
+		}}
+	case "irods-https-api":
+		// Stub for future provider support.
+		return nil
+	default:
+		return nil
 	}
-
-	return DrsAccessMethod{
-		Type:      "http",
-		AccessID:  "http:" + object.Id,
-		Available: false,
-	}, true
 }
 
-func buildIRODSAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
-	if usesStructuredAccessMethodConfig(cfg) && !cfg.IrodsAccessMethodSupported {
-		return DrsAccessMethod{}, false
+func buildIRODSAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
+	if cfg == nil || object == nil || !cfg.IrodsAccessMethodSupported {
+		return nil
 	}
 
 	host := strings.TrimSpace(cfg.IRODSAccessHost)
@@ -118,22 +80,26 @@ func buildIRODSAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAcces
 	}
 
 	if host == "" || port <= 0 || strings.TrimSpace(object.AbsolutePath) == "" {
-		return DrsAccessMethod{}, false
+		return nil
 	}
 
-	return DrsAccessMethod{
+	return []DrsAccessMethod{{
 		Type:      "irods",
 		AccessID:  "irods:" + object.Id,
 		Available: false,
-	}, true
+	}}
 }
 
-func buildFileAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
-	if cfg == nil || !cfg.FileAccessMethodSupported {
-		return DrsAccessMethod{}, false
+func buildFileAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
+	if cfg == nil || object == nil || !cfg.FileAccessMethodSupported {
+		return nil
 	}
 
-	return buildLocalAccessMethod(cfg, object)
+	if accessMethod, ok := buildLocalAccessMethod(cfg, object); ok {
+		return []DrsAccessMethod{accessMethod}
+	}
+
+	return nil
 }
 
 func buildLocalAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
@@ -150,17 +116,10 @@ func buildLocalAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAcces
 	}, true
 }
 
-func buildS3AccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAccessMethod, bool) {
+func buildS3AccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
 	_ = cfg
-	if strings.TrimSpace(object.Id) == "" {
-		return DrsAccessMethod{}, false
-	}
-
-	return DrsAccessMethod{
-		Type:      "s3",
-		AccessID:  "s3:" + object.Id,
-		Available: false,
-	}, true
+	_ = object
+	return nil
 }
 
 func buildIRODSCloudName(object *InternalDrsObject) string {
@@ -187,4 +146,19 @@ func buildBearerAuthIssuers(cfg *DrsConfig) []string {
 	}
 
 	return []string{issuer}
+}
+
+func primaryReplicaResourceName(object *InternalDrsObject) string {
+	if object == nil {
+		return ""
+	}
+
+	for _, replica := range object.Replicas {
+		resourceName := strings.TrimSpace(replica.ResourceName)
+		if resourceName != "" {
+			return resourceName
+		}
+	}
+
+	return strings.TrimSpace(object.ResourceName)
 }
