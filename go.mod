@@ -3,7 +3,7 @@ module github.com/michael-conway/irods-go-drs
 go 1.25.0
 
 require (
-	github.com/cyverse/go-irodsclient v0.19.8
+	github.com/cyverse/go-irodsclient v0.19.10
 	github.com/gorilla/mux v1.8.1
 	github.com/michael-conway/go-irodsclient-extensions v0.0.0
 	github.com/rs/zerolog v1.35.0
@@ -22,7 +22,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/getsentry/sentry-go v0.27.0 // indirect
 	github.com/go-resty/resty/v2 v2.7.0 // indirect
-	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/hashicorp/go-rootcerts v1.0.2 // indirect

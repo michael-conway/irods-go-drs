@@ -7,8 +7,8 @@ github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b/go.mod h1:Vz9D
 github.com/cockroachdb/redact v1.1.5 h1:u1PMllDkdFfPWaNGMyLD1+so+aq3uUItthCFqzwPJ30=
 github.com/cockroachdb/redact v1.1.5/go.mod h1:BVNblN9mBWFyMyqK1k3AAiSxhvhfK2oOZZ2lK+dpvRg=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
-github.com/cyverse/go-irodsclient v0.19.8 h1:300U9pvtOmAr5XTe38Wur00x+QWdopgts8bAk/RfK54=
-github.com/cyverse/go-irodsclient v0.19.8/go.mod h1:ZtRO86ZbVkoz8morTMs4qWd4PrjvlrLR3/N/m1sSW50=
+github.com/cyverse/go-irodsclient v0.19.10 h1:WBmqFNesYoifPZ6Z7TTeL5KrR0GPAhB6l2spLkROen0=
+github.com/cyverse/go-irodsclient v0.19.10/go.mod h1:ZtRO86ZbVkoz8morTMs4qWd4PrjvlrLR3/N/m1sSW50=
 github.com/danwakefield/fnmatch v0.0.0-20160403171240-cbb64ac3d964 h1:y5HC9v93H5EPKqaS1UYVg1uYah5Xf51mBfIoWehClUQ=
 github.com/danwakefield/fnmatch v0.0.0-20160403171240-cbb64ac3d964/go.mod h1:Xd9hchkHSWYkEqJwUGisez3G1QY8Ryz0sdWrLPMGjLk=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
