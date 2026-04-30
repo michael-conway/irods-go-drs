@@ -16,7 +16,7 @@ IrodsPrimaryTestPassword: test1
 IrodsSecondaryTestUser: test2ob
 IrodsSecondaryTestPassword: test2
 IrodsAuthScheme: native
-IrodsNegotiationPolicy: native
+IrodsNegotiationPolicy: CS_NEG_DONT_CARE
 IrodsDefaultResource:
 OidcUrl: https://localhost:8443
 OidcClientId: drs-api

@@ -11,7 +11,7 @@ IrodsPrimaryTestPassword: test1
 IrodsSecondaryTestUser: test2
 IrodsSecondaryTestPassword: test2
 IrodsAuthScheme: native
-IrodsNegotiationPolicy: request_server_negotiation
+IrodsNegotiationPolicy: CS_NEG_DONT_CARE
 IrodsDefaultResource: demoResc
 ResourceAffinity:
   - Host: http://127.0.0.1:8080
