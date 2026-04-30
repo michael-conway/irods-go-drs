@@ -24,6 +24,7 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_DEFAULT_TICKET_USE_LIMIT", "100")
 	t.Setenv("DRS_IRODS_ACCESS_METHOD_SUPPORTED", "true")
 	t.Setenv("DRS_FILE_ACCESS_METHOD_SUPPORTED", "true")
+	t.Setenv("DRS_RESOURCE_AFFINITY", "demoResc, edgeResc , archiveResc")
 
 	var confs = [1]string{"./resources/"}
 	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
@@ -85,6 +86,9 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 
 	if !config.FileAccessMethodSupported {
 		t.Fatal("expected env override for FileAccessMethodSupported")
+	}
+	if len(config.ResourceAffinity) != 1 || len(config.ResourceAffinity[0].Resources) != 3 || config.ResourceAffinity[0].Resources[0] != "demoResc" || config.ResourceAffinity[0].Resources[1] != "edgeResc" || config.ResourceAffinity[0].Resources[2] != "archiveResc" {
+		t.Fatalf("expected env override for ResourceAffinity, got %+v", config.ResourceAffinity)
 	}
 }
 
@@ -280,5 +284,37 @@ func TestReadDrsConfigSupportsOidcInsecureSkipVerifyKey(t *testing.T) {
 
 	if !config.OidcInsecureSkipVerify {
 		t.Fatal("expected OidcInsecureSkipVerify config key to be preserved")
+	}
+}
+
+func TestReadDrsConfigResourceAffinityYAMLList(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "resource-affinity-config.yaml")
+	configBody := "" +
+		"DrsIdAvuValue: resource-affinity\n" +
+		"IrodsHost: localhost\n" +
+		"IrodsPort: 1247\n" +
+		"IrodsZone: tempZone\n" +
+		"IrodsAdminUser: rods\n" +
+		"IrodsAuthScheme: native\n" +
+		"IrodsNegotiationPolicy: native\n" +
+		"ResourceAffinity:\n" +
+		"  - demoResc\n" +
+		"  - edgeResc\n" +
+		"  - archiveResc\n"
+
+	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	t.Setenv(drs_support.ConfigFileEnvVar, configPath)
+
+	config, err := drs_support.ReadDrsConfig("does-not-exist", "yaml", []string{"./resources/"})
+	if err != nil {
+		t.Fatalf("error reading drs config with %s override: %s", drs_support.ConfigFileEnvVar, err)
+	}
+
+	if len(config.ResourceAffinity) != 1 || len(config.ResourceAffinity[0].Resources) != 3 || config.ResourceAffinity[0].Resources[0] != "demoResc" || config.ResourceAffinity[0].Resources[1] != "edgeResc" || config.ResourceAffinity[0].Resources[2] != "archiveResc" {
+		t.Fatalf("expected ResourceAffinity from YAML list, got %+v", config.ResourceAffinity)
 	}
 }

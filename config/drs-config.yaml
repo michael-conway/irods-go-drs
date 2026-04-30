@@ -36,3 +36,9 @@ HttpsAccessImplementation: irods-go-rest
 DefaultTicketLifetimeMinutes: 720
 DefaultTicketUseLimit: 50
 
+ResourceAffinity:
+  - Host: http://localhost:8080
+    Resources:
+  - Host: http://localhost:8081
+    Resources:
+      - test2-resc

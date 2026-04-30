@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 )
@@ -44,6 +46,7 @@ type DrsConfig struct {
 	IrodsAuthScheme                  string
 	IrodsNegotiationPolicy           string
 	IrodsDefaultResource             string
+	ResourceAffinity                 []ResourceAffinityEntry
 	OidcUrl                          string
 	OidcClientId                     string
 	OidcClientSecret                 string
@@ -52,6 +55,11 @@ type DrsConfig struct {
 	OidcScope                        string
 	OidcSkipTLSVerify                bool
 	OidcInsecureSkipVerify           bool
+}
+
+type ResourceAffinityEntry struct {
+	Host      string   `mapstructure:"Host"`
+	Resources []string `mapstructure:"Resources"`
 }
 
 func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
@@ -221,7 +229,70 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	configDir := filepath.Dir(v.ConfigFileUsed())
 	var C DrsConfig
 
-	err = v.Unmarshal(&C)
+	err = v.Unmarshal(&C, func(decoderConfig *mapstructure.DecoderConfig) {
+		decoderConfig.DecodeHook = mapstructure.ComposeDecodeHookFunc(
+			mapstructure.StringToSliceHookFunc(","),
+			func(from reflect.Type, to reflect.Type, data any) (any, error) {
+				resourceAffinityType := reflect.TypeOf([]ResourceAffinityEntry{})
+				if to != resourceAffinityType {
+					return data, nil
+				}
+
+				switch value := data.(type) {
+				case []string:
+					normalized := normalizeStringSlice(value)
+					if len(normalized) == 0 {
+						return []ResourceAffinityEntry{}, nil
+					}
+					return []ResourceAffinityEntry{{
+						Resources: normalized,
+					}}, nil
+				case string:
+					normalized := normalizeStringSlice(strings.Split(value, ","))
+					if len(normalized) == 0 {
+						return []ResourceAffinityEntry{}, nil
+					}
+					return []ResourceAffinityEntry{{
+						Resources: normalized,
+					}}, nil
+				case []any:
+					legacyValues := make([]string, 0, len(value))
+					for _, raw := range value {
+						switch cast := raw.(type) {
+						case string:
+							legacyValues = append(legacyValues, cast)
+						default:
+							return data, nil
+						}
+					}
+
+					normalized := normalizeStringSlice(legacyValues)
+					if len(normalized) == 0 {
+						return []ResourceAffinityEntry{}, nil
+					}
+					return []ResourceAffinityEntry{{
+						Resources: normalized,
+					}}, nil
+				default:
+					return data, nil
+				}
+			},
+			func(from reflect.Type, to reflect.Type, data any) (any, error) {
+				if to.Kind() != reflect.Slice || to.Elem().Kind() != reflect.String {
+					return data, nil
+				}
+
+				values, ok := data.([]string)
+				if !ok {
+					return data, nil
+				}
+
+				normalized := make([]string, 0, len(values))
+				normalized = append(normalized, normalizeStringSlice(values)...)
+				return normalized, nil
+			},
+		)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode into struct: %w", err)
 	}
@@ -242,6 +313,8 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	C.IRODSAccessHost = strings.TrimSpace(C.IRODSAccessHost)
 	C.LocalAccessRootPath = resolveConfigPath(C.LocalAccessRootPath, configDir)
 	C.S3AccessEndpoint = strings.TrimSpace(C.S3AccessEndpoint)
+	C.ResourceAffinity = normalizeResourceAffinities(C.ResourceAffinity)
+	applyResourceAffinityEnvOverride(&C)
 	C.OidcSkipTLSVerify = C.OidcSkipTLSVerify || C.OidcInsecureSkipVerify
 	C.OidcInsecureSkipVerify = C.OidcSkipTLSVerify
 
@@ -254,6 +327,69 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	}
 
 	return &C, nil
+}
+
+func normalizeStringSlice(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func normalizeResourceAffinities(entries []ResourceAffinityEntry) []ResourceAffinityEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	normalized := make([]ResourceAffinityEntry, 0, len(entries))
+	for _, entry := range entries {
+		host := strings.TrimSpace(entry.Host)
+		resources := normalizeStringSlice(entry.Resources)
+		if host == "" && len(resources) == 0 {
+			continue
+		}
+
+		normalized = append(normalized, ResourceAffinityEntry{
+			Host:      host,
+			Resources: resources,
+		})
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+func applyResourceAffinityEnvOverride(cfg *DrsConfig) {
+	if cfg == nil {
+		return
+	}
+
+	raw := strings.TrimSpace(os.Getenv("DRS_RESOURCE_AFFINITY"))
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("DRS_RESOURCEAFFINITY"))
+	}
+	if raw == "" {
+		return
+	}
+
+	resources := normalizeStringSlice(strings.Split(raw, ","))
+	if len(resources) == 0 {
+		cfg.ResourceAffinity = nil
+		return
+	}
+
+	cfg.ResourceAffinity = []ResourceAffinityEntry{{
+		Host:      strings.TrimSpace(cfg.HttpsAccessMethodBaseURL),
+		Resources: resources,
+	}}
 }
 
 func (d *DrsConfig) InitializeLogging() {

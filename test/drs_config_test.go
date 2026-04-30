@@ -38,6 +38,15 @@ func TestReadDrsConfig(t *testing.T) {
 	if actual.DefaultTicketUseLimit != 50 {
 		t.Fatalf("expected default ticket use limit from config to be 50, got %d", actual.DefaultTicketUseLimit)
 	}
+	if len(actual.ResourceAffinity) != 2 || actual.ResourceAffinity[0].Host != "https://download.example.org" || actual.ResourceAffinity[1].Host != "https://download-alt.example.org" {
+		t.Fatalf("expected resource affinity from config, got %+v", actual.ResourceAffinity)
+	}
+	if len(actual.ResourceAffinity[0].Resources) != 1 || actual.ResourceAffinity[0].Resources[0] != "demoResc" {
+		t.Fatalf("expected first resource affinity resources from config, got %+v", actual.ResourceAffinity)
+	}
+	if len(actual.ResourceAffinity[1].Resources) != 0 {
+		t.Fatalf("expected second resource affinity resources from config, got %+v", actual.ResourceAffinity)
+	}
 }
 
 func TestSetLogLevel(t *testing.T) {

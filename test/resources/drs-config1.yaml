@@ -23,6 +23,12 @@ IrodsSecondaryTestPassword: test2
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: native
 IrodsDefaultResource:
+ResourceAffinity:
+  - Host: https://download.example.org
+    Resources:
+      - demoResc
+  - Host: https://download-alt.example.org
+    Resources: []
 OidcUrl: https://localhost:8443
 OidcClientId:
 OidcClientSecretFile: oidc-client-secret.txt

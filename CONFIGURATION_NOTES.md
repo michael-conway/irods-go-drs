@@ -32,6 +32,7 @@ DRS_IRODS_PRIMARY_TEST_USER=test1
 DRS_IRODS_PRIMARY_TEST_PASSWORD=test1
 DRS_IRODS_SECONDARY_TEST_USER=test2
 DRS_IRODS_SECONDARY_TEST_PASSWORD=test2
+DRS_RESOURCE_AFFINITY=demoResc,edgeResc
 
 DRS_OIDC_URL=https://localhost:8443
 DRS_OIDC_REALM=drs
@@ -55,6 +56,37 @@ OidcInsecureSkipVerify: true
 
 `OidcSkipTLSVerify` is still accepted for compatibility, but
 `OidcInsecureSkipVerify` is the preferred config key.
+
+## Resource affinity
+
+`ResourceAffinity` is optional and maps iRODS storage resources to HTTPS DRS
+hosts that are proximate to those resources.
+
+Supported forms:
+
+```yaml
+ResourceAffinity:
+  - Host: https://drs-resc-a.example.org
+    Resources:
+      - demoResc
+      - cacheResc
+  - Host: https://drs-default.example.org
+    Resources: []
+```
+
+or environment override:
+
+```bash
+DRS_RESOURCE_AFFINITY=demoResc,edgeResc
+```
+
+Notes:
+
+- `resources` entries with exact names are preferred for matching replicas.
+- The first entry with an empty `Resources` array is the default for unmatched resources.
+- `*` is still accepted for backward compatibility.
+- Environment override remains a legacy compatibility path and maps to one
+  default affinity entry using `HttpsAccessMethodBaseURL` as the host base URL.
 
 ## Secrets
 
@@ -143,7 +175,7 @@ Current behavior:
 Current `https` implementations:
 
 - `irods-go-rest` is supported
-- `irods-http-api` is stubbed for future support
+- `irods-https-api` is supported
 
 ## Service-info JSON
 

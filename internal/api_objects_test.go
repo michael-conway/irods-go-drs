@@ -104,6 +104,54 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	}
 }
 
+func TestGetAccessURLReturnsIRODSGoRestAffinityHostAccessURL(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	affinityAccessID := "irods-go-rest-https-demoResc"
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/"+affinityAccessID, nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "https://rest.example.org/api/v1/path/contents?irods_path=",
+			ResourceAffinity: []drs_support.ResourceAffinityEntry{
+				{
+					Host:      "https://dedicated.example.org",
+					Resources: []string{"demoResc"},
+				},
+			},
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": affinityAccessID,
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expectedURL := "https://dedicated.example.org/api/v1/path/contents?irods_path=" + neturl.QueryEscape("/tempZone/home/test1/file.txt")
+	if response.Url != expectedURL {
+		t.Fatalf("expected access url %q, got %q", expectedURL, response.Url)
+	}
+}
+
 func TestGetObjectReturnsMappedDrsObjectWithIRODSAccessMethod(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
@@ -289,7 +337,7 @@ func TestOptionsObjectReturnsNotImplementedForUnsupportedHTTPSProvider(t *testin
 	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
 		return &drs_support.DrsConfig{
 			HttpsAccessMethodSupported: true,
-			HttpsAccessImplementation:  "irods-https-api",
+			HttpsAccessImplementation:  "unsupported-provider",
 		}, nil
 	}
 	defer func() { readRouteDrsConfig = oldConfigReader }()
@@ -404,7 +452,7 @@ func TestOptionsBulkObjectReturnsNotImplementedForUnsupportedHTTPSProvider(t *te
 	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
 		return &drs_support.DrsConfig{
 			HttpsAccessMethodSupported: true,
-			HttpsAccessImplementation:  "irods-https-api",
+			HttpsAccessImplementation:  "unsupported-provider",
 		}, nil
 	}
 	defer func() { readRouteDrsConfig = oldConfigReader }()
@@ -520,6 +568,49 @@ func TestGetAccessURLReturnsDirectURLWhenTicketDisabled(t *testing.T) {
 	}
 }
 
+func TestGetAccessURLReturnsIRODSHTTPSAPIAccessURL(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/irods-https-api-https", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-https-api",
+			HttpsAccessMethodBaseURL:   "https://https-api.example.org/download?path=",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "irods-https-api-https",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expectedURL := "https://https-api.example.org/download?path=" + neturl.QueryEscape("/tempZone/home/test1/file.txt")
+	if response.Url != expectedURL {
+		t.Fatalf("expected access url %q, got %q", expectedURL, response.Url)
+	}
+	if len(response.Headers) != 0 {
+		t.Fatalf("expected no headers when ticket support is disabled, got %+v", response.Headers)
+	}
+}
+
 func TestGetAccessURLReturnsIRODSTicketURI(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()
@@ -591,6 +682,51 @@ func TestGetAccessURLReturnsIRODSTicketURI(t *testing.T) {
 	}
 	if fs.ticketExpiryTimes[fs.createdTickets[0].name].IsZero() {
 		t.Fatalf("expected ticket expiry time to be set, got %+v", fs.ticketExpiryTimes)
+	}
+}
+
+func TestGetAccessURLReturnsIRODSTicketURIFallbackFromFilesystemAccount(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/irods", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			IrodsAccessMethodSupported:   true,
+			IrodsZone:                    "tempZone",
+			DefaultTicketLifetimeMinutes: 30,
+			DefaultTicketUseLimit:        5,
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "irods",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	parsed, err := extension_irodsuri.Parse(response.Url)
+	if err != nil {
+		t.Fatalf("expected valid irods URI, got %q: %v", response.Url, err)
+	}
+
+	if parsed.Host != "icat-from-account.example.org" || parsed.Port != 1247 {
+		t.Fatalf("expected fallback host/port from filesystem account, got %+v", parsed)
 	}
 }
 
@@ -689,7 +825,7 @@ func TestGetObjectReturnsNotImplementedForUnsupportedHTTPSImplementation(t *test
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
 			HttpsAccessMethodSupported: true,
-			HttpsAccessImplementation:  "irods-https-api",
+			HttpsAccessImplementation:  "unsupported-provider",
 			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
 		},
 		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
@@ -724,7 +860,11 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 	updateTime := time.Unix(2000, 0).UTC()
 
 	return &routeTestFileSystem{
-		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		account: &irodstypes.IRODSAccount{
+			Host:       "icat-from-account.example.org",
+			Port:       1247,
+			ClientZone: "tempZone",
+		},
 		entriesByPath: map[string]*irodsfs.Entry{
 			"/tempZone/home/test1/file.txt": {
 				ID:         1,

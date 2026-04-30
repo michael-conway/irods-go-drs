@@ -123,24 +123,35 @@ func accessURLForObject(filesystem RouteFileSystem, drsConfig *drs_support.DrsCo
 	}
 
 	switch strings.TrimSpace(accessID) {
-	case "irods-go-rest-https":
-		return buildIRODSGoRestAccessURL(filesystem, drsConfig, objectID, object)
 	case "irods":
 		return buildIRODSAccessURL(filesystem, drsConfig, objectID, object)
 	default:
+		parsedAccessID, ok := drs_support.ParseHTTPSAccessID(accessID)
+		if ok {
+			return buildHTTPSProviderAccessURL(filesystem, drsConfig, objectID, object, parsedAccessID)
+		}
 		return nil, http.StatusNotFound, fmt.Errorf("access id %q not found for object %q", accessID, objectID)
 	}
 }
 
-func buildIRODSGoRestAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
+func buildHTTPSProviderAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, object *drs_support.InternalDrsObject, parsedAccessID drs_support.ParsedHTTPSAccessID) (*AccessUrl, int, error) {
 	if !drsConfig.HttpsAccessMethodSupported {
 		return nil, http.StatusNotImplemented, fmt.Errorf("https access method is not enabled")
 	}
-	if strings.TrimSpace(drsConfig.HttpsAccessImplementation) != "" && strings.TrimSpace(drsConfig.HttpsAccessImplementation) != "irods-go-rest" {
-		return nil, http.StatusNotImplemented, fmt.Errorf("https provider %q is not implemented", strings.TrimSpace(drsConfig.HttpsAccessImplementation))
+	configuredProvider := drs_support.EffectiveHTTPSAccessProvider(drsConfig.HttpsAccessImplementation)
+	if !drs_support.IsSupportedHTTPSAccessProvider(configuredProvider) {
+		return nil, http.StatusNotImplemented, fmt.Errorf("unsupported https access provider %q", strings.TrimSpace(drsConfig.HttpsAccessImplementation))
+	}
+	if parsedAccessID.Provider != configuredProvider {
+		return nil, http.StatusNotFound, fmt.Errorf("access id provider %q does not match configured https provider %q", parsedAccessID.Provider, configuredProvider)
 	}
 
-	baseURL := strings.TrimSpace(drsConfig.HttpsAccessMethodBaseURL)
+	preferredHost := ""
+	if strings.TrimSpace(parsedAccessID.Resource) != "" {
+		preferredHost = drs_support.ResolveAffinityHostForResource(drsConfig, parsedAccessID.Resource)
+	}
+
+	baseURL := drs_support.ResolveHTTPSAccessBaseURL(drsConfig.HttpsAccessMethodBaseURL, preferredHost)
 	if baseURL == "" {
 		return nil, http.StatusInternalServerError, fmt.Errorf("https access method base URL is not configured")
 	}
@@ -179,10 +190,20 @@ func buildIRODSAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsC
 	if host == "" {
 		host = strings.TrimSpace(drsConfig.IrodsHost)
 	}
+	if host == "" {
+		if account := filesystem.GetAccount(); account != nil {
+			host = strings.TrimSpace(account.Host)
+		}
+	}
 
 	port := drsConfig.IRODSAccessPort
 	if port == 0 {
 		port = drsConfig.IrodsPort
+	}
+	if port <= 0 {
+		if account := filesystem.GetAccount(); account != nil {
+			port = account.Port
+		}
 	}
 
 	zone := strings.TrimSpace(object.IrodsZone)
@@ -550,11 +571,9 @@ func validateConfiguredHTTPSProvider(drsConfig *drs_support.DrsConfig) error {
 		return nil
 	}
 
-	switch strings.TrimSpace(drsConfig.HttpsAccessImplementation) {
-	case "", "irods-go-rest":
+	switch drs_support.EffectiveHTTPSAccessProvider(drsConfig.HttpsAccessImplementation) {
+	case drs_support.HTTPSProviderIRODSGoREST, drs_support.HTTPSProviderIRODSHTTPSAPI:
 		return nil
-	case "irods-https-api":
-		return fmt.Errorf("https access provider %q is not implemented", drsConfig.HttpsAccessImplementation)
 	default:
 		return fmt.Errorf("unsupported https access provider %q", drsConfig.HttpsAccessImplementation)
 	}
