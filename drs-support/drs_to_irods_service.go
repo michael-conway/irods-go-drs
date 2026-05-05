@@ -108,6 +108,10 @@ type checksumEnsuringFilesystem interface {
 	EnsureDataObjectChecksum(irodsPath string) (*irodstypes.IRODSChecksum, error)
 }
 
+type allReplicaStatFilesystem interface {
+	StatFileWithAllReplicas(irodsPath string) (*irodsfs.Entry, error)
+}
+
 // ApplyDrsMetadata maps DRS AVUs from iRODS metadata onto an InternalDrsObject.
 func ApplyDrsMetadata(object *InternalDrsObject, metas []*irodstypes.IRODSMeta) error {
 	if object == nil {
@@ -835,6 +839,11 @@ func drsObjectFromEntry(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*Inte
 		return nil, fmt.Errorf("no iRODS entry provided")
 	}
 
+	entry, err := entryWithAllReplicas(filesystem, entry)
+	if err != nil {
+		return nil, err
+	}
+
 	metas, err := filesystem.ListMetadata(entry.Path)
 	if err != nil {
 		return nil, fmt.Errorf("list metadata for %q: %w", entry.Path, err)
@@ -850,6 +859,41 @@ func drsObjectFromEntry(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*Inte
 	}
 
 	return object, nil
+}
+
+func entryWithAllReplicas(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*irodsfs.Entry, error) {
+	if entry == nil || strings.TrimSpace(entry.Path) == "" {
+		return entry, nil
+	}
+
+	switch fs := any(filesystem).(type) {
+	case allReplicaStatFilesystem:
+		fullEntry, err := fs.StatFileWithAllReplicas(entry.Path)
+		if err != nil {
+			return nil, fmt.Errorf("stat data object with all replicas %q: %w", entry.Path, err)
+		}
+		if fullEntry != nil {
+			return fullEntry, nil
+		}
+	case *irodsfs.FileSystem:
+		conn, err := fs.GetMetadataConnection(true)
+		if err != nil {
+			return nil, fmt.Errorf("get metadata connection: %w", err)
+		}
+		defer func() {
+			_ = fs.ReturnMetadataConnection(conn)
+		}()
+
+		dataObject, err := irodslowfs.GetDataObject(conn, entry.Path)
+		if err != nil {
+			return nil, fmt.Errorf("stat data object with all replicas %q: %w", entry.Path, err)
+		}
+		if dataObject != nil && len(dataObject.Replicas) > 0 {
+			return irodsfs.NewEntryFromDataObject(dataObject), nil
+		}
+	}
+
+	return entry, nil
 }
 
 func hasMatchingDrsIDMetadata(metas []*irodstypes.IRODSMeta, drsID string) bool {

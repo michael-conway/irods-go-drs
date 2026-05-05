@@ -104,6 +104,59 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	}
 }
 
+func TestGetObjectReturnsHTTPSAccessMethodPerReplicaResource(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	entry := fs.entriesByPath["/tempZone/home/test1/file.txt"]
+	entry.IRODSReplicas = append(entry.IRODSReplicas, irodstypes.IRODSReplica{
+		Owner:        "test1",
+		ResourceName: "archiveResc",
+		CreateTime:   entry.CreateTime,
+		ModifyTime:   entry.ModifyTime,
+	})
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+			ResourceAffinity: []drs_support.ResourceAffinityEntry{
+				{Host: "https://primary.example.org", Resources: []string{"demoResc"}},
+				{Host: "https://archive.example.org", Resources: []string{"archiveResc"}},
+			},
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response DrsObject
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(response.AccessMethods) != 2 {
+		t.Fatalf("expected 2 https access methods, got %+v", response.AccessMethods)
+	}
+	if response.AccessMethods[0].AccessId != "irods-go-rest-https-demoResc" || response.AccessMethods[0].Region != "demoResc" {
+		t.Fatalf("expected demoResc access method first, got %+v", response.AccessMethods[0])
+	}
+	if response.AccessMethods[1].AccessId != "irods-go-rest-https-archiveResc" || response.AccessMethods[1].Region != "archiveResc" {
+		t.Fatalf("expected archiveResc access method second, got %+v", response.AccessMethods[1])
+	}
+}
+
 func TestGetAccessURLReturnsIRODSGoRestAffinityHostAccessURL(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()

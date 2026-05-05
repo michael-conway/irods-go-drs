@@ -192,6 +192,88 @@ func TestGetDrsObjectByIRODSPath(t *testing.T) {
 	}
 }
 
+func TestGetDrsObjectByIDHydratesAllReplicaResources(t *testing.T) {
+	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
+	updateTime := createTime.Add(5 * time.Minute)
+	objectPath := "/tempZone/home/rods/file.txt"
+
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		searchEntries: []*irodsfs.Entry{
+			{
+				ID:         1,
+				Type:       irodsfs.FileEntry,
+				Name:       "file.txt",
+				Path:       objectPath,
+				Size:       42,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
+		},
+		entryByPath: map[string]*irodsfs.Entry{
+			objectPath: {
+				ID:         1,
+				Type:       irodsfs.FileEntry,
+				Name:       "file.txt",
+				Path:       objectPath,
+				Size:       42,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+				IRODSReplicas: []irodstypes.IRODSReplica{
+					{ResourceName: "demoResc", CreateTime: createTime, ModifyTime: updateTime},
+				},
+			},
+		},
+		allReplicaEntryByPath: map[string]*irodsfs.Entry{
+			objectPath: {
+				ID:         1,
+				Type:       irodsfs.FileEntry,
+				Name:       "file.txt",
+				Path:       objectPath,
+				Size:       42,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+				IRODSReplicas: []irodstypes.IRODSReplica{
+					{ResourceName: "demoResc", CreateTime: createTime, ModifyTime: updateTime},
+					{ResourceName: "archiveResc", CreateTime: createTime, ModifyTime: updateTime},
+				},
+			},
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{
+			objectPath: {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "drs-123", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuMimeTypeAttrib, Value: "text/plain", Units: drs_support.DrsAvuUnit},
+			},
+		},
+	}
+
+	object, err := drs_support.GetDrsObjectByID(filesystem, "drs-123")
+	if err != nil {
+		t.Fatalf("get drs object by id: %v", err)
+	}
+
+	if len(object.Replicas) != 2 {
+		t.Fatalf("expected all replica resources to be hydrated, got %+v", object.Replicas)
+	}
+
+	methods := drs_support.BuildAccessMethods(&drs_support.DrsConfig{
+		HttpsAccessMethodSupported: true,
+		HttpsAccessImplementation:  "irods-go-rest",
+		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+		ResourceAffinity: []drs_support.ResourceAffinityEntry{
+			{Host: "https://primary.example.org", Resources: []string{"demoResc"}},
+			{Host: "https://archive.example.org", Resources: []string{"archiveResc"}},
+		},
+	}, object)
+
+	if len(methods) != 2 {
+		t.Fatalf("expected one https access method per replica resource, got %+v", methods)
+	}
+	if methods[0].Region != "demoResc" || methods[1].Region != "archiveResc" {
+		t.Fatalf("expected access methods for both replica resources, got %+v", methods)
+	}
+}
+
 func TestGetDrsObjectByIRODSPathRejectsNonDrsObject(t *testing.T) {
 	path := "/tempZone/home/rods/file.txt"
 	filesystem := &fakeIRODSFilesystem{
@@ -633,24 +715,25 @@ func (r *fakeValidatorResolver) UpdateObjectMetadata(_ context.Context, object *
 }
 
 type fakeIRODSFilesystem struct {
-	account              *irodstypes.IRODSAccount
-	entry                *irodsfs.Entry
-	entryByPath          map[string]*irodsfs.Entry
-	searchEntries        []*irodsfs.Entry
-	metadata             []*irodstypes.IRODSMeta
-	metadataByPath       map[string][]*irodstypes.IRODSMeta
-	listByPath           map[string][]*irodsfs.Entry
-	addedMetadata        []*irodstypes.IRODSMeta
-	deletedMetadata      []*irodstypes.IRODSMeta
-	ensuredChecksum      *irodstypes.IRODSChecksum
-	ensuredChecksumPaths []string
-	statErr              error
-	listDirErr           error
-	searchErr            error
-	listErr              error
-	addErr               error
-	deleteErr            error
-	ensureChecksumErr    error
+	account               *irodstypes.IRODSAccount
+	entry                 *irodsfs.Entry
+	entryByPath           map[string]*irodsfs.Entry
+	allReplicaEntryByPath map[string]*irodsfs.Entry
+	searchEntries         []*irodsfs.Entry
+	metadata              []*irodstypes.IRODSMeta
+	metadataByPath        map[string][]*irodstypes.IRODSMeta
+	listByPath            map[string][]*irodsfs.Entry
+	addedMetadata         []*irodstypes.IRODSMeta
+	deletedMetadata       []*irodstypes.IRODSMeta
+	ensuredChecksum       *irodstypes.IRODSChecksum
+	ensuredChecksumPaths  []string
+	statErr               error
+	listDirErr            error
+	searchErr             error
+	listErr               error
+	addErr                error
+	deleteErr             error
+	ensureChecksumErr     error
 }
 
 func (f *fakeIRODSFilesystem) StatFile(irodsPath string) (*irodsfs.Entry, error) {
@@ -666,6 +749,15 @@ func (f *fakeIRODSFilesystem) StatFile(irodsPath string) (*irodsfs.Entry, error)
 		return nil, errors.New("missing fake entry")
 	}
 	return f.entry, nil
+}
+
+func (f *fakeIRODSFilesystem) StatFileWithAllReplicas(irodsPath string) (*irodsfs.Entry, error) {
+	if f.allReplicaEntryByPath != nil {
+		if entry, ok := f.allReplicaEntryByPath[irodsPath]; ok {
+			return entry, nil
+		}
+	}
+	return nil, nil
 }
 
 func (f *fakeIRODSFilesystem) List(irodsPath string) ([]*irodsfs.Entry, error) {
