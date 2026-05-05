@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="run rest commonsProdZone" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="irods-go-rest" />
+    <working_directory value="$PROJECT_DIR$/../irods-go-rest" />
+    <envs>
+      <env name="IRODS_REST_CONFIG_FILE" value="$PROJECT_DIR$/../../temp/irods-ext/rest-config-datacommons.yaml" />
+    </envs>
+    <kind value="FILE" />
+    <package value="github.com/michael-conway/irods-go-rest" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/../irods-go-rest/cmd/irods-go-rest/main.go" />
+    <method v="2" />
+  </configuration>
+</component>

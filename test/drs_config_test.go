@@ -1,6 +1,7 @@
 package test
 
 import (
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/michael-conway/irods-go-drs/drs-support"
 	"testing"
 )
@@ -70,4 +71,53 @@ func TestConfigToIrodsAccount(t *testing.T) {
 		t.Fail()
 	}
 
+}
+
+func TestConfigSeparatesAdminAndRequestAuthSchemes(t *testing.T) {
+	cfg := &drs_support.DrsConfig{
+		IrodsHost:              "irods.example.org",
+		IrodsPort:              1247,
+		IrodsZone:              "tempZone",
+		IrodsAdminUser:         "rods",
+		IrodsAdminPassword:     "secret",
+		IrodsAdminLoginType:    "native",
+		IrodsAuthScheme:        "pam",
+		IrodsNegotiationPolicy: "CS_NEG_DONT_CARE",
+		IrodsDefaultResource:   "demoResc",
+	}
+
+	adminAccount := cfg.ToIrodsAccount()
+	if adminAccount.AuthenticationScheme != irodstypes.AuthSchemeNative {
+		t.Fatalf("expected admin account to use native auth, got %q", adminAccount.AuthenticationScheme)
+	}
+	if adminAccount.ClientServerNegotiation {
+		t.Fatal("expected native admin account not to require client-server negotiation with DONT_CARE policy")
+	}
+	if adminAccount.CSNegotiationPolicy != irodstypes.CSNegotiationPolicyRequestDontCare {
+		t.Fatalf("expected admin account DONT_CARE policy, got %q", adminAccount.CSNegotiationPolicy)
+	}
+
+	requestAccount, err := irodstypes.CreateIRODSAccount(
+		cfg.IrodsHost,
+		cfg.IrodsPort,
+		"alice",
+		cfg.IrodsZone,
+		cfg.RequestAuthScheme(),
+		"secret",
+		cfg.IrodsDefaultResource,
+	)
+	if err != nil {
+		t.Fatalf("create request account: %v", err)
+	}
+
+	cfg.ApplyIRODSConnectionConfig(requestAccount)
+	if requestAccount.AuthenticationScheme != irodstypes.AuthSchemePAM {
+		t.Fatalf("expected basic request account to use PAM auth, got %q", requestAccount.AuthenticationScheme)
+	}
+	if !requestAccount.ClientServerNegotiation {
+		t.Fatal("expected PAM request account to require client-server negotiation")
+	}
+	if requestAccount.CSNegotiationPolicy != irodstypes.CSNegotiationPolicyRequestSSL {
+		t.Fatalf("expected PAM request account SSL policy, got %q", requestAccount.CSNegotiationPolicy)
+	}
 }
