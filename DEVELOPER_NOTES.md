@@ -84,3 +84,8 @@ Shared live-test variables:
 - `DRS_E2E_SKIP_TLS_VERIFY`
 
 For console and CLI-oriented workflows, assume `gocmd` is available on `PATH`.
+
+## S3 API
+
+iRODS s3 api docker images - https://hub.docker.com/r/irods/irods_s3_api/tags
+iRODS s3 config - https://github.com/irods/irods_client_s3_api#configuration
