@@ -160,9 +160,33 @@ func buildLocalAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAcces
 }
 
 func buildS3AccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
-	_ = cfg
-	_ = object
-	return nil
+	if cfg == nil || object == nil || !cfg.S3AccessMethodSupported {
+		return nil
+	}
+
+	bucket := strings.TrimSpace(cfg.S3AccessBucket)
+	if bucket == "" {
+		return nil
+	}
+
+	key, ok := s3ObjectKeyForIRODSPath(cfg.S3AccessIrodsCollection, object.AbsolutePath)
+	if !ok {
+		return nil
+	}
+
+	uri := neturl.URL{
+		Scheme: "s3",
+		Host:   bucket,
+		Path:   "/" + key,
+	}
+
+	return []DrsAccessMethod{{
+		Type:      "s3",
+		URL:       uri.String(),
+		Cloud:     s3CloudName(cfg),
+		Region:    s3AccessRegion(cfg, object),
+		Available: true,
+	}}
 }
 
 func objectReplicaResourceNames(object *InternalDrsObject) []string {
@@ -194,6 +218,83 @@ func objectReplicaResourceNames(object *InternalDrsObject) []string {
 	}
 
 	return result
+}
+
+func s3ObjectKeyForIRODSPath(irodsCollection string, irodsPath string) (string, bool) {
+	irodsPath = cleanS3IRODSPath(irodsPath)
+	if irodsPath == "" || irodsPath == "/" {
+		return "", false
+	}
+
+	irodsCollection = cleanS3IRODSPath(irodsCollection)
+	if irodsCollection == "" {
+		parts := strings.Split(strings.TrimPrefix(irodsPath, "/"), "/")
+		if len(parts) <= 1 {
+			return "", false
+		}
+		return strings.Join(parts[1:], "/"), true
+	}
+
+	if irodsPath == irodsCollection {
+		return "", false
+	}
+
+	prefix := strings.TrimSuffix(irodsCollection, "/") + "/"
+	if !strings.HasPrefix(irodsPath, prefix) {
+		return "", false
+	}
+
+	key := strings.TrimPrefix(irodsPath, prefix)
+	if key == "" || strings.HasPrefix(key, "/") {
+		return "", false
+	}
+
+	return key, true
+}
+
+func cleanS3IRODSPath(value string) string {
+	value = strings.TrimSpace(filepath.ToSlash(value))
+	if value == "" {
+		return ""
+	}
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	cleaned := path.Clean(value)
+	if cleaned == "." {
+		return ""
+	}
+	return cleaned
+}
+
+func s3CloudName(cfg *DrsConfig) string {
+	endpoint := strings.TrimSpace(cfg.S3AccessEndpoint)
+	if endpoint == "" {
+		return "irods-s3-api"
+	}
+
+	parsed, err := neturl.Parse(endpoint)
+	if err != nil || strings.TrimSpace(parsed.Host) == "" {
+		return "irods-s3-api"
+	}
+
+	return "irods-s3-api:" + parsed.Host
+}
+
+func s3AccessRegion(cfg *DrsConfig, object *InternalDrsObject) string {
+	region := strings.TrimSpace(cfg.S3AccessRegion)
+	if region != "" {
+		return region
+	}
+
+	if object != nil {
+		zone := strings.TrimSpace(object.IrodsZone)
+		if zone != "" {
+			return zone
+		}
+	}
+
+	return ""
 }
 
 func hostForResourceAffinity(affinities []ResourceAffinityEntry, resource string) (string, bool) {

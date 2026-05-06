@@ -209,6 +209,11 @@ HttpsAccessImplementation: irods-go-rest
 HttpsAccessMethodBaseURL: https://drs.example.org/api/v1/path/contents?irods_path=
 HttpsAccessUseTicket: true
 LocalAccessRootPath: /mnt/irods
+S3AccessMethodSupported: true
+S3AccessEndpoint: http://127.0.0.1:9001
+S3AccessBucket: tempzone
+S3AccessIrodsCollection: /tempZone/home
+S3AccessRegion: us-east-1
 ```
 
 Current behavior:
@@ -216,7 +221,8 @@ Current behavior:
 - `https` returns an `access_id` for later resolution through `/access`
 - `irods` returns an `access_id`
 - `local` returns a `local:///...` path
-- `s3` is a placeholder
+- `s3` returns a direct `s3://bucket/key` URL using the configured temporary
+  bucket-to-iRODS collection mapping
 
 Current `https` implementations:
 

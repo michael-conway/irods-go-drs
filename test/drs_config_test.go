@@ -33,6 +33,21 @@ func TestReadDrsConfig(t *testing.T) {
 	if !actual.HttpsAccessUseTicket {
 		t.Fatal("expected https access ticket mode from config")
 	}
+	if !actual.S3AccessMethodSupported {
+		t.Fatal("expected s3 access method to be enabled from config")
+	}
+	if actual.S3AccessEndpoint != "http://127.0.0.1:9001" {
+		t.Fatalf("expected s3 access endpoint from config, got %q", actual.S3AccessEndpoint)
+	}
+	if actual.S3AccessBucket != "tempzone" {
+		t.Fatalf("expected s3 access bucket from config, got %q", actual.S3AccessBucket)
+	}
+	if actual.S3AccessIrodsCollection != "/tempZone/home" {
+		t.Fatalf("expected s3 access iRODS collection from config, got %q", actual.S3AccessIrodsCollection)
+	}
+	if actual.S3AccessRegion != "us-east-1" {
+		t.Fatalf("expected s3 access region from config, got %q", actual.S3AccessRegion)
+	}
 	if actual.DefaultTicketLifetimeMinutes != 720 {
 		t.Fatalf("expected default ticket lifetime from config to be 720, got %d", actual.DefaultTicketLifetimeMinutes)
 	}

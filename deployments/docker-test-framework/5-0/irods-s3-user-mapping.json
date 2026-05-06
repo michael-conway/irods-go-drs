@@ -1,0 +1,18 @@
+{
+  "rods": {
+    "secret_key": "rods",
+    "username": "rods"
+  },
+  "test1": {
+    "secret_key": "test",
+    "username": "test1"
+  },
+  "test2": {
+    "secret_key": "test",
+    "username": "test2"
+  },
+  "test3": {
+    "secret_key": "test",
+    "username": "test3"
+  }
+}

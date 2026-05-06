@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -33,7 +34,11 @@ type DrsConfig struct {
 	IRODSAccessHost                  string
 	IRODSAccessPort                  int
 	LocalAccessRootPath              string
+	S3AccessMethodSupported          bool
 	S3AccessEndpoint                 string
+	S3AccessBucket                   string
+	S3AccessIrodsCollection          string
+	S3AccessRegion                   string
 	IrodsHost                        string
 	IrodsPort                        int
 	IrodsZone                        string
@@ -218,7 +223,11 @@ func bindEnvVars(v *viper.Viper) error {
 		"IRODSAccessHost":                        {"DRS_IRODS_ACCESS_HOST", "DRS_IRODSACCESSHOST"},
 		"IRODSAccessPort":                        {"DRS_IRODS_ACCESS_PORT", "DRS_IRODSACCESSPORT"},
 		"LocalAccessRootPath":                    {"DRS_LOCAL_ACCESS_ROOT_PATH", "DRS_LOCALACCESSROOTPATH"},
+		"S3AccessMethodSupported":                {"DRS_S3_ACCESS_METHOD_SUPPORTED", "DRS_S3ACCESSMETHODSUPPORTED"},
 		"S3AccessEndpoint":                       {"DRS_S3_ACCESS_ENDPOINT", "DRS_S3ACCESSENDPOINT"},
+		"S3AccessBucket":                         {"DRS_S3_ACCESS_BUCKET", "DRS_S3ACCESSBUCKET"},
+		"S3AccessIrodsCollection":                {"DRS_S3_ACCESS_IRODS_COLLECTION", "DRS_S3ACCESSIRODSCOLLECTION"},
+		"S3AccessRegion":                         {"DRS_S3_ACCESS_REGION", "DRS_S3ACCESSREGION"},
 		"IrodsHost":                              {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
 		"IrodsPort":                              {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
 		"IrodsZone":                              {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
@@ -432,6 +441,9 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	C.IRODSAccessHost = strings.TrimSpace(C.IRODSAccessHost)
 	C.LocalAccessRootPath = resolveConfigPath(C.LocalAccessRootPath, configDir)
 	C.S3AccessEndpoint = strings.TrimSpace(C.S3AccessEndpoint)
+	C.S3AccessBucket = strings.TrimSpace(C.S3AccessBucket)
+	C.S3AccessIrodsCollection = cleanAbsolutePath(C.S3AccessIrodsCollection)
+	C.S3AccessRegion = strings.TrimSpace(C.S3AccessRegion)
 	C.ResourceAffinity = normalizeResourceAffinities(C.ResourceAffinity)
 	applyResourceAffinityEnvOverride(&C)
 	C.OidcSkipTLSVerify = C.OidcSkipTLSVerify || C.OidcInsecureSkipVerify
@@ -458,6 +470,25 @@ func normalizeStringSlice(values []string) []string {
 		normalized = append(normalized, value)
 	}
 	return normalized
+}
+
+func cleanAbsolutePath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	value = filepath.ToSlash(value)
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+
+	cleaned := path.Clean(value)
+	if cleaned == "." {
+		return ""
+	}
+
+	return cleaned
 }
 
 func normalizeResourceAffinities(entries []ResourceAffinityEntry) []ResourceAffinityEntry {

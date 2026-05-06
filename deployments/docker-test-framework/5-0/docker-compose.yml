@@ -43,6 +43,23 @@ services:
       - "20000-20199:20000-20199"  # TCP range for data connections
     cap_add:
       - SYS_ADMIN
+
+  irods-s3-api:
+    hostname: irods-s3-api
+    platform: linux/amd64
+    image: ${IRODS_S3_API_IMAGE:-irods/irods_s3_api:latest}
+    depends_on:
+      irods-provider:
+        condition: service_started
+    volumes:
+      - ./irods-s3-api-entrypoint.sh:/irods-s3-api-entrypoint.sh:ro
+      - ./irods-s3-api-config.template.json:/config-template.json:ro
+      - ./irods-s3-bucket-mapping.json:/bucket-mapping.json:ro
+      - ./irods-s3-user-mapping.json:/user-mapping.json:ro
+    ports:
+      - "9001:9000"
+    entrypoint: ["/bin/sh", "/irods-s3-api-entrypoint.sh"]
+
   keycloak:
     hostname: keycloak
     platform: linux/amd64

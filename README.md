@@ -100,3 +100,9 @@ When the REST service is running locally on the default port, the API documentat
 * Keycloak: https://www.keycloak.org/documentation
 * GoCloak - https://github.com/Nerzal/gocloak
 * Gorilla Mux: https://github.com/gorilla/mux
+
+### S3 API
+
+iRODS s3 api docker images - https://hub.docker.com/r/irods/irods_s3_api/tags
+iRODS s3 config - https://github.com/irods/irods_client_s3_api#configuration
+iRODS s3 dockerhub - https://hub.docker.com/r/irods/irods_s3_api

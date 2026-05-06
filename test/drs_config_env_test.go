@@ -25,6 +25,11 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_DEFAULT_TICKET_USE_LIMIT", "100")
 	t.Setenv("DRS_IRODS_ACCESS_METHOD_SUPPORTED", "true")
 	t.Setenv("DRS_FILE_ACCESS_METHOD_SUPPORTED", "true")
+	t.Setenv("DRS_S3_ACCESS_METHOD_SUPPORTED", "true")
+	t.Setenv("DRS_S3_ACCESS_ENDPOINT", "http://127.0.0.1:9001")
+	t.Setenv("DRS_S3_ACCESS_BUCKET", "tempzone")
+	t.Setenv("DRS_S3_ACCESS_IRODS_COLLECTION", "tempZone/home")
+	t.Setenv("DRS_S3_ACCESS_REGION", "us-east-1")
 	t.Setenv("DRS_RESOURCE_AFFINITY", "demoResc, edgeResc , archiveResc")
 
 	var confs = [1]string{"./resources/"}
@@ -87,6 +92,21 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 
 	if !config.FileAccessMethodSupported {
 		t.Fatal("expected env override for FileAccessMethodSupported")
+	}
+	if !config.S3AccessMethodSupported {
+		t.Fatal("expected env override for S3AccessMethodSupported")
+	}
+	if config.S3AccessEndpoint != "http://127.0.0.1:9001" {
+		t.Fatalf("expected env override for S3AccessEndpoint, got %q", config.S3AccessEndpoint)
+	}
+	if config.S3AccessBucket != "tempzone" {
+		t.Fatalf("expected env override for S3AccessBucket, got %q", config.S3AccessBucket)
+	}
+	if config.S3AccessIrodsCollection != "/tempZone/home" {
+		t.Fatalf("expected normalized env override for S3AccessIrodsCollection, got %q", config.S3AccessIrodsCollection)
+	}
+	if config.S3AccessRegion != "us-east-1" {
+		t.Fatalf("expected env override for S3AccessRegion, got %q", config.S3AccessRegion)
 	}
 	if len(config.ResourceAffinity) != 1 || len(config.ResourceAffinity[0].Resources) != 3 || config.ResourceAffinity[0].Resources[0] != "demoResc" || config.ResourceAffinity[0].Resources[1] != "edgeResc" || config.ResourceAffinity[0].Resources[2] != "archiveResc" {
 		t.Fatalf("expected env override for ResourceAffinity, got %+v", config.ResourceAffinity)
