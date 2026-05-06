@@ -6,13 +6,13 @@
     "bucket_mapping": {
       "plugin_path": "__BUCKET_MAPPING_PLUGIN__",
       "configuration": {
-        "file_path": "/bucket-mapping.json"
+        "file_path": "/shared-s3-config/irods-s3-bucket-mapping.json"
       }
     },
     "user_mapping": {
       "plugin_path": "__USER_MAPPING_PLUGIN__",
       "configuration": {
-        "file_path": "/user-mapping.json"
+        "file_path": "/shared-s3-config/irods-s3-user-mapping.json"
       }
     },
     "region": "us-east-1",

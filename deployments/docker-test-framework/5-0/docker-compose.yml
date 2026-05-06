@@ -54,8 +54,7 @@ services:
     volumes:
       - ./irods-s3-api-entrypoint.sh:/irods-s3-api-entrypoint.sh:ro
       - ./irods-s3-api-config.template.json:/config-template.json:ro
-      - ./irods-s3-bucket-mapping.json:/bucket-mapping.json:ro
-      - ./irods-s3-user-mapping.json:/user-mapping.json:ro
+      - ${ENV_SHARED_S3_CONFIG:-./shared-s3-config}:/shared-s3-config
     ports:
       - "9001:9000"
     entrypoint: ["/bin/sh", "/irods-s3-api-entrypoint.sh"]

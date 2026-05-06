@@ -9,6 +9,16 @@ if [ -z "$bucket_plugin" ] || [ -z "$user_plugin" ]; then
   exit 1
 fi
 
+for mapping_file in \
+  /shared-s3-config/irods-s3-bucket-mapping.json \
+  /shared-s3-config/irods-s3-user-mapping.json
+do
+  if [ ! -f "$mapping_file" ]; then
+    echo "Missing iRODS S3 API mapping file: $mapping_file" >&2
+    exit 1
+  fi
+done
+
 sed \
   -e "s#__BUCKET_MAPPING_PLUGIN__#$bucket_plugin#g" \
   -e "s#__USER_MAPPING_PLUGIN__#$user_plugin#g" \
