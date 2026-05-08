@@ -44,6 +44,17 @@ type e2eBasicObjectFixture struct {
 	expectedUser string
 }
 
+type e2eCompoundObjectFixture struct {
+	rootPath        string
+	compoundPath    string
+	compoundID      string
+	ignoreFilePath  string
+	childObjectPath string
+	childObjectID   string
+	ignoredPath     string
+	expectedUser    string
+}
+
 func requireE2EObjectFixture(t *testing.T) *e2eObjectFixture {
 	t.Helper()
 	fixture, err := buildE2EObjectFixture(t)
@@ -199,6 +210,15 @@ func requireE2EBasicObjectFixture(t *testing.T) *e2eBasicObjectFixture {
 	return fixture
 }
 
+func requireE2ECompoundObjectFixture(t *testing.T) *e2eCompoundObjectFixture {
+	t.Helper()
+	fixture, err := buildE2ECompoundObjectFixture(t)
+	if err != nil {
+		t.Fatalf("build compound e2e object fixture: %v", err)
+	}
+	return fixture
+}
+
 func buildE2EBasicObjectFixture(t *testing.T) (*e2eBasicObjectFixture, error) {
 	t.Helper()
 
@@ -242,5 +262,82 @@ func buildE2EBasicObjectFixture(t *testing.T) (*e2eBasicObjectFixture, error) {
 		description:  description,
 		objectName:   objectPath,
 		expectedUser: testUser,
+	}, nil
+}
+
+func buildE2ECompoundObjectFixture(t *testing.T) (*e2eCompoundObjectFixture, error) {
+	t.Helper()
+
+	filesystem := newE2EIRODSFilesystem(t, requireE2EEffectiveUser(t))
+
+	cfg := requireE2EIRODSConfig(t)
+	testUser := filesystem.GetAccount().ClientUser
+	rootPath := fmt.Sprintf("/%s/home/%s/drs-compound-e2e-%d", cfg.IrodsZone, testUser, time.Now().UnixNano())
+	compoundPath := path.Join(rootPath, "compound-root")
+	subCollectionPath := path.Join(compoundPath, "series-a")
+	ignoredCollectionPath := path.Join(compoundPath, "ignored")
+	childObjectPath := path.Join(subCollectionPath, "child.txt")
+	ignoredObjectPath := path.Join(ignoredCollectionPath, "ignored.txt")
+	ignoreFilePath := path.Join(compoundPath, drs_support.DrsIgnoreFileName)
+
+	if err := filesystem.MakeDir(subCollectionPath, true); err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("create compound fixture collection %q: %w", subCollectionPath, err)
+	}
+	if err := filesystem.MakeDir(ignoredCollectionPath, true); err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("create ignored fixture collection %q: %w", ignoredCollectionPath, err)
+	}
+
+	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer([]byte("compound e2e child object\n")), childObjectPath, "", false, true, nil); err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("upload compound fixture object %q: %w", childObjectPath, err)
+	}
+	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer([]byte("compound e2e ignored object\n")), ignoredObjectPath, "", false, true, nil); err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("upload ignored fixture object %q: %w", ignoredObjectPath, err)
+	}
+	ignoreFileContents := "# exclude ignored subtree from compound DRS\nignored/\n"
+	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer([]byte(ignoreFileContents)), ignoreFilePath, "", false, true, nil); err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("upload ignore file %q: %w", ignoreFilePath, err)
+	}
+
+	createResult, err := drs_support.CreateCompoundDrsObjectFromCollection(filesystem, compoundPath)
+	if err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("create compound DRS object at %q: %w", compoundPath, err)
+	}
+	if createResult == nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("create compound DRS object at %q returned nil result", compoundPath)
+	}
+	if len(createResult.NodeErrors) > 0 {
+		filesystem.Release()
+		return nil, fmt.Errorf("create compound DRS object at %q reported node errors: %+v", compoundPath, createResult.NodeErrors)
+	}
+
+	childObject, err := drs_support.GetDrsObjectByIRODSPath(filesystem, childObjectPath)
+	if err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("resolve child DRS object at %q: %w", childObjectPath, err)
+	}
+
+	t.Cleanup(func() {
+		defer filesystem.Release()
+		if err := filesystem.RemoveDir(rootPath, true, true); err != nil && filesystem.Exists(rootPath) {
+			t.Errorf("cleanup compound e2e fixture root %q: %v", rootPath, err)
+		}
+	})
+
+	return &e2eCompoundObjectFixture{
+		rootPath:        rootPath,
+		compoundPath:    compoundPath,
+		compoundID:      strings.TrimSpace(createResult.DrsID),
+		ignoreFilePath:  ignoreFilePath,
+		childObjectPath: childObjectPath,
+		childObjectID:   strings.TrimSpace(childObject.Id),
+		ignoredPath:     ignoredObjectPath,
+		expectedUser:    testUser,
 	}, nil
 }

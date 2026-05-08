@@ -16,6 +16,10 @@ Current route coverage includes:
 * `GET /ga4gh/drs/v1/objects/{object_id}` authentication checks
 * `GET /ga4gh/drs/v1/objects/{object_id}` for an existing DRS object
 * `GET /ga4gh/drs/v1/objects/{object_id}` for a missing DRS object
+* `GET /ga4gh/drs/v1/objects/{object_id}` for a compound DRS object with direct `access_url`
+* `GET /ga4gh/drs/v1/ext/compound/{object_id}` runtime manifest retrieval
+* compound workflow checks for `.drsignore` exclusion behavior
+* compound strip/remove semantics using `drs-support` metadata stripping
 
 ## Build Tag
 
@@ -115,4 +119,4 @@ The docker-compose-backed test environment is under:
 
 * `deployments/docker-test-framework/5-0`
 
-Use `DEV_NOTES.md` for the higher-level testing taxonomy and environment setup guidance.
+Use [`DEVELOPER_NOTES.md`](/Users/conwaymc/Documents/workspace-gabble/irods-go-drs/DEVELOPER_NOTES.md) for the higher-level testing taxonomy and environment setup guidance.
