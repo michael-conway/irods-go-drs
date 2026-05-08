@@ -3,13 +3,13 @@ package drs_support
 import (
 	"errors"
 	"log/slog"
+	"net"
 	neturl "net/url"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
-
-	extension_s3admin "github.com/michael-conway/go-irodsclient-extensions/s3admin"
 )
 
 type DrsAccessMethod struct {
@@ -26,6 +26,12 @@ type DrsAccessMethod struct {
 const (
 	HTTPSProviderIRODSGoREST   = "irods-go-rest"
 	HTTPSProviderIRODSHTTPSAPI = "irods-https-api"
+	s3BucketAVUAttribute       = "iRODS:S3:Bucket"
+)
+
+var (
+	s3BucketNotFoundError = errors.New("s3 bucket not found")
+	s3BucketNamePattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 )
 
 func BuildAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
@@ -177,9 +183,9 @@ func buildS3AccessMethods(cfg *DrsConfig, object *InternalDrsObject, filesystem 
 		return nil
 	}
 
-	resolution, err := extension_s3admin.ResolveBucketForDataObjectPath(&s3BucketMetadataAdapter{filesystem: filesystem}, object.AbsolutePath)
+	resolution, err := resolveS3BucketForDataObjectPath(filesystem, object.AbsolutePath)
 	if err != nil {
-		if errors.Is(err, extension_s3admin.ErrBucketNotFound) {
+		if errors.Is(err, s3BucketNotFoundError) {
 			slog.Warn(
 				"no s3 bucket parent found for DRS object; skipping s3 access method",
 				"irods_path", object.AbsolutePath,
@@ -199,12 +205,12 @@ func buildS3AccessMethods(cfg *DrsConfig, object *InternalDrsObject, filesystem 
 			"irods_path", object.AbsolutePath,
 			"bucket_collection_path", resolution.BucketCollectionPath,
 			"bucket_count", resolution.CandidateBucketCount,
-			"selected_bucket", resolution.Bucket.Name,
+			"selected_bucket", resolution.BucketName,
 		)
 	}
 
 	// TODO://add resource affinity to the bucket access method code
-	url := resolveS3BucketAccessURL(baseURL, resolution.Bucket.Name, resolution.RelativeObjectPath)
+	url := resolveS3BucketAccessURL(baseURL, resolution.BucketName, resolution.RelativeObjectPath)
 	if url == "" {
 		return nil
 	}
@@ -523,34 +529,6 @@ func resolveS3BucketAccessURL(baseURL string, bucketID string, objectKey string)
 	return baseURL + "/" + bucketID + "/" + objectKey
 }
 
-type s3BucketMetadataAdapter struct {
-	filesystem IRODSFilesystem
-}
-
-func (adapter *s3BucketMetadataAdapter) ListCollectionMetadata(collectionPath string) ([]extension_s3admin.Metadata, error) {
-	if adapter == nil || adapter.filesystem == nil {
-		return nil, extension_s3admin.ErrMissingFilesystem
-	}
-
-	metadata, err := adapter.filesystem.ListMetadata(collectionPath)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]extension_s3admin.Metadata, 0, len(metadata))
-	for _, avu := range metadata {
-		if avu == nil {
-			continue
-		}
-		result = append(result, extension_s3admin.Metadata{
-			Name:  avu.Name,
-			Value: avu.Value,
-			Units: avu.Units,
-		})
-	}
-	return result, nil
-}
-
 func resolveS3AccessID(filesystem IRODSFilesystem, absolutePath string) string {
 	if filesystem != nil {
 		if account := filesystem.GetAccount(); account != nil {
@@ -573,4 +551,108 @@ func resolveS3AccessID(filesystem IRODSFilesystem, absolutePath string) string {
 	}
 
 	return ""
+}
+
+type s3BucketResolution struct {
+	BucketName            string
+	BucketCollectionPath  string
+	RelativeObjectPath    string
+	CandidateBucketCount  int
+}
+
+func resolveS3BucketForDataObjectPath(filesystem IRODSFilesystem, dataObjectPath string) (s3BucketResolution, error) {
+	if filesystem == nil {
+		return s3BucketResolution{}, s3BucketNotFoundError
+	}
+
+	dataObjectPath = strings.TrimSpace(path.Clean(dataObjectPath))
+	if dataObjectPath == "" || dataObjectPath == "." || dataObjectPath == "/" {
+		return s3BucketResolution{}, s3BucketNotFoundError
+	}
+
+	current := strings.TrimSpace(path.Clean(path.Dir(dataObjectPath)))
+	for current != "" && current != "." && current != "/" {
+		buckets, err := bucketsForPath(filesystem, current)
+		if err != nil {
+			return s3BucketResolution{}, err
+		}
+		if len(buckets) > 0 {
+			relative := strings.TrimPrefix(dataObjectPath, current+"/")
+			relative = strings.TrimPrefix(relative, "/")
+			if relative == "" {
+				return s3BucketResolution{}, s3BucketNotFoundError
+			}
+			return s3BucketResolution{
+				BucketName:           buckets[0],
+				BucketCollectionPath: current,
+				RelativeObjectPath:   relative,
+				CandidateBucketCount: len(buckets),
+			}, nil
+		}
+
+		parent := strings.TrimSpace(path.Clean(path.Dir(current)))
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+
+	return s3BucketResolution{}, s3BucketNotFoundError
+}
+
+func bucketsForPath(filesystem IRODSFilesystem, irodsPath string) ([]string, error) {
+	if filesystem == nil {
+		return nil, s3BucketNotFoundError
+	}
+
+	metadata, err := filesystem.ListMetadata(irodsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	buckets := make([]string, 0, len(metadata))
+	for _, avu := range metadata {
+		if avu == nil || !strings.EqualFold(avu.Name, s3BucketAVUAttribute) {
+			continue
+		}
+
+		bucketName := strings.TrimSpace(avu.Value)
+		if normalized := normalizeS3BucketName(bucketName); normalized != "" {
+			bucketName = normalized
+		}
+		if bucketName == "" {
+			continue
+		}
+		buckets = append(buckets, bucketName)
+	}
+	if len(buckets) == 0 {
+		return nil, nil
+	}
+
+	sort.Strings(buckets)
+	deduped := buckets[:0]
+	for _, bucket := range buckets {
+		if len(deduped) == 0 || deduped[len(deduped)-1] != bucket {
+			deduped = append(deduped, bucket)
+		}
+	}
+	return deduped, nil
+}
+
+func normalizeS3BucketName(bucketName string) string {
+	bucketName = strings.TrimSpace(strings.ToLower(bucketName))
+	if !isValidS3BucketName(bucketName) {
+		return ""
+	}
+	return bucketName
+}
+
+func isValidS3BucketName(bucketName string) bool {
+	if !s3BucketNamePattern.MatchString(bucketName) {
+		return false
+	}
+	if strings.Contains(bucketName, "..") || strings.Contains(bucketName, ".-") || strings.Contains(bucketName, "-.") {
+		return false
+	}
+	return net.ParseIP(bucketName) == nil
 }

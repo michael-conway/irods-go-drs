@@ -2,8 +2,6 @@ module github.com/michael-conway/irods-go-drs
 
 go 1.25.0
 
-replace github.com/michael-conway/go-irodsclient-extensions => ../go-irodsclient-extensions
-
 require (
 	github.com/cyverse/go-irodsclient v0.19.10
 	github.com/gorilla/mux v1.8.1

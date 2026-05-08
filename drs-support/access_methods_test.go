@@ -5,7 +5,6 @@ import (
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
-	extension_s3admin "github.com/michael-conway/go-irodsclient-extensions/s3admin"
 )
 
 func TestBuildAccessMethodsBuildsConfiguredStubs(t *testing.T) {
@@ -335,7 +334,7 @@ func TestBuildAccessMethodsWithFilesystemBuildsS3AccessMethodFromBucket(t *testi
 		},
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			"/tempZone/home/test1": {
-				{Name: extension_s3admin.AVUBucketAttribute, Value: "test-bucket"},
+				{Name: "iRODS:S3:Bucket", Value: "test-bucket"},
 			},
 		},
 	}
@@ -372,8 +371,8 @@ func TestBuildAccessMethodsWithFilesystemUsesFirstBucketWhenMultipleFound(t *tes
 		},
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			"/tempZone/home/test1": {
-				{Name: extension_s3admin.AVUBucketAttribute, Value: "bucket-b"},
-				{Name: extension_s3admin.AVUBucketAttribute, Value: "bucket-a"},
+				{Name: "iRODS:S3:Bucket", Value: "bucket-b"},
+				{Name: "iRODS:S3:Bucket", Value: "bucket-a"},
 			},
 		},
 	}
@@ -414,7 +413,7 @@ func TestBuildAccessMethodsWithFilesystemBuildsS3MethodPerReplicaResource(t *tes
 		},
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			"/tempZone/home/test1": {
-				{Name: extension_s3admin.AVUBucketAttribute, Value: "test-bucket"},
+				{Name: "iRODS:S3:Bucket", Value: "test-bucket"},
 			},
 		},
 	}
