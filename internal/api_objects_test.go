@@ -592,6 +592,52 @@ func TestGetAccessURLReturnsIRODSGoRestTicketAccessURL(t *testing.T) {
 	}
 }
 
+func TestGetAccessURLDefaultIDUsesPrimaryResourceAffinityHost(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/irods-go-rest-https", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+			HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
+				{
+					Host:      "https://default.example.org",
+					Resources: []string{},
+				},
+			},
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "irods-go-rest-https",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expectedURL := "https://default.example.org/api/v1/path/contents?irods_path=" + neturl.QueryEscape("/tempZone/home/test1/file.txt")
+	if response.Url != expectedURL {
+		t.Fatalf("expected access url %q, got %q", expectedURL, response.Url)
+	}
+}
+
 func TestGetAccessURLReturnsDirectURLWhenTicketDisabled(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()

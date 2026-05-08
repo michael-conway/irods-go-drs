@@ -219,18 +219,14 @@ func CreateDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePath stri
 	return drsID, nil
 }
 
-// CreateCompoundDrsObjectFromDataObject is the placeholder entry point for manifest-backed
-// compound DRS objects and currently validates only the minimal required inputs.
+// CreateCompoundDrsObjectFromDataObject is deprecated. Compound objects are collection-based
+// and should be created with CreateCompoundDrsObjectFromCollection.
 func CreateCompoundDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePath string, description string, aliases []string) (string, error) {
-	if filesystem == nil {
-		return "", fmt.Errorf("no iRODS filesystem provided")
+	result, err := CreateCompoundDrsObjectFromCollection(filesystem, absolutePath)
+	if err != nil {
+		return "", err
 	}
-
-	if strings.TrimSpace(absolutePath) == "" {
-		return "", fmt.Errorf("a data object absolute path is required")
-	}
-
-	return "", fmt.Errorf("compound DRS object creation is not implemented")
+	return result.DrsID, nil
 }
 
 // GetDrsObjectByID resolves one DRS object by its DRS id and returns the hydrated internal model.

@@ -651,16 +651,23 @@ func TestRemoveSingleDrsObjectFromDataObjectRejectsCompoundManifest(t *testing.T
 	}
 }
 
-func TestCreateCompoundDrsObjectFromDataObjectSkeleton(t *testing.T) {
-	filesystem := &fakeIRODSFilesystem{}
+func TestCreateCompoundDrsObjectFromDataObjectRejectsNonCollectionPath(t *testing.T) {
+	filesystem := &fakeIRODSFilesystem{
+		entry: &irodsfs.Entry{
+			ID:   1,
+			Type: irodsfs.FileEntry,
+			Path: "/tempZone/home/rods/manifest.json",
+			Name: "manifest.json",
+		},
+	}
 
 	_, err := drs_support.CreateCompoundDrsObjectFromDataObject(filesystem, "/tempZone/home/rods/manifest.json", "compound", []string{"alias-1"})
 	if err == nil {
-		t.Fatal("expected skeleton method to return an error")
+		t.Fatal("expected non-collection path to return an error")
 	}
 
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("expected not implemented error, got %v", err)
+	if !strings.Contains(err.Error(), "is not a collection") {
+		t.Fatalf("expected collection error, got %v", err)
 	}
 }
 

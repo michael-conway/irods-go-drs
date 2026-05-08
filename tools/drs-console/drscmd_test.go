@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -698,6 +699,360 @@ func TestDrsRemoveHelp(t *testing.T) {
 	}
 }
 
+func TestAddDrsIgnoreHelp(t *testing.T) {
+	cmd := getCommand()
+
+	helpOutput := runCommand(t, cmd, []string{APP_NAME, "add_drsignore", "--help"})
+	if !strings.Contains(helpOutput, "drscmd add_drsignore") {
+		t.Fatalf("expected add_drsignore help header, got %q", helpOutput)
+	}
+
+	if !strings.Contains(helpOutput, "<irods-collection-path>") {
+		t.Fatalf("expected add_drsignore help to include argument usage, got %q", helpOutput)
+	}
+}
+
+func TestDrsMakeCompoundHelp(t *testing.T) {
+	cmd := getCommand()
+
+	helpOutput := runCommand(t, cmd, []string{APP_NAME, "drsmakecompound", "--help"})
+	if !strings.Contains(helpOutput, "drscmd drsmakecompound") {
+		t.Fatalf("expected drsmakecompound help header, got %q", helpOutput)
+	}
+
+	if !strings.Contains(helpOutput, "<irods-collection-path>") {
+		t.Fatalf("expected drsmakecompound help to include argument usage, got %q", helpOutput)
+	}
+}
+
+func TestDrsMakeCompoundRequiresOverrideWhenIgnoreMissing(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		Home:                 "/tempZone/home/rods",
+	}
+	testEnvManager.Session = &irodsclientconfig.Config{
+		CurrentWorkingDir: "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	fakeFS.addCollection("/tempZone/home/rods/compound")
+	fakeFS.addDataObject("/tempZone/home/rods/compound/object.txt", 201)
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	_, err = runCommandAllowError(t, cmd, []string{APP_NAME, "drsmakecompound", "/tempZone/home/rods/compound"})
+	if err == nil {
+		t.Fatal("expected drsmakecompound to fail when .drsignore is missing")
+	}
+
+	if !strings.Contains(err.Error(), "--allow-no-ignore") {
+		t.Fatalf("expected missing ignore override message, got %v", err)
+	}
+}
+
+func TestDrsMakeCompoundPreflightWithoutIgnoreUsesOverride(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		Home:                 "/tempZone/home/rods",
+	}
+	testEnvManager.Session = &irodsclientconfig.Config{
+		CurrentWorkingDir: "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	fakeFS.addCollection("/tempZone/home/rods/compound")
+	fakeFS.addDataObject("/tempZone/home/rods/compound/object.txt", 202)
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	output := runCommand(t, cmd, []string{
+		APP_NAME, "drsmakecompound", "/tempZone/home/rods/compound",
+		"--preflight", "--allow-no-ignore",
+	})
+
+	if !strings.Contains(output, "\"preflight\": true") {
+		t.Fatalf("expected preflight response, got %q", output)
+	}
+	if !strings.Contains(output, "\"warning\": \"no .drsignore found at /tempZone/home/rods/compound/.drsignore\"") {
+		t.Fatalf("expected missing ignore warning, got %q", output)
+	}
+	if !strings.Contains(output, "\"manifest\"") || !strings.Contains(output, "\"nodeType\": \"collection\"") {
+		t.Fatalf("expected manifest output for preflight, got %q", output)
+	}
+	if !strings.Contains(output, "\"drsId\": \"\"") {
+		t.Fatalf("expected blank drsId fields when ids are not assigned yet, got %q", output)
+	}
+
+	rootMetas := fakeFS.metadataByPath["/tempZone/home/rods/compound"]
+	for _, meta := range rootMetas {
+		if meta != nil && meta.Name == drs_support.DrsAvuCompoundManifestAttrib {
+			t.Fatalf("expected preflight to avoid writes, got root metadata %+v", rootMetas)
+		}
+	}
+}
+
+func TestDrsMakeCompoundCreatesCompoundObjectWithIgnore(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		Home:                 "/tempZone/home/rods",
+	}
+	testEnvManager.Session = &irodsclientconfig.Config{
+		CurrentWorkingDir: "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	fakeFS.addCollection("/tempZone/home/rods/compound")
+	fakeFS.addDataObject("/tempZone/home/rods/compound/object.txt", 203)
+
+	fakeFS.entriesByPath["/tempZone/home/rods/compound/.drsignore"] = &irodsfs.Entry{
+		Type: irodsfs.FileEntry,
+		Name: ".drsignore",
+		Path: "/tempZone/home/rods/compound/.drsignore",
+		Size: 4,
+	}
+	fakeFS.metadataByPath["/tempZone/home/rods/compound/.drsignore"] = []*irodstypes.IRODSMeta{}
+	fakeFS.fileContents["/tempZone/home/rods/compound/.drsignore"] = []byte("\n")
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	output := runCommand(t, cmd, []string{APP_NAME, "drsmakecompound", "/tempZone/home/rods/compound"})
+
+	if !strings.Contains(output, "\"preflight\": false") {
+		t.Fatalf("expected non-preflight response, got %q", output)
+	}
+	if !strings.Contains(output, "\"drsId\"") {
+		t.Fatalf("expected drs id in response, got %q", output)
+	}
+	if strings.Contains(output, "\"excludedPaths\"") {
+		t.Fatalf("expected excludedPaths to be preflight-only, got %q", output)
+	}
+	if strings.Contains(output, "\"manifest\"") {
+		t.Fatalf("expected manifest payload to be preflight-only, got %q", output)
+	}
+
+	rootMetas := fakeFS.metadataByPath["/tempZone/home/rods/compound"]
+	if len(rootMetas) == 0 {
+		t.Fatalf("expected root metadata after drsmakecompound")
+	}
+	foundCompound := false
+	for _, meta := range rootMetas {
+		if meta != nil && meta.Name == drs_support.DrsAvuCompoundManifestAttrib {
+			foundCompound = true
+			break
+		}
+	}
+	if !foundCompound {
+		t.Fatalf("expected compound marker on root metadata, got %+v", rootMetas)
+	}
+}
+
+func TestDrsMakeCompoundPreflightShowsExcludedPathsWhenIgnored(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		Home:                 "/tempZone/home/rods",
+	}
+	testEnvManager.Session = &irodsclientconfig.Config{
+		CurrentWorkingDir: "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	fakeFS.addCollection("/tempZone/home/rods/compound")
+	fakeFS.addCollection("/tempZone/home/rods/compound/skip")
+	fakeFS.addDataObject("/tempZone/home/rods/compound/keep.txt", 204)
+	fakeFS.addDataObject("/tempZone/home/rods/compound/skip/ignored.txt", 205)
+	fakeFS.entriesByPath["/tempZone/home/rods/compound/.drsignore"] = &irodsfs.Entry{
+		Type: irodsfs.FileEntry,
+		Name: ".drsignore",
+		Path: "/tempZone/home/rods/compound/.drsignore",
+		Size: 8,
+	}
+	fakeFS.metadataByPath["/tempZone/home/rods/compound/.drsignore"] = []*irodstypes.IRODSMeta{}
+	fakeFS.fileContents["/tempZone/home/rods/compound/.drsignore"] = []byte("skip/**\n")
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	output := runCommand(t, cmd, []string{
+		APP_NAME, "drsmakecompound", "/tempZone/home/rods/compound",
+		"--preflight",
+	})
+
+	if !strings.Contains(output, "\"preflight\": true") {
+		t.Fatalf("expected preflight response, got %q", output)
+	}
+	if !strings.Contains(output, "\"excludedPaths\"") {
+		t.Fatalf("expected excluded paths in preflight when ignore rules exclude content, got %q", output)
+	}
+	if !strings.Contains(output, "/tempZone/home/rods/compound/skip") {
+		t.Fatalf("expected excluded skip path in output, got %q", output)
+	}
+}
+
+func TestAddDrsIgnoreCreatesTemplateFile(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		Home:                 "/tempZone/home/rods",
+	}
+	testEnvManager.Session = &irodsclientconfig.Config{
+		CurrentWorkingDir: "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	fakeFS.addCollection("/tempZone/home/rods/projects")
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	output := runCommand(t, cmd, []string{APP_NAME, "add_drsignore", "/tempZone/home/rods/projects"})
+
+	if !strings.Contains(output, "\"ignoreFile\": \"/tempZone/home/rods/projects/.drsignore\"") {
+		t.Fatalf("expected add_drsignore output to include created path, got %q", output)
+	}
+
+	content := string(fakeFS.fileContents["/tempZone/home/rods/projects/.drsignore"])
+	if !strings.Contains(content, "*.tmp") {
+		t.Fatalf("expected created .drsignore to contain sample content, got %q", content)
+	}
+}
+
+func TestAddDrsIgnoreFailsWhenTemplateExists(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		Home:                 "/tempZone/home/rods",
+	}
+	testEnvManager.Session = &irodsclientconfig.Config{
+		CurrentWorkingDir: "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	fakeFS.addCollection("/tempZone/home/rods/projects")
+	fakeFS.entriesByPath["/tempZone/home/rods/projects/.drsignore"] = &irodsfs.Entry{
+		Type: irodsfs.FileEntry,
+		Name: ".drsignore",
+		Path: "/tempZone/home/rods/projects/.drsignore",
+		Size: 10,
+	}
+	fakeFS.metadataByPath["/tempZone/home/rods/projects/.drsignore"] = []*irodstypes.IRODSMeta{}
+	fakeFS.fileContents["/tempZone/home/rods/projects/.drsignore"] = []byte("existing")
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	_, err = runCommandAllowError(t, cmd, []string{APP_NAME, "add_drsignore", "/tempZone/home/rods/projects"})
+	if err == nil {
+		t.Fatal("expected add_drsignore to fail when .drsignore exists")
+	}
+
+	if !strings.Contains(err.Error(), ".drsignore already exists") {
+		t.Fatalf("expected duplicate .drsignore error, got %v", err)
+	}
+}
+
 func TestDrsMakeUsageErrorShowsHelp(t *testing.T) {
 	cmd := getCommand()
 
@@ -1000,6 +1355,7 @@ type fakeFileSystem struct {
 	account        *irodstypes.IRODSAccount
 	entriesByPath  map[string]*irodsfs.Entry
 	metadataByPath map[string][]*irodstypes.IRODSMeta
+	fileContents   map[string][]byte
 }
 
 func newFakeFileSystem(objectPath string) *fakeFileSystem {
@@ -1023,6 +1379,7 @@ func newFakeFileSystem(objectPath string) *fakeFileSystem {
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			objectPath: {},
 		},
+		fileContents: map[string][]byte{},
 	}
 }
 
@@ -1039,6 +1396,10 @@ func (f *fakeFileSystem) StatFile(irodsPath string) (*irodsfs.Entry, error) {
 	}
 
 	return entry, nil
+}
+
+func (f *fakeFileSystem) Stat(irodsPath string) (*irodsfs.Entry, error) {
+	return f.StatFile(irodsPath)
 }
 
 func (f *fakeFileSystem) SearchByMeta(name string, value string) ([]*irodsfs.Entry, error) {
@@ -1119,12 +1480,54 @@ func (f *fakeFileSystem) GetAccount() *irodstypes.IRODSAccount {
 	return f.account
 }
 
+func (f *fakeFileSystem) OpenFile(irodsPath string, resource string, mode string) (drs_support.IRODSReadWriteCloser, error) {
+	_ = resource
+	readOnly := strings.Contains(strings.ToLower(mode), "r") && !strings.Contains(strings.ToLower(mode), "w")
+	if _, ok := f.entriesByPath[irodsPath]; !ok {
+		return nil, os.ErrNotExist
+	}
+	return &fakeFileHandle{
+		filesystem: f,
+		path:       irodsPath,
+		readOnly:   readOnly,
+	}, nil
+}
+
+func (f *fakeFileSystem) CreateFile(irodsPath string, resource string, mode string) (drs_support.IRODSReadWriteCloser, error) {
+	_ = resource
+	_ = mode
+	if _, exists := f.entriesByPath[irodsPath]; exists {
+		return nil, os.ErrExist
+	}
+	parent := filepath.Dir(irodsPath)
+	if parent == "." {
+		parent = "/"
+	}
+	parentEntry, ok := f.entriesByPath[parent]
+	if !ok || !parentEntry.IsDir() {
+		return nil, os.ErrNotExist
+	}
+	f.entriesByPath[irodsPath] = &irodsfs.Entry{
+		Type: irodsfs.FileEntry,
+		Name: filepath.Base(irodsPath),
+		Path: irodsPath,
+		Size: 0,
+	}
+	f.metadataByPath[irodsPath] = []*irodstypes.IRODSMeta{}
+	f.fileContents[irodsPath] = []byte{}
+	return &fakeFileHandle{
+		filesystem: f,
+		path:       irodsPath,
+	}, nil
+}
+
 func (f *fakeFileSystem) addCollection(collectionPath string) {
 	f.entriesByPath[collectionPath] = &irodsfs.Entry{
 		Type: irodsfs.DirectoryEntry,
 		Name: filepath.Base(collectionPath),
 		Path: collectionPath,
 	}
+	f.metadataByPath[collectionPath] = []*irodstypes.IRODSMeta{}
 }
 
 func (f *fakeFileSystem) addDataObject(objectPath string, id int64) {
@@ -1136,4 +1539,45 @@ func (f *fakeFileSystem) addDataObject(objectPath string, id int64) {
 		Size: 128,
 	}
 	f.metadataByPath[objectPath] = []*irodstypes.IRODSMeta{}
+}
+
+type fakeFileHandle struct {
+	filesystem *fakeFileSystem
+	path       string
+	readOnly   bool
+	closed     bool
+}
+
+func (h *fakeFileHandle) ReadAt(buffer []byte, offset int64) (int, error) {
+	if h.closed {
+		return 0, os.ErrClosed
+	}
+	content := h.filesystem.fileContents[h.path]
+	if offset >= int64(len(content)) {
+		return 0, io.EOF
+	}
+	read := copy(buffer, content[offset:])
+	if int(offset)+read >= len(content) {
+		return read, io.EOF
+	}
+	return read, nil
+}
+
+func (h *fakeFileHandle) Write(data []byte) (int, error) {
+	if h.closed {
+		return 0, os.ErrClosed
+	}
+	if h.readOnly {
+		return 0, os.ErrPermission
+	}
+	h.filesystem.fileContents[h.path] = append(h.filesystem.fileContents[h.path], data...)
+	if entry, ok := h.filesystem.entriesByPath[h.path]; ok {
+		entry.Size = int64(len(h.filesystem.fileContents[h.path]))
+	}
+	return len(data), nil
+}
+
+func (h *fakeFileHandle) Close() error {
+	h.closed = true
+	return nil
 }

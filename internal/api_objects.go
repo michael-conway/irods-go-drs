@@ -147,8 +147,15 @@ func buildHTTPSProviderAccessURL(filesystem RouteFileSystem, drsConfig *drs_supp
 	}
 
 	preferredHost := ""
-	if strings.TrimSpace(parsedAccessID.Resource) != "" {
-		preferredHost = drs_support.ResolveAffinityHostForResource(drsConfig, parsedAccessID.Resource)
+	affinityResource := strings.TrimSpace(parsedAccessID.Resource)
+	if affinityResource == "" {
+		// Backward compatibility: default provider access IDs (without explicit
+		// resource suffix) still resolve through resource affinity using the
+		// object's primary replica resource.
+		affinityResource = primaryReplicaResourceForAccess(object)
+	}
+	if affinityResource != "" {
+		preferredHost = drs_support.ResolveAffinityHostForResource(drsConfig, affinityResource)
 	}
 
 	baseURL := drs_support.ResolveHTTPSAccessBaseURL(drsConfig.HttpsAccessMethodBaseURL, preferredHost)
@@ -179,6 +186,21 @@ func buildHTTPSProviderAccessURL(filesystem RouteFileSystem, drsConfig *drs_supp
 		Url:     url,
 		Headers: headers,
 	}, http.StatusOK, nil
+}
+
+func primaryReplicaResourceForAccess(object *drs_support.InternalDrsObject) string {
+	if object == nil {
+		return ""
+	}
+
+	for _, replica := range object.Replicas {
+		resourceName := strings.TrimSpace(replica.ResourceName)
+		if resourceName != "" {
+			return resourceName
+		}
+	}
+
+	return strings.TrimSpace(object.ResourceName)
 }
 
 func buildIRODSAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {

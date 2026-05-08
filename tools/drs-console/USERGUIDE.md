@@ -17,10 +17,12 @@ It is the right tool for day-to-day iRODS operations such as:
 `drscmd` is narrower. It is intended for DRS-specific administration tasks such as:
 
 - creating a single-object DRS registration for an iRODS data object
+- creating a collection-backed compound DRS object
 - looking up DRS metadata by iRODS path or DRS id
 - listing DRS objects under an iRODS collection
 - updating supported DRS metadata fields on an existing DRS object
 - removing single-object DRS metadata from an iRODS data object
+- adding a starter `.drsignore` file to a collection
 
 The expected workflow is:
 
@@ -108,6 +110,38 @@ Show command help:
 
 ```bash
 drscmd drsmake --help
+```
+
+### Create a compound DRS object from a collection
+
+Create compound metadata on an existing collection:
+
+```bash
+drscmd drsmakecompound /tempZone/home/rods/projects/compound-a
+```
+
+If `.drsignore` is not present at the collection root, `drsmakecompound` stops and requires an explicit override:
+
+```bash
+drscmd drsmakecompound /tempZone/home/rods/projects/compound-a --allow-no-ignore
+```
+
+Run a no-write preflight to preview the generated manifest from current data and AVUs:
+
+```bash
+drscmd drsmakecompound /tempZone/home/rods/projects/compound-a --preflight
+```
+
+Use both when you want preflight without a `.drsignore`:
+
+```bash
+drscmd drsmakecompound /tempZone/home/rods/projects/compound-a --preflight --allow-no-ignore
+```
+
+Show command help:
+
+```bash
+drscmd drsmakecompound --help
 ```
 
 ### List DRS objects in a collection
@@ -217,6 +251,21 @@ Show command help:
 drscmd drsrm --help
 ```
 
+### Add a sample `.drsignore`
+
+```bash
+drscmd add_drsignore /tempZone/home/rods/projects/compound-a
+```
+
+This writes the built-in sample `.drsignore` file to the target collection.
+If the file already exists, the command fails and leaves the existing file unchanged.
+
+Show command help:
+
+```bash
+drscmd add_drsignore --help
+```
+
 ## Help and usage errors
 
 Each command has its own help screen. The current command-specific help entry points are:
@@ -225,8 +274,10 @@ Each command has its own help screen. The current command-specific help entry po
 - `drscmd drsinfo --help`
 - `drscmd drsls --help`
 - `drscmd drsmake --help`
+- `drscmd drsmakecompound --help`
 - `drscmd drsupdate --help`
 - `drscmd drsrm --help`
+- `drscmd add_drsignore --help`
 
 If a command is invoked with a usage error, such as a missing required path or conflicting selector flags, `drscmd`
 prints that command's help content before returning the error.
