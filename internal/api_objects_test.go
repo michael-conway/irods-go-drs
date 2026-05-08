@@ -124,8 +124,8 @@ func TestGetObjectReturnsHTTPSAccessMethodPerReplicaResource(t *testing.T) {
 		DrsConfig: &drs_support.DrsConfig{
 			HttpsAccessMethodSupported: true,
 			HttpsAccessImplementation:  "irods-go-rest",
-			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
-			ResourceAffinity: []drs_support.ResourceAffinityEntry{
+			HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+			HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
 				{Host: "https://primary.example.org", Resources: []string{"demoResc"}},
 				{Host: "https://archive.example.org", Resources: []string{"archiveResc"}},
 			},
@@ -172,8 +172,8 @@ func TestGetAccessURLReturnsIRODSGoRestAffinityHostAccessURL(t *testing.T) {
 		DrsConfig: &drs_support.DrsConfig{
 			HttpsAccessMethodSupported: true,
 			HttpsAccessImplementation:  "irods-go-rest",
-			HttpsAccessMethodBaseURL:   "https://rest.example.org/api/v1/path/contents?irods_path=",
-			ResourceAffinity: []drs_support.ResourceAffinityEntry{
+			HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+			HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
 				{
 					Host:      "https://dedicated.example.org",
 					Resources: []string{"demoResc"},
@@ -829,7 +829,7 @@ func TestDrsObjectFromInternalIncludesExpandedContents(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/bundle-1?expand=true", nil)
 	req.Host = "drs.example.org"
 
-	response := drsObjectFromInternal(req, object, true)
+	response := drsObjectFromInternal(req, object, true, nil)
 	if len(response.Contents) != 2 {
 		t.Fatalf("expected 2 contents entries, got %d", len(response.Contents))
 	}

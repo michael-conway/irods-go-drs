@@ -298,7 +298,7 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	expand := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("expand")), "true")
-	response := drsObjectFromInternal(r, object, expand)
+	response := drsObjectFromInternal(r, object, expand, filesystem)
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
@@ -403,10 +403,10 @@ func PostObject(w http.ResponseWriter, r *http.Request) {
 	writeJSONError(w, http.StatusBadRequest, "POST /ga4gh/drs/v1/objects/{object_id} is not implemented yet; see issue #22")
 }
 
-func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool) DrsObject {
+func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool, filesystem drs_support.IRODSFilesystem) DrsObject {
 	var accessMethods []AccessMethod
 	if serviceContext, ok := DrsServiceContextFromContext(r.Context()); ok && serviceContext != nil {
-		accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethods(serviceContext.DrsConfig, object))
+		accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethodsWithFilesystem(serviceContext.DrsConfig, object, filesystem))
 	}
 
 	response := DrsObject{

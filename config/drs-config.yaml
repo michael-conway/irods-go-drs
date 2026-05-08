@@ -11,10 +11,6 @@ IrodsPort: 1247
 IrodsZone: tempZone
 IrodsAdminUser: rods
 IrodsAdminPasswordFile: ./resources/irods-admin-password.txt
-IrodsPrimaryTestUser: test1
-IrodsPrimaryTestPassword: test1
-IrodsSecondaryTestUser: test2ob
-IrodsSecondaryTestPassword: test2
 IrodsAdminLoginType: native
 IrodsAuthScheme: native
 IrodsNegotiationPolicy: CS_NEG_DONT_CARE
@@ -36,20 +32,25 @@ OidcRealm: drs
 OidcScope: openid profile email
 OidcInsecureSkipVerify: true
 
-IrodsAccessMethodSupported: true
-
-FileAccessMethodSupported: false
-HttpsAccessMethodSupported: true
-HttpsAccessMethodBaseURL: http://localhost:8080/api/v1/path/contents?irods_path=
-HttpsAccessUseTicket: true
-HttpsAccessImplementation: irods-go-rest
-
 DefaultTicketLifetimeMinutes: 720
 DefaultTicketUseLimit: 50
 
-ResourceAffinity:
+IrodsAccessMethodSupported: true
+FileAccessMethodSupported: false
+
+HttpsAccessMethodSupported: true
+HttpsAccessUseTicket: true
+HttpsAccessImplementation: irods-go-rest
+HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
+HttpsResourceAffinity:
   - Host: http://localhost:8080
     Resources:
   - Host: http://localhost:8081
     Resources:
       - test2-resc
+
+S3AccessMethodSupported: true
+S3AccessMethodBaseURL: s3://
+S3ResourceAffinity:
+  - Host:
+    Resources:

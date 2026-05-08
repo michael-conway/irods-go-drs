@@ -7,8 +7,10 @@ IrodsAccessMethodSupported: false
 FileAccessMethodSupported: false
 HttpsAccessMethodSupported: true
 HttpsAccessImplementation: irods-go-rest
-HttpsAccessMethodBaseURL: https://download.example.org/api/v1/path/contents?irods_path=
+HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
 HttpsAccessUseTicket: true
+S3AccessMethodSupported: true
+S3AccessMethodBaseURL: s3://
 DefaultTicketLifetimeMinutes: 720
 DefaultTicketUseLimit: 50
 IrodsHost: localhost
@@ -34,11 +36,17 @@ IrodsSSLConfig:
   DHParamsFile:
   ServerName:
 IrodsDefaultResource:
-ResourceAffinity:
+HttpsResourceAffinity:
   - Host: https://download.example.org
     Resources:
       - demoResc
   - Host: https://download-alt.example.org
+    Resources: []
+S3ResourceAffinity:
+  - Host: s3://download.example.org
+    Resources:
+      - demoResc
+  - Host: s3://download-alt.example.org
     Resources: []
 OidcUrl: https://localhost:8443
 OidcClientId:

@@ -259,8 +259,8 @@ func TestGetDrsObjectByIDHydratesAllReplicaResources(t *testing.T) {
 	methods := drs_support.BuildAccessMethods(&drs_support.DrsConfig{
 		HttpsAccessMethodSupported: true,
 		HttpsAccessImplementation:  "irods-go-rest",
-		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
-		ResourceAffinity: []drs_support.ResourceAffinityEntry{
+		HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+		HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
 			{Host: "https://primary.example.org", Resources: []string{"demoResc"}},
 			{Host: "https://archive.example.org", Resources: []string{"archiveResc"}},
 		},
