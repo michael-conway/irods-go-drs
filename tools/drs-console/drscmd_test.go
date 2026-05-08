@@ -242,6 +242,69 @@ func TestDrsCommands(t *testing.T) {
 	}
 }
 
+func TestDrsInfoIncludesManifestForCompoundObject(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		CurrentWorkingDir:    "/tempZone/home/rods",
+		Home:                 "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	fakeFS.addCollection("/tempZone/home/rods/compound")
+	fakeFS.addCollection("/tempZone/home/rods/compound/sub")
+	fakeFS.addDataObject("/tempZone/home/rods/compound/sub/object.txt", 401)
+	fakeFS.addDataObject("/tempZone/home/rods/compound/.drsignore", 402)
+	fakeFS.fileContents["/tempZone/home/rods/compound/.drsignore"] = []byte("sub/**\n")
+
+	if err := fakeFS.AddMetadata("/tempZone/home/rods/compound", drs_support.DrsIdAvuAttrib, "compound-id", drs_support.DrsAvuUnit); err != nil {
+		t.Fatalf("seed compound root drs id: %v", err)
+	}
+	if err := fakeFS.AddMetadata("/tempZone/home/rods/compound", drs_support.DrsAvuCompoundManifestAttrib, "true", drs_support.DrsAvuUnit); err != nil {
+		t.Fatalf("seed compound marker: %v", err)
+	}
+	if err := fakeFS.AddMetadata("/tempZone/home/rods/compound/sub/object.txt", drs_support.DrsIdAvuAttrib, "child-id", drs_support.DrsAvuUnit); err != nil {
+		t.Fatalf("seed child drs id: %v", err)
+	}
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	output := runCommand(t, cmd, []string{APP_NAME, "drsinfo", "--id", "compound-id"})
+
+	if !strings.Contains(output, "\"isManifest\": true") {
+		t.Fatalf("expected compound drsinfo result, got %q", output)
+	}
+	if !strings.Contains(output, "\"manifest\"") {
+		t.Fatalf("expected embedded generated manifest for compound object, got %q", output)
+	}
+	if !strings.Contains(output, "\"rootPath\": \"/tempZone/home/rods/compound\"") {
+		t.Fatalf("expected manifest root path, got %q", output)
+	}
+	if !strings.Contains(output, "\"path\": \"/tempZone/home/rods/compound/sub/object.txt\"") {
+		t.Fatalf("expected manifest data object entry, got %q", output)
+	}
+	if strings.Contains(output, "/tempZone/home/rods/compound/.drsignore") {
+		t.Fatalf("expected .drsignore excluded from generated manifest, got %q", output)
+	}
+}
+
 func TestDrsListDefaultsToSessionCwdAndPagesResults(t *testing.T) {
 	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
 	if err != nil {
@@ -709,6 +772,150 @@ func TestAddDrsIgnoreHelp(t *testing.T) {
 
 	if !strings.Contains(helpOutput, "<irods-collection-path>") {
 		t.Fatalf("expected add_drsignore help to include argument usage, got %q", helpOutput)
+	}
+}
+
+func TestDrsRemoveRemovesDrsAVUsFromSingleObject(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		Home:                 "/tempZone/home/rods",
+	}
+	testEnvManager.Session = &irodsclientconfig.Config{
+		CurrentWorkingDir: "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	if _, err := drs_support.CreateDrsObjectFromDataObject(fakeFS, "/tempZone/home/rods/file.txt", "text/plain", "single", []string{"a1"}); err != nil {
+		t.Fatalf("create single drs object: %v", err)
+	}
+	if err := fakeFS.AddMetadata("/tempZone/home/rods/file.txt", "user:note", "keep", "custom"); err != nil {
+		t.Fatalf("add custom metadata: %v", err)
+	}
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	output := runCommand(t, cmd, []string{APP_NAME, "drsrm", "--path", "/tempZone/home/rods/file.txt"})
+
+	if !strings.Contains(output, "\"path\": \"/tempZone/home/rods/file.txt\"") {
+		t.Fatalf("expected drsrm output path, got %q", output)
+	}
+	if !strings.Contains(output, "\"pathsVisited\": 1") {
+		t.Fatalf("expected pathsVisited=1, got %q", output)
+	}
+
+	metas, err := fakeFS.ListMetadata("/tempZone/home/rods/file.txt")
+	if err != nil {
+		t.Fatalf("list metadata after strip: %v", err)
+	}
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+		if meta.Units == drs_support.DrsAvuUnit && strings.HasPrefix(meta.Name, "iRODS:DRS") {
+			t.Fatalf("expected drs metadata removed from single object, got %+v", metas)
+		}
+	}
+}
+
+func TestDrsRemoveRemovesDrsAVUsFromCompoundCollection(t *testing.T) {
+	testEnvManager, err := irodsclientconfig.NewICommandsEnvironmentManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testEnvManager.Environment = &irodsclientconfig.Config{
+		Host:                 "irods.example.org",
+		Port:                 1247,
+		ZoneName:             "tempZone",
+		Username:             "rods",
+		Password:             "rods-password",
+		AuthenticationScheme: "native",
+		Home:                 "/tempZone/home/rods",
+	}
+	testEnvManager.Session = &irodsclientconfig.Config{
+		CurrentWorkingDir: "/tempZone/home/rods",
+	}
+
+	oldEnvManager := envManager
+	envManager = testEnvManager
+	defer func() { envManager = oldEnvManager }()
+
+	fakeFS := newFakeFileSystem("/tempZone/home/rods/file.txt")
+	fakeFS.addCollection("/tempZone/home/rods/compound")
+	fakeFS.addCollection("/tempZone/home/rods/compound/sub")
+	fakeFS.addDataObject("/tempZone/home/rods/compound/sub/object.txt", 301)
+	fakeFS.addDataObject("/tempZone/home/rods/compound/.drsignore", 302)
+
+	// root + child drs semantics
+	if err := fakeFS.AddMetadata("/tempZone/home/rods/compound", drs_support.DrsIdAvuAttrib, "compound-id", drs_support.DrsAvuUnit); err != nil {
+		t.Fatalf("seed root drs id: %v", err)
+	}
+	if err := fakeFS.AddMetadata("/tempZone/home/rods/compound", drs_support.DrsAvuCompoundManifestAttrib, "true", drs_support.DrsAvuUnit); err != nil {
+		t.Fatalf("seed root compound marker: %v", err)
+	}
+	if _, err := drs_support.CreateDrsObjectFromDataObject(fakeFS, "/tempZone/home/rods/compound/sub/object.txt", "text/plain", "child", []string{"c1"}); err != nil {
+		t.Fatalf("seed child drs object: %v", err)
+	}
+	if err := fakeFS.AddMetadata("/tempZone/home/rods/compound/.drsignore", "user:note", "keep", "custom"); err != nil {
+		t.Fatalf("seed .drsignore custom metadata: %v", err)
+	}
+
+	oldCreateFileSystem := createFileSystem
+	createFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (FileSystem, error) {
+		return fakeFS, nil
+	}
+	defer func() { createFileSystem = oldCreateFileSystem }()
+
+	cmd := getCommand()
+	output := runCommand(t, cmd, []string{APP_NAME, "drsrm", "--id", "compound-id"})
+
+	if !strings.Contains(output, "\"path\": \"/tempZone/home/rods/compound\"") {
+		t.Fatalf("expected drsrm output root path, got %q", output)
+	}
+	if !strings.Contains(output, "\"pathsVisited\":") || !strings.Contains(output, "\"avusRemoved\":") {
+		t.Fatalf("expected strip counters in output, got %q", output)
+	}
+
+	rootMetas, _ := fakeFS.ListMetadata("/tempZone/home/rods/compound")
+	childMetas, _ := fakeFS.ListMetadata("/tempZone/home/rods/compound/sub/object.txt")
+	for _, meta := range rootMetas {
+		if meta != nil && meta.Units == drs_support.DrsAvuUnit && strings.HasPrefix(meta.Name, "iRODS:DRS") {
+			t.Fatalf("expected root drs metadata removed, got %+v", rootMetas)
+		}
+	}
+	for _, meta := range childMetas {
+		if meta != nil && meta.Units == drs_support.DrsAvuUnit && strings.HasPrefix(meta.Name, "iRODS:DRS") {
+			t.Fatalf("expected child drs metadata removed, got %+v", childMetas)
+		}
+	}
+
+	ignoreMetas, _ := fakeFS.ListMetadata("/tempZone/home/rods/compound/.drsignore")
+	foundCustom := false
+	for _, meta := range ignoreMetas {
+		if meta != nil && meta.Name == "user:note" && meta.Value == "keep" {
+			foundCustom = true
+			break
+		}
+	}
+	if !foundCustom {
+		t.Fatalf("expected .drsignore data object to remain with custom metadata, got %+v", ignoreMetas)
 	}
 }
 

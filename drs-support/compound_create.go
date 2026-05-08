@@ -76,6 +76,16 @@ type CompoundManifestPreflight struct {
 	Manifest      *CompoundManifestNode `json:"manifest,omitempty"`
 }
 
+type CompoundRuntimeManifest struct {
+	Host      string                `json:"host,omitempty"`
+	Port      int                   `json:"port,omitempty"`
+	Zone      string                `json:"zone,omitempty"`
+	RootPath  string                `json:"rootPath"`
+	RootDrsID string                `json:"rootDrsId"`
+	Warnings  []string              `json:"warnings,omitempty"`
+	Manifest  *CompoundManifestNode `json:"manifest,omitempty"`
+}
+
 type compoundTreeNode struct {
 	Entry    *irodsfs.Entry
 	Metadata []*irodstypes.IRODSMeta
@@ -226,6 +236,60 @@ func BuildCompoundManifestPreflight(filesystem IRODSFilesystem, collectionPath s
 		Warnings:      warnings,
 		ExcludedPaths: excludedPaths,
 		Manifest:      manifestNode,
+	}
+
+	if account := filesystem.GetAccount(); account != nil {
+		result.Host = strings.TrimSpace(account.Host)
+		result.Port = account.Port
+		result.Zone = strings.TrimSpace(account.ClientZone)
+	}
+
+	return result, nil
+}
+
+// BuildCompoundRuntimeManifest generates the current compound manifest view from AVUs.
+func BuildCompoundRuntimeManifest(filesystem IRODSFilesystem, collectionPath string) (*CompoundRuntimeManifest, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	rootPath := irodsutil.GetCorrectIRODSPath(strings.TrimSpace(collectionPath))
+	if rootPath == "" || rootPath == "/" {
+		return nil, fmt.Errorf("a collection absolute path is required")
+	}
+
+	rootEntry, err := compoundStat(filesystem, rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat collection %q: %w", rootPath, err)
+	}
+	if rootEntry == nil || !rootEntry.IsDir() {
+		return nil, fmt.Errorf("path %q is not a collection", rootPath)
+	}
+
+	root, err := buildCompoundTree(filesystem, rootPath)
+	if err != nil {
+		return nil, err
+	}
+
+	manifestNode, included := buildPreflightNode(root, rootPath, nil)
+	if !included || manifestNode == nil {
+		return nil, fmt.Errorf("failed to generate runtime manifest for %q", rootPath)
+	}
+
+	warnings := []string{}
+	rootDrsID := drsIDFromMetadata(root.Metadata)
+	if rootDrsID == "" {
+		warnings = append(warnings, "root collection has no DRS id")
+	}
+	if !collectionHasCompoundMarker(root.Metadata) {
+		warnings = append(warnings, "root collection is not marked as a compound DRS object")
+	}
+
+	result := &CompoundRuntimeManifest{
+		RootPath:  rootPath,
+		RootDrsID: rootDrsID,
+		Warnings:  warnings,
+		Manifest:  manifestNode,
 	}
 
 	if account := filesystem.GetAccount(); account != nil {

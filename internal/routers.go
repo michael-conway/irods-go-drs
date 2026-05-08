@@ -111,6 +111,13 @@ var routes = Routes{
 		GetObject,
 		true,
 	},
+	Route{
+		"GetCompoundManifestExt",
+		strings.ToUpper("Get"),
+		"/ga4gh/drs/v1/ext/compound/{object_id}",
+		GetCompoundManifestExt,
+		true,
+	},
 
 	Route{
 		"OptionsBulkObject",

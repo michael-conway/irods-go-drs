@@ -11,7 +11,7 @@ Important scope rule:
 
 This behavior keeps bootstrap selection deterministic while allowing metadata to
 evolve over time through AVU edits.
-
+objec
 ## Planned command usage
 
  `drscmd` workflow:

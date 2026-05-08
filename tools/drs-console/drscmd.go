@@ -60,15 +60,16 @@ var logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 const APP_NAME = "drscmd"
 
 type drsInfoResult struct {
-	DRSID       string   `json:"drsId"`
-	Path        string   `json:"path"`
-	Zone        string   `json:"zone,omitempty"`
-	Size        int64    `json:"size,omitempty"`
-	Version     string   `json:"version,omitempty"`
-	MimeType    string   `json:"mimeType,omitempty"`
-	IsManifest  bool     `json:"isManifest"`
-	Description string   `json:"description,omitempty"`
-	Aliases     []string `json:"aliases,omitempty"`
+	DRSID       string                               `json:"drsId"`
+	Path        string                               `json:"path"`
+	Zone        string                               `json:"zone,omitempty"`
+	Size        int64                                `json:"size,omitempty"`
+	Version     string                               `json:"version,omitempty"`
+	MimeType    string                               `json:"mimeType,omitempty"`
+	IsManifest  bool                                 `json:"isManifest"`
+	Description string                               `json:"description,omitempty"`
+	Aliases     []string                             `json:"aliases,omitempty"`
+	Manifest    *drs_support.CompoundRuntimeManifest `json:"manifest,omitempty"`
 }
 
 type drsMakeResult struct {
@@ -86,7 +87,10 @@ type drsMakeCompoundResult struct {
 }
 
 type drsRemoveResult struct {
-	Path string `json:"path"`
+	Path                 string `json:"path"`
+	PathsVisited         int    `json:"pathsVisited"`
+	PathsWithDrsMetadata int    `json:"pathsWithDrsMetadata"`
+	AvusRemoved          int    `json:"avusRemoved"`
 }
 
 type drsIgnoreResult struct {
@@ -177,7 +181,7 @@ func setupCLI() {
 		fmt.Fprintf(w, "\tdrsmake - make a single-object drs object at the given data object\n")
 		fmt.Fprintf(w, "\tdrsmakecompound - make a collection a compound drs object\n")
 		fmt.Fprintf(w, "\tdrsupdate - update supported DRS AVU metadata on an existing DRS object\n")
-		fmt.Fprintf(w, "\tdrsrm - remove drs object characteristics from a given data object\n")
+		fmt.Fprintf(w, "\tdrsrm - remove DRS AVUs from a DRS object (single or compound)\n")
 		fmt.Fprintf(w, "\tadd_drsignore - add a sample .drsignore file to an iRODS collection\n")
 	}
 
@@ -426,6 +430,14 @@ func getCommand() *cli.Command {
 						return err
 					}
 
+					var manifest *drs_support.CompoundRuntimeManifest
+					if object.IsManifest {
+						manifest, err = drs_support.BuildCompoundRuntimeManifest(filesystem, object.AbsolutePath)
+						if err != nil {
+							return err
+						}
+					}
+
 					return writeJSON(cmd.Writer, drsInfoResult{
 						DRSID:       object.Id,
 						Path:        object.AbsolutePath,
@@ -436,6 +448,7 @@ func getCommand() *cli.Command {
 						IsManifest:  object.IsManifest,
 						Description: object.Description,
 						Aliases:     object.Aliases,
+						Manifest:    manifest,
 					})
 				},
 			},
@@ -724,7 +737,7 @@ func getCommand() *cli.Command {
 			},
 			{
 				Name:      "drsrm",
-				Usage:     "remove single-object DRS metadata by iRODS path or DRS id",
+				Usage:     "remove DRS AVUs from a DRS object (single or compound) by iRODS path or DRS id",
 				ArgsUsage: "<path-or-drs-id>",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "help", Usage: "show help for drsrm", Destination: &drsRemoveHelp},
@@ -757,11 +770,17 @@ func getCommand() *cli.Command {
 						return err
 					}
 
-					if err := drs_support.RemoveSingleDrsObjectFromDataObject(filesystem, object.AbsolutePath); err != nil {
+					result, err := drs_support.StripDrsSemantics(filesystem, object.AbsolutePath)
+					if err != nil {
 						return err
 					}
 
-					return writeJSON(cmd.Writer, drsRemoveResult{Path: object.AbsolutePath})
+					return writeJSON(cmd.Writer, drsRemoveResult{
+						Path:                 result.RootPath,
+						PathsVisited:         result.PathsVisited,
+						PathsWithDrsMetadata: result.PathsWithDrsMetadata,
+						AvusRemoved:          result.AvusRemoved,
+					})
 				},
 			},
 			{

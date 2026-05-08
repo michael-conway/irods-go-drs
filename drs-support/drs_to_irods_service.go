@@ -275,9 +275,9 @@ func GetDrsObjectByID(filesystem IRODSFilesystem, drsID string) (*InternalDrsObj
 		return nil, fmt.Errorf("DRS id %q matched multiple data objects", drsID)
 	}
 
-	entry, err := filesystem.StatFile(matches[0].Path)
+	entry, err := statEntry(filesystem, matches[0].Path)
 	if err != nil {
-		return nil, fmt.Errorf("stat data object %q: %w", matches[0].Path, err)
+		return nil, fmt.Errorf("stat iRODS entry %q: %w", matches[0].Path, err)
 	}
 
 	object, err := drsObjectFromEntry(filesystem, entry)
@@ -301,9 +301,9 @@ func GetDrsObjectByIRODSPath(filesystem IRODSFilesystem, absolutePath string) (*
 		return nil, fmt.Errorf("an iRODS data object absolute path is required")
 	}
 
-	entry, err := filesystem.StatFile(correctPath)
+	entry, err := statEntry(filesystem, correctPath)
 	if err != nil {
-		return nil, fmt.Errorf("stat data object %q: %w", correctPath, err)
+		return nil, fmt.Errorf("stat iRODS path %q: %w", correctPath, err)
 	}
 
 	object, err := drsObjectFromEntry(filesystem, entry)
