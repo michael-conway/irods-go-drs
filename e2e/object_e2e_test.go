@@ -84,13 +84,31 @@ func TestGetObjectBearerAuthE2E(t *testing.T) {
 	if len(object.Checksums) == 0 || strings.TrimSpace(object.Checksums[0].Checksum) == "" {
 		t.Fatalf("expected object checksum in response, got %+v", object.Checksums)
 	}
-	if len(object.Aliases) != len(fixture.aliases) {
-		t.Fatalf("expected %d aliases, got %d", len(fixture.aliases), len(object.Aliases))
+	if len(object.Aliases) != len(fixture.aliases)+1 {
+		t.Fatalf("expected %d aliases including iRODS uri alias, got %d", len(fixture.aliases)+1, len(object.Aliases))
 	}
 	for _, expectedAlias := range fixture.aliases {
 		if !containsString(object.Aliases, expectedAlias) {
 			t.Fatalf("expected alias %q in %+v", expectedAlias, object.Aliases)
 		}
+	}
+	irodsAlias := ""
+	for _, alias := range object.Aliases {
+		parsedAlias, err := extension_irodsuri.Parse(alias)
+		if err != nil {
+			continue
+		}
+		irodsAlias = alias
+		if parsedAlias.UserInfo != nil {
+			t.Fatalf("expected iRODS alias without user info, got %+v", parsedAlias.UserInfo)
+		}
+		if parsedAlias.Path != fixture.objectPath {
+			t.Fatalf("expected iRODS alias path %q, got %+v", fixture.objectPath, parsedAlias)
+		}
+		break
+	}
+	if strings.TrimSpace(irodsAlias) == "" {
+		t.Fatalf("expected iRODS uri alias in %+v", object.Aliases)
 	}
 	if !strings.Contains(object.SelfUri, "/"+fixture.objectID) {
 		t.Fatalf("expected self uri to contain object id %q, got %q", fixture.objectID, object.SelfUri)

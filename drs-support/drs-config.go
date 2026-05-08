@@ -2,6 +2,7 @@ package drs_support
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -32,6 +33,9 @@ type DrsConfig struct {
 	IRODSAccessHost                  string
 	IRODSAccessPort                  int
 	LocalAccessRootPath              string
+	S3AccessMethodSupported          bool
+	S3AccessMethodBaseURL            string
+	S3ResourceAffinity               []ResourceAffinityEntry
 	S3AccessEndpoint                 string
 	IrodsHost                        string
 	IrodsPort                        int
@@ -39,14 +43,16 @@ type DrsConfig struct {
 	IrodsAdminUser                   string
 	IrodsAdminPassword               string
 	IrodsAdminPasswordFile           string
+	IrodsAdminLoginType              string
 	IrodsPrimaryTestUser             string
 	IrodsPrimaryTestPassword         string
 	IrodsSecondaryTestUser           string
 	IrodsSecondaryTestPassword       string
 	IrodsAuthScheme                  string
 	IrodsNegotiationPolicy           string
+	IrodsSSLConfig                   IrodsSSLConfig
 	IrodsDefaultResource             string
-	ResourceAffinity                 []ResourceAffinityEntry
+	HttpsResourceAffinity            []ResourceAffinityEntry
 	OidcUrl                          string
 	OidcClientId                     string
 	OidcClientSecret                 string
@@ -57,32 +63,132 @@ type DrsConfig struct {
 	OidcInsecureSkipVerify           bool
 }
 
+type IrodsSSLConfig struct {
+	CACertificateFile       string
+	CACertificatePath       string
+	EncryptionKeySize       int
+	EncryptionAlgorithm     string
+	EncryptionSaltSize      int
+	EncryptionNumHashRounds int
+	VerifyServer            string
+	DHParamsFile            string
+	ServerName              string
+}
+
 type ResourceAffinityEntry struct {
 	Host      string   `mapstructure:"Host"`
 	Resources []string `mapstructure:"Resources"`
 }
 
-func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
-	authScheme := types.GetAuthScheme(cfg.IrodsAuthScheme)
+func NormalizeIRODSNegotiationPolicy(policy string) string {
+	policy = strings.TrimSpace(policy)
+	switch policy {
+	case string(types.CSNegotiationPolicyRequestTCP), string(types.CSNegotiationPolicyRequestSSL), string(types.CSNegotiationPolicyRequestDontCare):
+		return policy
+	default:
+		slog.Warn(
+			"invalid iRODS negotiation policy; defaulting to CS_NEG_DONT_CARE",
+			"configured_policy", policy,
+			"default_policy", string(types.CSNegotiationPolicyRequestDontCare),
+		)
+		return string(types.CSNegotiationPolicyRequestDontCare)
+	}
+}
 
-	negotiationPolicy := types.GetCSNegotiationPolicyRequest(cfg.IrodsNegotiationPolicy)
-	negotiation := types.GetCSNegotiation(cfg.IrodsNegotiationPolicy)
-
-	account := types.IRODSAccount{
-		AuthenticationScheme:    authScheme,
-		ClientServerNegotiation: negotiation.IsNegotiationRequired(),
-		CSNegotiationPolicy:     negotiationPolicy,
-		Host:                    cfg.IrodsHost,
-		Port:                    cfg.IrodsPort,
-		ClientUser:              cfg.IrodsAdminUser,
-		ClientZone:              cfg.IrodsZone,
-		ProxyUser:               cfg.IrodsAdminUser,
-		ProxyZone:               cfg.IrodsZone,
-		Password:                cfg.IrodsAdminPassword,
-		DefaultResource:         cfg.IrodsDefaultResource,
+func (cfg *DrsConfig) AdminAuthScheme() types.AuthScheme {
+	adminLoginType := strings.TrimSpace(cfg.IrodsAdminLoginType)
+	if adminLoginType == "" {
+		adminLoginType = strings.TrimSpace(cfg.IrodsAuthScheme)
 	}
 
+	return types.GetAuthScheme(adminLoginType)
+}
+
+func (cfg *DrsConfig) RequestAuthScheme() types.AuthScheme {
+	return types.GetAuthScheme(cfg.IrodsAuthScheme)
+}
+
+func (cfg *DrsConfig) ToIRODSSSLConfig() *types.IRODSSSLConfig {
+	sslConfig := cfg.IrodsSSLConfig
+
+	verifyServerName := strings.TrimSpace(sslConfig.VerifyServer)
+	if verifyServerName == "" {
+		verifyServerName = defaultIRODSSSLVerifyServer
+	}
+
+	verifyServer, err := types.GetSSLVerifyServer(verifyServerName)
+	if err != nil {
+		slog.Warn(
+			"invalid iRODS SSL verify server; defaulting to go-irodsclient value",
+			"configured_verify_server", verifyServerName,
+			"default_verify_server", defaultIRODSSSLVerifyServer,
+		)
+		verifyServer, _ = types.GetSSLVerifyServer(defaultIRODSSSLVerifyServer)
+	}
+
+	encryptionKeySize := sslConfig.EncryptionKeySize
+	if encryptionKeySize <= 0 {
+		encryptionKeySize = defaultIRODSEncryptionKeySize
+	}
+
+	encryptionAlgorithm := strings.TrimSpace(sslConfig.EncryptionAlgorithm)
+	if encryptionAlgorithm == "" {
+		encryptionAlgorithm = defaultIRODSEncryptionAlgorithm
+	}
+
+	encryptionSaltSize := sslConfig.EncryptionSaltSize
+	if encryptionSaltSize <= 0 {
+		encryptionSaltSize = defaultIRODSEncryptionSaltSize
+	}
+
+	encryptionNumHashRounds := sslConfig.EncryptionNumHashRounds
+	if encryptionNumHashRounds <= 0 {
+		encryptionNumHashRounds = defaultIRODSEncryptionNumHashRounds
+	}
+
+	return &types.IRODSSSLConfig{
+		CACertificateFile:       strings.TrimSpace(sslConfig.CACertificateFile),
+		CACertificatePath:       strings.TrimSpace(sslConfig.CACertificatePath),
+		EncryptionKeySize:       encryptionKeySize,
+		EncryptionAlgorithm:     encryptionAlgorithm,
+		EncryptionSaltSize:      encryptionSaltSize,
+		EncryptionNumHashRounds: encryptionNumHashRounds,
+		VerifyServer:            verifyServer,
+		DHParamsFile:            strings.TrimSpace(sslConfig.DHParamsFile),
+		ServerName:              strings.TrimSpace(sslConfig.ServerName),
+	}
+}
+
+func (cfg *DrsConfig) ApplyIRODSConnectionConfig(account *types.IRODSAccount) *types.IRODSAccount {
+	if account == nil {
+		return nil
+	}
+
+	normalizedPolicy := NormalizeIRODSNegotiationPolicy(cfg.IrodsNegotiationPolicy)
+	negotiationPolicy := types.GetCSNegotiationPolicyRequest(normalizedPolicy)
+	requireNegotiation := negotiationPolicy == types.CSNegotiationPolicyRequestSSL
+
+	account.SetCSNegotiation(requireNegotiation, negotiationPolicy)
+	account.SetSSLConfiguration(cfg.ToIRODSSSLConfig())
 	account.FixAuthConfiguration()
+
+	return account
+}
+
+func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
+	account := types.IRODSAccount{
+		AuthenticationScheme: cfg.AdminAuthScheme(),
+		Host:                 cfg.IrodsHost,
+		Port:                 cfg.IrodsPort,
+		ClientUser:           cfg.IrodsAdminUser,
+		ClientZone:           cfg.IrodsZone,
+		ProxyUser:            cfg.IrodsAdminUser,
+		ProxyZone:            cfg.IrodsZone,
+		Password:             cfg.IrodsAdminPassword,
+		DefaultResource:      cfg.IrodsDefaultResource,
+	}
+
+	cfg.ApplyIRODSConnectionConfig(&account)
 
 	return account
 }
@@ -90,48 +196,65 @@ func (cfg *DrsConfig) ToIrodsAccount() types.IRODSAccount {
 const DefaultConfigName = "drs-config"
 const DefaultConfigType = "yaml"
 const ConfigFileEnvVar = "DRS_CONFIG_FILE"
+const defaultIRODSEncryptionAlgorithm = "AES-256-CBC"
+const defaultIRODSEncryptionKeySize = 32
+const defaultIRODSEncryptionSaltSize = 8
+const defaultIRODSEncryptionNumHashRounds = 16
+const defaultIRODSSSLVerifyServer = "hostname"
 
 func bindEnvVars(v *viper.Viper) error {
 	envBindings := map[string][]string{
-		"DrsIdAvuValue":                    {"DRS_DRS_ID_AVU_VALUE", "DRS_DRSIDAVUVALUE"},
-		"DrsAvuUnit":                       {"DRS_DRS_AVU_UNIT", "DRS_DRSAVUUNIT"},
-		"DrsLogLevel":                      {"DRS_DRS_LOG_LEVEL", "DRS_DRSLOGLEVEL"},
-		"DrsListenPort":                    {"DRS_LISTEN_PORT", "DRS_DRSLISTENPORT"},
-		"ServiceInfoSampleIntervalMinutes": {"DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "DRS_SERVICEINFOSAMPLEINTERVALMINUTES"},
-		"ServiceInfoFilePath":              {"DRS_SERVICE_INFO_FILE_PATH", "DRS_SERVICEINFOFILEPATH"},
-		"IrodsAccessMethodSupported":       {"DRS_IRODS_ACCESS_METHOD_SUPPORTED", "DRS_IRODSACCESSMETHODSUPPORTED"},
-		"FileAccessMethodSupported":        {"DRS_FILE_ACCESS_METHOD_SUPPORTED", "DRS_FILEACCESSMETHODSUPPORTED"},
-		"HttpsAccessMethodSupported":       {"DRS_HTTPS_ACCESS_METHOD_SUPPORTED", "DRS_HTTPSACCESSMETHODSUPPORTED"},
-		"HttpsAccessImplementation":        {"DRS_HTTPS_ACCESS_IMPLEMENTATION", "DRS_HTTPSACCESSIMPLEMENTATION"},
-		"HttpsAccessMethodBaseURL":         {"DRS_HTTPS_ACCESS_METHOD_BASE_URL", "DRS_HTTPSACCESSMETHODBASEURL"},
-		"HttpsAccessUseTicket":             {"DRS_HTTPS_ACCESS_USE_TICKET", "DRS_HTTPSACCESSUSETICKET"},
-		"DefaultTicketLifetimeMinutes":     {"DRS_DEFAULT_TICKET_LIFETIME_MINUTES", "DRS_DEFAULTTICKETLIFETIMEMINUTES"},
-		"DefaultTicketUseLimit":            {"DRS_DEFAULT_TICKET_USE_LIMIT", "DRS_DEFAULTTICKETUSELIMIT"},
-		"IRODSAccessHost":                  {"DRS_IRODS_ACCESS_HOST", "DRS_IRODSACCESSHOST"},
-		"IRODSAccessPort":                  {"DRS_IRODS_ACCESS_PORT", "DRS_IRODSACCESSPORT"},
-		"LocalAccessRootPath":              {"DRS_LOCAL_ACCESS_ROOT_PATH", "DRS_LOCALACCESSROOTPATH"},
-		"S3AccessEndpoint":                 {"DRS_S3_ACCESS_ENDPOINT", "DRS_S3ACCESSENDPOINT"},
-		"IrodsHost":                        {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
-		"IrodsPort":                        {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
-		"IrodsZone":                        {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
-		"IrodsAdminUser":                   {"DRS_IRODS_ADMIN_USER", "DRS_IRODSADMINUSER", "DRS_IRODS_DRS_ADMIN_USER", "DRS_IRODSDRSADMINUSER"},
-		"IrodsAdminPassword":               {"DRS_IRODS_ADMIN_PASSWORD", "DRS_IRODSADMINPASSWORD", "DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
-		"IrodsAdminPasswordFile":           {"DRS_IRODS_ADMIN_PASSWORD_FILE", "DRS_IRODSADMINPASSWORDFILE", "DRS_IRODS_DRS_ADMIN_PASSWORD_FILE", "DRS_IRODSDRSADMINPASSWORDFILE"},
-		"IrodsPrimaryTestUser":             {"DRS_IRODS_PRIMARY_TEST_USER", "DRS_IRODSPRIMARYTESTUSER"},
-		"IrodsPrimaryTestPassword":         {"DRS_IRODS_PRIMARY_TEST_PASSWORD", "DRS_IRODSPRIMARYTESTPASSWORD"},
-		"IrodsSecondaryTestUser":           {"DRS_IRODS_SECONDARY_TEST_USER", "DRS_IRODSSECONDARYTESTUSER"},
-		"IrodsSecondaryTestPassword":       {"DRS_IRODS_SECONDARY_TEST_PASSWORD", "DRS_IRODSSECONDARYTESTPASSWORD"},
-		"IrodsAuthScheme":                  {"DRS_IRODS_AUTH_SCHEME", "DRS_IRODSAUTHSCHEME"},
-		"IrodsNegotiationPolicy":           {"DRS_IRODS_NEGOTIATION_POLICY", "DRS_IRODSNEGOTIATIONPOLICY"},
-		"IrodsDefaultResource":             {"DRS_IRODS_DEFAULT_RESOURCE", "DRS_IRODSDEFAULTRESOURCE"},
-		"OidcUrl":                          {"DRS_OIDC_URL", "DRS_OIDCURL"},
-		"OidcClientId":                     {"DRS_OIDC_CLIENT_ID", "DRS_OIDCCLIENTID"},
-		"OidcClientSecret":                 {"DRS_OIDC_CLIENT_SECRET", "DRS_OIDCCLIENTSECRET"},
-		"OidcClientSecretFile":             {"DRS_OIDC_CLIENT_SECRET_FILE", "DRS_OIDCCLIENTSECRETFILE"},
-		"OidcRealm":                        {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
-		"OidcScope":                        {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
-		"OidcSkipTLSVerify":                {"DRS_OIDC_SKIP_TLS_VERIFY", "DRS_OIDCSKIPTLSVERIFY"},
-		"OidcInsecureSkipVerify":           {"DRS_OIDC_INSECURE_SKIP_VERIFY", "DRS_OIDCINSECURESKIPVERIFY"},
+		"DrsIdAvuValue":                          {"DRS_DRS_ID_AVU_VALUE", "DRS_DRSIDAVUVALUE"},
+		"DrsAvuUnit":                             {"DRS_DRS_AVU_UNIT", "DRS_DRSAVUUNIT"},
+		"DrsLogLevel":                            {"DRS_DRS_LOG_LEVEL", "DRS_DRSLOGLEVEL"},
+		"DrsListenPort":                          {"DRS_LISTEN_PORT", "DRS_DRSLISTENPORT"},
+		"ServiceInfoSampleIntervalMinutes":       {"DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "DRS_SERVICEINFOSAMPLEINTERVALMINUTES"},
+		"ServiceInfoFilePath":                    {"DRS_SERVICE_INFO_FILE_PATH", "DRS_SERVICEINFOFILEPATH"},
+		"IrodsAccessMethodSupported":             {"DRS_IRODS_ACCESS_METHOD_SUPPORTED", "DRS_IRODSACCESSMETHODSUPPORTED"},
+		"FileAccessMethodSupported":              {"DRS_FILE_ACCESS_METHOD_SUPPORTED", "DRS_FILEACCESSMETHODSUPPORTED"},
+		"HttpsAccessMethodSupported":             {"DRS_HTTPS_ACCESS_METHOD_SUPPORTED", "DRS_HTTPSACCESSMETHODSUPPORTED"},
+		"HttpsAccessImplementation":              {"DRS_HTTPS_ACCESS_IMPLEMENTATION", "DRS_HTTPSACCESSIMPLEMENTATION"},
+		"HttpsAccessMethodBaseURL":               {"DRS_HTTPS_ACCESS_METHOD_BASE_URL", "DRS_HTTPSACCESSMETHODBASEURL"},
+		"HttpsAccessUseTicket":                   {"DRS_HTTPS_ACCESS_USE_TICKET", "DRS_HTTPSACCESSUSETICKET"},
+		"DefaultTicketLifetimeMinutes":           {"DRS_DEFAULT_TICKET_LIFETIME_MINUTES", "DRS_DEFAULTTICKETLIFETIMEMINUTES"},
+		"DefaultTicketUseLimit":                  {"DRS_DEFAULT_TICKET_USE_LIMIT", "DRS_DEFAULTTICKETUSELIMIT"},
+		"IRODSAccessHost":                        {"DRS_IRODS_ACCESS_HOST", "DRS_IRODSACCESSHOST"},
+		"IRODSAccessPort":                        {"DRS_IRODS_ACCESS_PORT", "DRS_IRODSACCESSPORT"},
+		"LocalAccessRootPath":                    {"DRS_LOCAL_ACCESS_ROOT_PATH", "DRS_LOCALACCESSROOTPATH"},
+		"S3AccessMethodSupported":                {"DRS_S3_ACCESS_METHOD_SUPPORTED", "DRS_S3ACCESSMETHODSUPPORTED"},
+		"S3AccessMethodBaseURL":                  {"DRS_S3_ACCESS_METHOD_BASE_URL", "DRS_S3ACCESSMETHODBASEURL"},
+		"S3AccessEndpoint":                       {"DRS_S3_ACCESS_ENDPOINT", "DRS_S3ACCESSENDPOINT"},
+		"IrodsHost":                              {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
+		"IrodsPort":                              {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
+		"IrodsZone":                              {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
+		"IrodsAdminUser":                         {"DRS_IRODS_ADMIN_USER", "DRS_IRODSADMINUSER", "DRS_IRODS_DRS_ADMIN_USER", "DRS_IRODSDRSADMINUSER"},
+		"IrodsAdminPassword":                     {"DRS_IRODS_ADMIN_PASSWORD", "DRS_IRODSADMINPASSWORD", "DRS_IRODS_DRS_ADMIN_PASSWORD", "DRS_IRODSDRSADMINPASSWORD"},
+		"IrodsAdminPasswordFile":                 {"DRS_IRODS_ADMIN_PASSWORD_FILE", "DRS_IRODSADMINPASSWORDFILE", "DRS_IRODS_DRS_ADMIN_PASSWORD_FILE", "DRS_IRODSDRSADMINPASSWORDFILE"},
+		"IrodsAdminLoginType":                    {"DRS_IRODS_ADMIN_LOGIN_TYPE", "DRS_IRODS_ADMIN_AUTH_SCHEME", "DRS_IRODSADMINLOGINTYPE"},
+		"IrodsPrimaryTestUser":                   {"DRS_IRODS_PRIMARY_TEST_USER", "DRS_IRODSPRIMARYTESTUSER"},
+		"IrodsPrimaryTestPassword":               {"DRS_IRODS_PRIMARY_TEST_PASSWORD", "DRS_IRODSPRIMARYTESTPASSWORD"},
+		"IrodsSecondaryTestUser":                 {"DRS_IRODS_SECONDARY_TEST_USER", "DRS_IRODSSECONDARYTESTUSER"},
+		"IrodsSecondaryTestPassword":             {"DRS_IRODS_SECONDARY_TEST_PASSWORD", "DRS_IRODSSECONDARYTESTPASSWORD"},
+		"IrodsAuthScheme":                        {"DRS_IRODS_AUTH_SCHEME", "DRS_IRODSAUTHSCHEME"},
+		"IrodsNegotiationPolicy":                 {"DRS_IRODS_NEGOTIATION_POLICY", "DRS_IRODSNEGOTIATIONPOLICY"},
+		"IrodsSSLConfig.CACertificateFile":       {"DRS_IRODS_SSL_CA_CERTIFICATE_FILE", "DRS_IRODSSSLCACERTIFICATEFILE"},
+		"IrodsSSLConfig.CACertificatePath":       {"DRS_IRODS_SSL_CA_CERTIFICATE_PATH", "DRS_IRODSSSLCACERTIFICATEPATH"},
+		"IrodsSSLConfig.EncryptionKeySize":       {"DRS_IRODS_ENCRYPTION_KEY_SIZE", "DRS_IRODSENCRYPTIONKEYSIZE"},
+		"IrodsSSLConfig.EncryptionAlgorithm":     {"DRS_IRODS_ENCRYPTION_ALGORITHM", "DRS_IRODSENCRYPTIONALGORITHM"},
+		"IrodsSSLConfig.EncryptionSaltSize":      {"DRS_IRODS_ENCRYPTION_SALT_SIZE", "DRS_IRODSENCRYPTIONSALTSIZE"},
+		"IrodsSSLConfig.EncryptionNumHashRounds": {"DRS_IRODS_ENCRYPTION_NUM_HASH_ROUNDS", "DRS_IRODSENCRYPTIONNUMHASHROUNDS"},
+		"IrodsSSLConfig.VerifyServer":            {"DRS_IRODS_SSL_VERIFY_SERVER", "DRS_IRODSSSLVERIFYSERVER"},
+		"IrodsSSLConfig.DHParamsFile":            {"DRS_IRODS_SSL_DH_PARAMS_FILE", "DRS_IRODSSSLDHPARAMSFILE"},
+		"IrodsSSLConfig.ServerName":              {"DRS_IRODS_SSL_SERVER_NAME", "DRS_IRODSSSLSERVERNAME"},
+		"IrodsDefaultResource":                   {"DRS_IRODS_DEFAULT_RESOURCE", "DRS_IRODSDEFAULTRESOURCE"},
+		"OidcUrl":                                {"DRS_OIDC_URL", "DRS_OIDCURL"},
+		"OidcClientId":                           {"DRS_OIDC_CLIENT_ID", "DRS_OIDCCLIENTID"},
+		"OidcClientSecret":                       {"DRS_OIDC_CLIENT_SECRET", "DRS_OIDCCLIENTSECRET"},
+		"OidcClientSecretFile":                   {"DRS_OIDC_CLIENT_SECRET_FILE", "DRS_OIDCCLIENTSECRETFILE"},
+		"OidcRealm":                              {"DRS_OIDC_REALM", "DRS_OIDCREALM"},
+		"OidcScope":                              {"DRS_OIDC_SCOPE", "DRS_OIDCSCOPE"},
+		"OidcSkipTLSVerify":                      {"DRS_OIDC_SKIP_TLS_VERIFY", "DRS_OIDCSKIPTLSVERIFY"},
+		"OidcInsecureSkipVerify":                 {"DRS_OIDC_INSECURE_SKIP_VERIFY", "DRS_OIDCINSECURESKIPVERIFY"},
 	}
 
 	for key, envNames := range envBindings {
@@ -233,51 +356,6 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 		decoderConfig.DecodeHook = mapstructure.ComposeDecodeHookFunc(
 			mapstructure.StringToSliceHookFunc(","),
 			func(from reflect.Type, to reflect.Type, data any) (any, error) {
-				resourceAffinityType := reflect.TypeOf([]ResourceAffinityEntry{})
-				if to != resourceAffinityType {
-					return data, nil
-				}
-
-				switch value := data.(type) {
-				case []string:
-					normalized := normalizeStringSlice(value)
-					if len(normalized) == 0 {
-						return []ResourceAffinityEntry{}, nil
-					}
-					return []ResourceAffinityEntry{{
-						Resources: normalized,
-					}}, nil
-				case string:
-					normalized := normalizeStringSlice(strings.Split(value, ","))
-					if len(normalized) == 0 {
-						return []ResourceAffinityEntry{}, nil
-					}
-					return []ResourceAffinityEntry{{
-						Resources: normalized,
-					}}, nil
-				case []any:
-					legacyValues := make([]string, 0, len(value))
-					for _, raw := range value {
-						switch cast := raw.(type) {
-						case string:
-							legacyValues = append(legacyValues, cast)
-						default:
-							return data, nil
-						}
-					}
-
-					normalized := normalizeStringSlice(legacyValues)
-					if len(normalized) == 0 {
-						return []ResourceAffinityEntry{}, nil
-					}
-					return []ResourceAffinityEntry{{
-						Resources: normalized,
-					}}, nil
-				default:
-					return data, nil
-				}
-			},
-			func(from reflect.Type, to reflect.Type, data any) (any, error) {
 				if to.Kind() != reflect.Slice || to.Elem().Kind() != reflect.String {
 					return data, nil
 				}
@@ -307,14 +385,16 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 		return nil, err
 	}
 
+	C.IrodsNegotiationPolicy = NormalizeIRODSNegotiationPolicy(C.IrodsNegotiationPolicy)
 	C.ServiceInfoFilePath = resolveConfigPath(C.ServiceInfoFilePath, configDir)
 	C.HttpsAccessImplementation = strings.ToLower(strings.TrimSpace(C.HttpsAccessImplementation))
 	C.HttpsAccessMethodBaseURL = strings.TrimSpace(C.HttpsAccessMethodBaseURL)
 	C.IRODSAccessHost = strings.TrimSpace(C.IRODSAccessHost)
 	C.LocalAccessRootPath = resolveConfigPath(C.LocalAccessRootPath, configDir)
+	C.S3AccessMethodBaseURL = strings.TrimSpace(C.S3AccessMethodBaseURL)
+	C.S3ResourceAffinity = normalizeResourceAffinities(C.S3ResourceAffinity)
 	C.S3AccessEndpoint = strings.TrimSpace(C.S3AccessEndpoint)
-	C.ResourceAffinity = normalizeResourceAffinities(C.ResourceAffinity)
-	applyResourceAffinityEnvOverride(&C)
+	C.HttpsResourceAffinity = normalizeResourceAffinities(C.HttpsResourceAffinity)
 	C.OidcSkipTLSVerify = C.OidcSkipTLSVerify || C.OidcInsecureSkipVerify
 	C.OidcInsecureSkipVerify = C.OidcSkipTLSVerify
 
@@ -365,31 +445,6 @@ func normalizeResourceAffinities(entries []ResourceAffinityEntry) []ResourceAffi
 	}
 
 	return normalized
-}
-
-func applyResourceAffinityEnvOverride(cfg *DrsConfig) {
-	if cfg == nil {
-		return
-	}
-
-	raw := strings.TrimSpace(os.Getenv("DRS_RESOURCE_AFFINITY"))
-	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv("DRS_RESOURCEAFFINITY"))
-	}
-	if raw == "" {
-		return
-	}
-
-	resources := normalizeStringSlice(strings.Split(raw, ","))
-	if len(resources) == 0 {
-		cfg.ResourceAffinity = nil
-		return
-	}
-
-	cfg.ResourceAffinity = []ResourceAffinityEntry{{
-		Host:      strings.TrimSpace(cfg.HttpsAccessMethodBaseURL),
-		Resources: resources,
-	}}
 }
 
 func (d *DrsConfig) InitializeLogging() {

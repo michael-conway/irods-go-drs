@@ -84,3 +84,26 @@ Shared live-test variables:
 - `DRS_E2E_SKIP_TLS_VERIFY`
 
 For console and CLI-oriented workflows, assume `gocmd` is available on `PATH`.
+
+## S3 API
+
+iRODS s3 api docker images - https://hub.docker.com/r/irods/irods_s3_api/tags
+iRODS s3 config - https://github.com/irods/irods_client_s3_api#configuration
+
+## Local multi-repo sync (`go.work`)
+
+Use a workspace `go.work` file for local cross-repo development instead of
+`replace ../...` directives in `go.mod`.
+
+Current workspace scaffold (at `workspace-gabble/go.work`) includes:
+
+- `./go-irodsclient-extensions`
+- `./irods-go-rest`
+- `./irods-go-drs`
+
+Workflow:
+
+1. develop across repos with `go.work` active
+2. keep each repo `go.mod` pinned to real module versions (no local replace)
+3. when shared changes are ready, push/tag in `go-irodsclient-extensions`
+4. bump dependent repos with `go get <module>@<tag-or-commit>` and `go mod tidy`

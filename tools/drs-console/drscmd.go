@@ -60,15 +60,16 @@ var logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 const APP_NAME = "drscmd"
 
 type drsInfoResult struct {
-	DRSID       string   `json:"drsId"`
-	Path        string   `json:"path"`
-	Zone        string   `json:"zone,omitempty"`
-	Size        int64    `json:"size,omitempty"`
-	Version     string   `json:"version,omitempty"`
-	MimeType    string   `json:"mimeType,omitempty"`
-	IsManifest  bool     `json:"isManifest"`
-	Description string   `json:"description,omitempty"`
-	Aliases     []string `json:"aliases,omitempty"`
+	DRSID       string                               `json:"drsId"`
+	Path        string                               `json:"path"`
+	Zone        string                               `json:"zone,omitempty"`
+	Size        int64                                `json:"size,omitempty"`
+	Version     string                               `json:"version,omitempty"`
+	MimeType    string                               `json:"mimeType,omitempty"`
+	IsManifest  bool                                 `json:"isManifest"`
+	Description string                               `json:"description,omitempty"`
+	Aliases     []string                             `json:"aliases,omitempty"`
+	Manifest    *drs_support.CompoundRuntimeManifest `json:"manifest,omitempty"`
 }
 
 type drsMakeResult struct {
@@ -76,8 +77,25 @@ type drsMakeResult struct {
 	Path  string `json:"path"`
 }
 
+type drsMakeCompoundResult struct {
+	Path       string                                 `json:"path"`
+	DRSID      string                                 `json:"drsId,omitempty"`
+	Preflight  bool                                   `json:"preflight"`
+	Warning    string                                 `json:"warning,omitempty"`
+	NodeErrors []drs_support.CompoundCreateNodeError  `json:"nodeErrors,omitempty"`
+	Manifest   *drs_support.CompoundManifestPreflight `json:"manifest,omitempty"`
+}
+
 type drsRemoveResult struct {
-	Path string `json:"path"`
+	Path                 string `json:"path"`
+	PathsVisited         int    `json:"pathsVisited"`
+	PathsWithDrsMetadata int    `json:"pathsWithDrsMetadata"`
+	AvusRemoved          int    `json:"avusRemoved"`
+}
+
+type drsIgnoreResult struct {
+	Path       string `json:"path"`
+	IgnoreFile string `json:"ignoreFile"`
 }
 
 type drsUpdateResult struct {
@@ -132,6 +150,9 @@ func setupCLI() {
 			case "drsmake":
 				writeDrsMakeHelp(w)
 				return
+			case "drsmakecompound":
+				writeDrsMakeCompoundHelp(w)
+				return
 			case "drsls":
 				writeDrsListHelp(w)
 				return
@@ -140,6 +161,9 @@ func setupCLI() {
 				return
 			case "drsrm":
 				writeDrsRemoveHelp(w)
+				return
+			case "add_drsignore":
+				writeAddDrsIgnoreHelp(w)
 				return
 			}
 		}
@@ -155,8 +179,10 @@ func setupCLI() {
 		fmt.Fprintf(w, "\tdrsinfo - drs info for a given path or drs id\n")
 		fmt.Fprintf(w, "\tdrsls - list drs objects under an iRODS collection\n")
 		fmt.Fprintf(w, "\tdrsmake - make a single-object drs object at the given data object\n")
+		fmt.Fprintf(w, "\tdrsmakecompound - make a collection a compound drs object\n")
 		fmt.Fprintf(w, "\tdrsupdate - update supported DRS AVU metadata on an existing DRS object\n")
-		fmt.Fprintf(w, "\tdrsrm - remove drs object characteristics from a given data object\n")
+		fmt.Fprintf(w, "\tdrsrm - remove DRS AVUs from a DRS object (single or compound)\n")
+		fmt.Fprintf(w, "\tadd_drsignore - add a sample .drsignore file to an iRODS collection\n")
 	}
 
 	cli.VersionPrinter = func(cmd *cli.Command) {
@@ -189,6 +215,18 @@ func writeDrsMakeHelp(w io.Writer) {
 	fmt.Fprintf(w, "      --mime-type, --mime   explicit MIME type to store on the DRS object\n")
 	fmt.Fprintf(w, "  -d, --description         human-readable description\n")
 	fmt.Fprintf(w, "  -a, --alias               alternate identifier to store as a DRS alias (repeatable)\n")
+}
+
+func writeDrsMakeCompoundHelp(w io.Writer) {
+	fmt.Fprintf(w, "drscmd drsmakecompound\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Usage:\n")
+	fmt.Fprintf(w, "  drscmd drsmakecompound <irods-collection-path> [flags]\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Flags:\n")
+	fmt.Fprintf(w, "  -h, --help                 show help for drsmakecompound\n")
+	fmt.Fprintf(w, "      --preflight            build and return manifest preview without writing AVUs\n")
+	fmt.Fprintf(w, "      --allow-no-ignore      allow operation when .drsignore is absent\n")
 }
 
 func writeIinitHelp(w io.Writer) {
@@ -266,6 +304,16 @@ func writeDrsUpdateHelp(w io.Writer) {
 	fmt.Fprintf(w, "  -a, --alias        alias value for alias updates (repeatable)\n")
 }
 
+func writeAddDrsIgnoreHelp(w io.Writer) {
+	fmt.Fprintf(w, "drscmd add_drsignore\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Usage:\n")
+	fmt.Fprintf(w, "  drscmd add_drsignore <irods-collection-path>\n")
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Flags:\n")
+	fmt.Fprintf(w, "      --help         show help for add_drsignore\n")
+}
+
 func usageError(cmd *cli.Command, writeHelp func(io.Writer), format string, args ...interface{}) error {
 	writeHelp(cmd.ErrWriter)
 	fmt.Fprintln(cmd.ErrWriter)
@@ -294,11 +342,15 @@ func getCommand() *cli.Command {
 	var aliases []string
 	var updateAliases []string
 	var drsMakeHelp bool
+	var drsMakeCompoundHelp bool
 	var iinitHelp bool
 	var drsInfoHelp bool
 	var drsListHelp bool
 	var drsUpdateHelp bool
 	var drsRemoveHelp bool
+	var drsIgnoreHelp bool
+	var drsMakeCompoundPreflight bool
+	var drsMakeCompoundAllowNoIgnore bool
 
 	return &cli.Command{
 		Name:    APP_NAME,
@@ -378,6 +430,14 @@ func getCommand() *cli.Command {
 						return err
 					}
 
+					var manifest *drs_support.CompoundRuntimeManifest
+					if object.IsManifest {
+						manifest, err = drs_support.BuildCompoundRuntimeManifest(filesystem, object.AbsolutePath)
+						if err != nil {
+							return err
+						}
+					}
+
 					return writeJSON(cmd.Writer, drsInfoResult{
 						DRSID:       object.Id,
 						Path:        object.AbsolutePath,
@@ -388,6 +448,7 @@ func getCommand() *cli.Command {
 						IsManifest:  object.IsManifest,
 						Description: object.Description,
 						Aliases:     object.Aliases,
+						Manifest:    manifest,
 					})
 				},
 			},
@@ -437,6 +498,78 @@ func getCommand() *cli.Command {
 					return writeJSON(cmd.Writer, drsMakeResult{
 						DRSID: drsID,
 						Path:  targetPath,
+					})
+				},
+			},
+			{
+				Name:      "drsmakecompound",
+				Usage:     "decorate an existing iRODS collection as a compound DRS object",
+				ArgsUsage: "<irods-collection-path>",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "help", Aliases: []string{"h"}, Usage: "show help for drsmakecompound", Destination: &drsMakeCompoundHelp},
+					&cli.BoolFlag{Name: "preflight", Usage: "build and return manifest preview without writing AVUs", Destination: &drsMakeCompoundPreflight},
+					&cli.BoolFlag{Name: "allow-no-ignore", Usage: "allow operation when .drsignore is absent", Destination: &drsMakeCompoundAllowNoIgnore},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if drsMakeCompoundHelp {
+						writeDrsMakeCompoundHelp(cmd.Writer)
+						return nil
+					}
+
+					target := cmd.Args().First()
+					if strings.TrimSpace(target) == "" {
+						return usageError(cmd, writeDrsMakeCompoundHelp, "an iRODS collection path is required")
+					}
+
+					filesystem, err := connectFileSystem()
+					if err != nil {
+						return err
+					}
+					defer filesystem.Release()
+
+					targetPath, err := resolveIRODSPath(target, filesystem)
+					if err != nil {
+						return err
+					}
+
+					hasIgnoreFile, ignorePath, err := drs_support.HasCompoundIgnoreFile(filesystem, targetPath)
+					if err != nil {
+						return err
+					}
+
+					missingIgnoreWarning := ""
+					if !hasIgnoreFile {
+						missingIgnoreWarning = fmt.Sprintf("no %s found at %s", drs_support.DrsIgnoreFileName, ignorePath)
+						if !drsMakeCompoundAllowNoIgnore {
+							return fmt.Errorf("%s; rerun with --allow-no-ignore to override", missingIgnoreWarning)
+						}
+					}
+
+					if drsMakeCompoundPreflight {
+						manifest, err := drs_support.BuildCompoundManifestPreflight(filesystem, targetPath)
+						if err != nil {
+							return err
+						}
+
+						return writeJSON(cmd.Writer, drsMakeCompoundResult{
+							Path:      targetPath,
+							Preflight: true,
+							Warning:   missingIgnoreWarning,
+							Manifest:  manifest,
+						})
+					}
+
+					result, err := drs_support.CreateCompoundDrsObjectFromCollection(filesystem, targetPath)
+					if err != nil {
+						return err
+					}
+
+					return writeJSON(cmd.Writer, drsMakeCompoundResult{
+						Path:       targetPath,
+						DRSID:      result.DrsID,
+						Preflight:  false,
+						Warning:    missingIgnoreWarning,
+						NodeErrors: result.NodeErrors,
 					})
 				},
 			},
@@ -604,7 +737,7 @@ func getCommand() *cli.Command {
 			},
 			{
 				Name:      "drsrm",
-				Usage:     "remove single-object DRS metadata by iRODS path or DRS id",
+				Usage:     "remove DRS AVUs from a DRS object (single or compound) by iRODS path or DRS id",
 				ArgsUsage: "<path-or-drs-id>",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "help", Usage: "show help for drsrm", Destination: &drsRemoveHelp},
@@ -637,11 +770,57 @@ func getCommand() *cli.Command {
 						return err
 					}
 
-					if err := drs_support.RemoveSingleDrsObjectFromDataObject(filesystem, object.AbsolutePath); err != nil {
+					result, err := drs_support.StripDrsSemantics(filesystem, object.AbsolutePath)
+					if err != nil {
 						return err
 					}
 
-					return writeJSON(cmd.Writer, drsRemoveResult{Path: object.AbsolutePath})
+					return writeJSON(cmd.Writer, drsRemoveResult{
+						Path:                 result.RootPath,
+						PathsVisited:         result.PathsVisited,
+						PathsWithDrsMetadata: result.PathsWithDrsMetadata,
+						AvusRemoved:          result.AvusRemoved,
+					})
+				},
+			},
+			{
+				Name:      "add_drsignore",
+				Usage:     "add a sample .drsignore file to an iRODS collection",
+				ArgsUsage: "<irods-collection-path>",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "help", Usage: "show help for add_drsignore", Destination: &drsIgnoreHelp},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if drsIgnoreHelp {
+						writeAddDrsIgnoreHelp(cmd.Writer)
+						return nil
+					}
+
+					target := cmd.Args().First()
+					if strings.TrimSpace(target) == "" {
+						return usageError(cmd, writeAddDrsIgnoreHelp, "an iRODS collection path is required")
+					}
+
+					filesystem, err := connectFileSystem()
+					if err != nil {
+						return err
+					}
+					defer filesystem.Release()
+
+					targetPath, err := resolveIRODSPath(target, filesystem)
+					if err != nil {
+						return err
+					}
+
+					ignorePath, err := drs_support.AddDRSIgnoreTemplate(filesystem, targetPath)
+					if err != nil {
+						return err
+					}
+
+					return writeJSON(cmd.Writer, drsIgnoreResult{
+						Path:       targetPath,
+						IgnoreFile: ignorePath,
+					})
 				},
 			},
 		},

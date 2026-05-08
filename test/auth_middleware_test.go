@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Nerzal/gocloak/v13"
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/gorilla/mux"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	"github.com/michael-conway/irods-go-drs/internal"
@@ -285,6 +286,54 @@ func TestRouteAuthMiddlewareAndServiceContextMiddlewarePopulateContext(t *testin
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200 for authenticated request, got %d", resp.Code)
+	}
+}
+
+func TestRouteServiceContextUsesPAMForBasicAuth(t *testing.T) {
+	drsConfig := &drs_support.DrsConfig{
+		IrodsHost:              "localhost",
+		IrodsPort:              1247,
+		IrodsZone:              "tempZone",
+		IrodsAdminUser:         "rods",
+		IrodsAdminPassword:     "rods",
+		IrodsAdminLoginType:    "native",
+		IrodsAuthScheme:        "pam",
+		IrodsNegotiationPolicy: "CS_NEG_DONT_CARE",
+	}
+
+	router := mux.NewRouter()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serviceContext, ok := internal.DrsServiceContextFromContext(r.Context())
+		if !ok || serviceContext == nil || serviceContext.IrodsAccount == nil {
+			t.Fatal("expected iRODS account in service context")
+		}
+
+		account := serviceContext.IrodsAccount
+		if account.AuthenticationScheme != irodstypes.AuthSchemePAM {
+			t.Fatalf("expected basic account to use PAM auth, got %q", account.AuthenticationScheme)
+		}
+		if !account.ClientServerNegotiation {
+			t.Fatal("expected PAM basic account to require client-server negotiation")
+		}
+		if account.CSNegotiationPolicy != irodstypes.CSNegotiationPolicyRequestSSL {
+			t.Fatalf("expected PAM basic account SSL policy, got %q", account.CSNegotiationPolicy)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	handlerWithContext := internal.NewRouteServiceContextMiddleware(drsConfig)(handler)
+	handlerWithAuth := internal.NewRouteAuthMiddleware(nil)(handlerWithContext)
+
+	router.Handle("/ga4gh/drs/v1/objects/{object_id}", handlerWithAuth).Methods(http.MethodGet).Name("GetObject")
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/example", nil)
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("basic-user:password-123")))
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for PAM basic request, got %d", resp.Code)
 	}
 }
 

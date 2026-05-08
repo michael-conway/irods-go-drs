@@ -34,6 +34,8 @@ type RouteFileSystem interface {
 	Release()
 }
 
+const compoundManifestHTTPSAccessID = "irods-compound-https"
+
 var createRouteFileSystem = func(account *types.IRODSAccount, applicationName string) (RouteFileSystem, error) {
 	filesystem, err := irodsfs.NewFileSystemWithDefault(account, applicationName)
 	if err != nil {
@@ -62,11 +64,6 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateConfiguredHTTPSProvider(serviceContext.DrsConfig); err != nil {
-		writeJSONError(w, http.StatusNotImplemented, err.Error())
-		return
-	}
-
 	vars := mux.Vars(r)
 	objectID := strings.TrimSpace(vars["object_id"])
 	if objectID == "" {
@@ -78,6 +75,12 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 	if accessID == "" {
 		writeJSONError(w, http.StatusBadRequest, "missing access_id")
 		return
+	}
+	if accessID != compoundManifestHTTPSAccessID {
+		if err := validateConfiguredHTTPSProvider(serviceContext.DrsConfig); err != nil {
+			writeJSONError(w, http.StatusNotImplemented, err.Error())
+			return
+		}
 	}
 
 	filesystem, err := createRouteFileSystem(serviceContext.IrodsAccount, "irods-go-drs-get-access-url")
@@ -100,7 +103,7 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, status, err := accessURLForObject(filesystem, serviceContext.DrsConfig, objectID, accessID, object)
+	response, status, err := accessURLForObject(r, filesystem, serviceContext.DrsConfig, objectID, accessID, object)
 	if err != nil {
 		writeJSONError(w, status, err.Error())
 		return
@@ -111,7 +114,7 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-func accessURLForObject(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, accessID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
+func accessURLForObject(r *http.Request, filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, accessID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
 	if filesystem == nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("missing iRODS filesystem")
 	}
@@ -123,6 +126,15 @@ func accessURLForObject(filesystem RouteFileSystem, drsConfig *drs_support.DrsCo
 	}
 
 	switch strings.TrimSpace(accessID) {
+	case compoundManifestHTTPSAccessID:
+		if !object.IsManifest {
+			return nil, http.StatusNotFound, fmt.Errorf("access id %q not found for object %q", accessID, objectID)
+		}
+		url := buildAbsoluteRequestURL(r, "/ga4gh/drs/v1/ext/compound/"+neturl.PathEscape(strings.TrimSpace(objectID)))
+		if strings.TrimSpace(url) == "" {
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to build compound manifest access URL for object %q", objectID)
+		}
+		return &AccessUrl{Url: url}, http.StatusOK, nil
 	case "irods":
 		return buildIRODSAccessURL(filesystem, drsConfig, objectID, object)
 	default:
@@ -147,8 +159,15 @@ func buildHTTPSProviderAccessURL(filesystem RouteFileSystem, drsConfig *drs_supp
 	}
 
 	preferredHost := ""
-	if strings.TrimSpace(parsedAccessID.Resource) != "" {
-		preferredHost = drs_support.ResolveAffinityHostForResource(drsConfig, parsedAccessID.Resource)
+	affinityResource := strings.TrimSpace(parsedAccessID.Resource)
+	if affinityResource == "" {
+		// Backward compatibility: default provider access IDs (without explicit
+		// resource suffix) still resolve through resource affinity using the
+		// object's primary replica resource.
+		affinityResource = primaryReplicaResourceForAccess(object)
+	}
+	if affinityResource != "" {
+		preferredHost = drs_support.ResolveAffinityHostForResource(drsConfig, affinityResource)
 	}
 
 	baseURL := drs_support.ResolveHTTPSAccessBaseURL(drsConfig.HttpsAccessMethodBaseURL, preferredHost)
@@ -179,6 +198,21 @@ func buildHTTPSProviderAccessURL(filesystem RouteFileSystem, drsConfig *drs_supp
 		Url:     url,
 		Headers: headers,
 	}, http.StatusOK, nil
+}
+
+func primaryReplicaResourceForAccess(object *drs_support.InternalDrsObject) string {
+	if object == nil {
+		return ""
+	}
+
+	for _, replica := range object.Replicas {
+		resourceName := strings.TrimSpace(replica.ResourceName)
+		if resourceName != "" {
+			return resourceName
+		}
+	}
+
+	return strings.TrimSpace(object.ResourceName)
 }
 
 func buildIRODSAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
@@ -272,11 +306,6 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateConfiguredHTTPSProvider(serviceContext.DrsConfig); err != nil {
-		writeJSONError(w, http.StatusNotImplemented, err.Error())
-		return
-	}
-
 	filesystem, err := createRouteFileSystem(serviceContext.IrodsAccount, "irods-go-drs-get-object")
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
@@ -296,13 +325,68 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, status, err.Error())
 		return
 	}
+	if !object.IsManifest {
+		if err := validateConfiguredHTTPSProvider(serviceContext.DrsConfig); err != nil {
+			writeJSONError(w, http.StatusNotImplemented, err.Error())
+			return
+		}
+	}
 
 	expand := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("expand")), "true")
-	response := drsObjectFromInternal(r, object, expand)
+	response := drsObjectFromInternal(r, object, expand, filesystem)
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+func GetCompoundManifestExt(w http.ResponseWriter, r *http.Request) {
+	serviceContext, ok := DrsServiceContextFromContext(r.Context())
+	if !ok || serviceContext == nil {
+		writeJSONError(w, http.StatusInternalServerError, "missing DRS service context")
+		return
+	}
+
+	vars := mux.Vars(r)
+	objectID := strings.TrimSpace(vars["object_id"])
+	if objectID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing object_id")
+		return
+	}
+
+	filesystem, err := createRouteFileSystem(serviceContext.IrodsAccount, "irods-go-drs-get-compound-manifest-ext")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		return
+	}
+	defer filesystem.Release()
+
+	object, err := drs_support.GetDrsObjectByID(filesystem, objectID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "required") {
+			status = http.StatusBadRequest
+		}
+		writeJSONError(w, status, err.Error())
+		return
+	}
+
+	if !object.IsManifest {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("DRS object %q is not a compound object", objectID))
+		return
+	}
+
+	manifest, err := drs_support.BuildCompoundRuntimeManifest(filesystem, object.AbsolutePath)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(manifest)
 }
 
 func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {
@@ -403,10 +487,28 @@ func PostObject(w http.ResponseWriter, r *http.Request) {
 	writeJSONError(w, http.StatusBadRequest, "POST /ga4gh/drs/v1/objects/{object_id} is not implemented yet; see issue #22")
 }
 
-func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool) DrsObject {
+func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool, filesystem drs_support.IRODSFilesystem) DrsObject {
 	var accessMethods []AccessMethod
 	if serviceContext, ok := DrsServiceContextFromContext(r.Context()); ok && serviceContext != nil {
-		accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethods(serviceContext.DrsConfig, object))
+		if object != nil && object.IsManifest {
+			accessMethods = []AccessMethod{buildCompoundManifestAccessMethod(r, serviceContext.DrsConfig, object)}
+		} else {
+			accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethodsWithFilesystem(serviceContext.DrsConfig, object, filesystem))
+		}
+	}
+
+	aliases := append([]string(nil), object.Aliases...)
+	if irodsURIAlias := buildAnonymousIRODSAliasURI(filesystem, object); irodsURIAlias != "" {
+		alreadyPresent := false
+		for _, alias := range aliases {
+			if strings.EqualFold(strings.TrimSpace(alias), strings.TrimSpace(irodsURIAlias)) {
+				alreadyPresent = true
+				break
+			}
+		}
+		if !alreadyPresent {
+			aliases = append(aliases, irodsURIAlias)
+		}
 	}
 
 	response := DrsObject{
@@ -420,7 +522,7 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 		MimeType:      object.MimeType,
 		AccessMethods: accessMethods,
 		Description:   object.Description,
-		Aliases:       append([]string(nil), object.Aliases...),
+		Aliases:       aliases,
 	}
 
 	if object.Checksum != nil && object.Checksum.Value != "" {
@@ -444,6 +546,28 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 	}
 
 	return response
+}
+
+func buildAnonymousIRODSAliasURI(filesystem drs_support.IRODSFilesystem, object *drs_support.InternalDrsObject) string {
+	if filesystem == nil || object == nil {
+		return ""
+	}
+
+	absolutePath := strings.TrimSpace(object.AbsolutePath)
+	if absolutePath == "" {
+		return ""
+	}
+
+	account := filesystem.GetAccount()
+	if account == nil {
+		return ""
+	}
+
+	uri, err := extension_irodsuri.BuildForAccountWithoutUserInfo(account, absolutePath)
+	if err != nil || uri == nil {
+		return ""
+	}
+	return uri.String()
 }
 
 func accessMethodsFromInternal(methods []drs_support.DrsAccessMethod) []AccessMethod {
@@ -480,6 +604,35 @@ func accessMethodsFromInternal(methods []drs_support.DrsAccessMethod) []AccessMe
 	return response
 }
 
+func buildCompoundManifestAccessMethod(r *http.Request, drsConfig *drs_support.DrsConfig, object *drs_support.InternalDrsObject) AccessMethod {
+	region := ""
+	zone := ""
+	if object != nil {
+		region = strings.TrimSpace(object.ResourceName)
+		zone = strings.TrimSpace(object.IrodsZone)
+	}
+	issuers := []string{}
+	if issuer := bearerAuthIssuerFromConfig(drsConfig); issuer != "" {
+		issuers = append(issuers, issuer)
+	}
+	compoundPath := "/ga4gh/drs/v1/ext/compound/"
+	if object != nil {
+		compoundPath = compoundPath + neturl.PathEscape(strings.TrimSpace(object.Id))
+	}
+
+	return AccessMethod{
+		Type_:     "https",
+		AccessUrl: &AllOfAccessMethodAccessUrl{Url: buildAbsoluteRequestURL(r, compoundPath)},
+		Cloud:     "irods:" + zone,
+		Region:    region,
+		Available: false,
+		Authorizations: &AllOfAccessMethodAuthorizations{
+			SupportedTypes:    []string{"BasicAuth", "BearerAuth"},
+			BearerAuthIssuers: issuers,
+		},
+	}
+}
+
 func buildSelfURI(r *http.Request, objectID string) string {
 	host := strings.TrimSpace(r.Host)
 	if host == "" {
@@ -487,6 +640,29 @@ func buildSelfURI(r *http.Request, objectID string) string {
 	}
 
 	return fmt.Sprintf("drs://%s/%s", host, objectID)
+}
+
+func buildAbsoluteRequestURL(r *http.Request, targetPath string) string {
+	targetPath = "/" + strings.TrimPrefix(strings.TrimSpace(targetPath), "/")
+	if r == nil {
+		return targetPath
+	}
+
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return targetPath
+	}
+
+	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+
+	return scheme + "://" + host + targetPath
 }
 
 func buildContentsDrsURIs(r *http.Request, objectID string) []string {

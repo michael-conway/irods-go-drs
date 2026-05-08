@@ -1,6 +1,11 @@
 package drs_support
 
-import "testing"
+import (
+	"testing"
+
+	irodsfs "github.com/cyverse/go-irodsclient/fs"
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+)
 
 func TestBuildAccessMethodsBuildsConfiguredStubs(t *testing.T) {
 	cfg := &DrsConfig{
@@ -8,8 +13,8 @@ func TestBuildAccessMethodsBuildsConfiguredStubs(t *testing.T) {
 		FileAccessMethodSupported:  false,
 		HttpsAccessMethodSupported: true,
 		HttpsAccessImplementation:  "irods-go-rest",
-		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
-		ResourceAffinity: []ResourceAffinityEntry{
+		HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+		HttpsResourceAffinity: []ResourceAffinityEntry{
 			{
 				Host:      "https://dedicated.example.org",
 				Resources: []string{"demoResc"},
@@ -130,8 +135,8 @@ func TestBuildAccessMethodsKeepsAffinityAccessIDForSingleAffinityMethod(t *testi
 	cfg := &DrsConfig{
 		HttpsAccessMethodSupported: true,
 		HttpsAccessImplementation:  "irods-go-rest",
-		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
-		ResourceAffinity: []ResourceAffinityEntry{
+		HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+		HttpsResourceAffinity: []ResourceAffinityEntry{
 			{
 				Host:      "https://default.example.org",
 				Resources: []string{},
@@ -161,7 +166,7 @@ func TestBuildAccessMethodsBuildsProviderDefaultHTTPSAccessIDWithoutAffinity(t *
 	cfg := &DrsConfig{
 		HttpsAccessMethodSupported: true,
 		HttpsAccessImplementation:  "irods-go-rest",
-		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+		HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
 	}
 
 	object := &InternalDrsObject{
@@ -206,7 +211,7 @@ func TestBuildAccessMethodsSkipsUnsupportedHTTPSImplementation(t *testing.T) {
 	cfg := &DrsConfig{
 		HttpsAccessMethodSupported: true,
 		HttpsAccessImplementation:  "unsupported-provider",
-		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+		HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
 	}
 
 	object := &InternalDrsObject{
@@ -227,8 +232,8 @@ func TestBuildAccessMethodsBuildsIRODSHTTPSAPIProviderPrefix(t *testing.T) {
 	cfg := &DrsConfig{
 		HttpsAccessMethodSupported: true,
 		HttpsAccessImplementation:  "irods-https-api",
-		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
-		ResourceAffinity: []ResourceAffinityEntry{
+		HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+		HttpsResourceAffinity: []ResourceAffinityEntry{
 			{
 				Host:      "https://dedicated.example.org",
 				Resources: []string{"demoResc"},
@@ -284,4 +289,182 @@ func TestParseHTTPSAccessIDRejectsLegacyAndUnknownFormats(t *testing.T) {
 			t.Fatalf("expected invalid access-id to be rejected: %q parsed=%+v", accessID, parsed)
 		}
 	}
+}
+
+func TestResolveHTTPSAccessBaseURLAppendsPathToAffinityHost(t *testing.T) {
+	actual := ResolveHTTPSAccessBaseURL("/api/v1/path/contents?irods_path=", "https://download.example.org")
+	expected := "https://download.example.org/api/v1/path/contents?irods_path="
+	if actual != expected {
+		t.Fatalf("expected appended affinity host base url %q, got %q", expected, actual)
+	}
+}
+
+func TestResolveHTTPSAccessBaseURLOverridesConfiguredURLHost(t *testing.T) {
+	actual := ResolveHTTPSAccessBaseURL("https://rest.example.org/api/v1/path/contents?irods_path=", "https://download.example.org")
+	expected := "https://download.example.org/api/v1/path/contents?irods_path="
+	if actual != expected {
+		t.Fatalf("expected configured base url host override %q, got %q", expected, actual)
+	}
+}
+
+func TestResolveHTTPSAccessBaseURLUsesConfiguredPathWhenAffinityHostIncludesPath(t *testing.T) {
+	actual := ResolveHTTPSAccessBaseURL("/api/v1/path/contents?irods_path=", "https://download.example.org/download?path=")
+	expected := "https://download.example.org/api/v1/path/contents?irods_path="
+	if actual != expected {
+		t.Fatalf("expected configured path override on affinity host %q, got %q", expected, actual)
+	}
+}
+
+func TestBuildAccessMethodsWithFilesystemBuildsS3AccessMethodFromBucket(t *testing.T) {
+	cfg := &DrsConfig{
+		S3AccessMethodSupported: true,
+		S3AccessMethodBaseURL:   "s3://",
+	}
+
+	object := &InternalDrsObject{
+		Id:           "object-123",
+		AbsolutePath: "/tempZone/home/test1/drscoll/object.txt",
+		IrodsZone:    "tempZone",
+		ResourceName: "demoResc",
+	}
+
+	filesystem := &accessMethodsTestFilesystem{
+		account: &irodstypes.IRODSAccount{
+			ClientUser: "test1",
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{
+			"/tempZone/home/test1": {
+				{Name: "iRODS:S3:Bucket", Value: "test-bucket"},
+			},
+		},
+	}
+
+	methods := BuildAccessMethodsWithFilesystem(cfg, object, filesystem)
+	if len(methods) != 1 {
+		t.Fatalf("expected one s3 access method, got %+v", methods)
+	}
+
+	if methods[0].Type != "s3" || methods[0].URL != "s3://test-bucket/drscoll/object.txt" || !methods[0].Available {
+		t.Fatalf("expected s3 access method uri for bucket, got %+v", methods[0])
+	}
+	if methods[0].AccessID != "test1" {
+		t.Fatalf("expected s3 access id to be irods user id %q, got %+v", "test1", methods[0])
+	}
+}
+
+func TestBuildAccessMethodsWithFilesystemUsesFirstBucketWhenMultipleFound(t *testing.T) {
+	cfg := &DrsConfig{
+		S3AccessMethodSupported: true,
+		S3AccessMethodBaseURL:   "s3://",
+	}
+
+	object := &InternalDrsObject{
+		Id:           "object-123",
+		AbsolutePath: "/tempZone/home/test1/drscoll/object.txt",
+		IrodsZone:    "tempZone",
+		ResourceName: "demoResc",
+	}
+
+	filesystem := &accessMethodsTestFilesystem{
+		account: &irodstypes.IRODSAccount{
+			ClientUser: "test1",
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{
+			"/tempZone/home/test1": {
+				{Name: "iRODS:S3:Bucket", Value: "bucket-b"},
+				{Name: "iRODS:S3:Bucket", Value: "bucket-a"},
+			},
+		},
+	}
+
+	methods := BuildAccessMethodsWithFilesystem(cfg, object, filesystem)
+	if len(methods) != 1 {
+		t.Fatalf("expected one s3 access method, got %+v", methods)
+	}
+
+	if methods[0].URL != "s3://bucket-a/drscoll/object.txt" {
+		t.Fatalf("expected first sorted bucket to be used, got %+v", methods[0])
+	}
+	if methods[0].AccessID != "test1" {
+		t.Fatalf("expected s3 access id to be irods user id %q, got %+v", "test1", methods[0])
+	}
+}
+
+func TestBuildAccessMethodsWithFilesystemBuildsS3MethodPerReplicaResource(t *testing.T) {
+	cfg := &DrsConfig{
+		S3AccessMethodSupported: true,
+		S3AccessMethodBaseURL:   "s3://",
+	}
+
+	object := &InternalDrsObject{
+		Id:           "object-123",
+		AbsolutePath: "/tempZone/home/test1/drscoll/object.txt",
+		IrodsZone:    "tempZone",
+		ResourceName: "demoResc",
+		Replicas: []InternalReplica{
+			{ResourceName: "demoResc"},
+			{ResourceName: "archiveResc"},
+		},
+	}
+
+	filesystem := &accessMethodsTestFilesystem{
+		account: &irodstypes.IRODSAccount{
+			ClientUser: "test1",
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{
+			"/tempZone/home/test1": {
+				{Name: "iRODS:S3:Bucket", Value: "test-bucket"},
+			},
+		},
+	}
+
+	methods := BuildAccessMethodsWithFilesystem(cfg, object, filesystem)
+	if len(methods) != 2 {
+		t.Fatalf("expected one s3 access method per replica resource, got %+v", methods)
+	}
+	if methods[0].Type != "s3" || methods[0].URL != "s3://test-bucket/drscoll/object.txt" || methods[0].Region != "demoResc" {
+		t.Fatalf("expected first s3 access method for demoResc, got %+v", methods[0])
+	}
+	if methods[1].Type != "s3" || methods[1].URL != "s3://test-bucket/drscoll/object.txt" || methods[1].Region != "archiveResc" {
+		t.Fatalf("expected second s3 access method for archiveResc, got %+v", methods[1])
+	}
+	if methods[0].AccessID != "test1" || methods[1].AccessID != "test1" {
+		t.Fatalf("expected s3 access ids to be irods user id %q, got %+v", "test1", methods)
+	}
+}
+
+type accessMethodsTestFilesystem struct {
+	account        *irodstypes.IRODSAccount
+	metadataByPath map[string][]*irodstypes.IRODSMeta
+}
+
+func (f *accessMethodsTestFilesystem) StatFile(irodsPath string) (*irodsfs.Entry, error) {
+	return nil, nil
+}
+
+func (f *accessMethodsTestFilesystem) List(irodsPath string) ([]*irodsfs.Entry, error) {
+	return nil, nil
+}
+
+func (f *accessMethodsTestFilesystem) SearchByMeta(metaname string, metavalue string) ([]*irodsfs.Entry, error) {
+	return nil, nil
+}
+
+func (f *accessMethodsTestFilesystem) ListMetadata(irodsPath string) ([]*irodstypes.IRODSMeta, error) {
+	if f == nil || f.metadataByPath == nil {
+		return nil, nil
+	}
+	return f.metadataByPath[irodsPath], nil
+}
+
+func (f *accessMethodsTestFilesystem) AddMetadata(irodsPath string, attName string, attValue string, attUnits string) error {
+	return nil
+}
+
+func (f *accessMethodsTestFilesystem) DeleteMetadataByAVU(irodsPath string, attName string, attValue string, attUnits string) error {
+	return nil
+}
+
+func (f *accessMethodsTestFilesystem) GetAccount() *irodstypes.IRODSAccount {
+	return f.account
 }

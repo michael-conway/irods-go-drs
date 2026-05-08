@@ -1,0 +1,62 @@
+# .drsignore sample template
+# Gitignore-style ignore patterns for DRS compound bootstrap selection.
+#
+# Last matching rule wins.
+# Use ! to re-include.
+
+# ------------------------------------------------------------
+# Common temporary/build files
+# ------------------------------------------------------------
+*.tmp
+*.bak
+*.swp
+*~
+
+# Object/archive artifacts anywhere
+*.[oa]
+
+# ------------------------------------------------------------
+# Build/cache directories
+# ------------------------------------------------------------
+build/
+dist/
+.cache/
+
+# Ignore all log files
+*.log
+
+# Re-include one specific log file
+!important.log
+
+# ------------------------------------------------------------
+# Anchored patterns (relative to compound root collection)
+# ------------------------------------------------------------
+/notes/private/
+/hello.*
+
+# ------------------------------------------------------------
+# Recursive patterns with **
+# ------------------------------------------------------------
+# Match "foo" at any depth
+**/foo
+
+# Match everything under abc recursively
+abc/**
+
+# Match a/b, a/x/b, a/x/y/b, etc.
+a/**/b
+
+# ------------------------------------------------------------
+# Exclude everything except one subtree
+# ------------------------------------------------------------
+# /*
+# !/foo
+# /foo/*
+# !/foo/bar
+
+# ------------------------------------------------------------
+# Escaping literal leading special chars
+# ------------------------------------------------------------
+\#literal-file-name.txt
+\!literal-bang.txt
+

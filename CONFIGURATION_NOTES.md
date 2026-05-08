@@ -32,7 +32,6 @@ DRS_IRODS_PRIMARY_TEST_USER=test1
 DRS_IRODS_PRIMARY_TEST_PASSWORD=test1
 DRS_IRODS_SECONDARY_TEST_USER=test2
 DRS_IRODS_SECONDARY_TEST_PASSWORD=test2
-DRS_RESOURCE_AFFINITY=demoResc,edgeResc
 
 DRS_OIDC_URL=https://localhost:8443
 DRS_OIDC_REALM=drs
@@ -57,15 +56,61 @@ OidcInsecureSkipVerify: true
 `OidcSkipTLSVerify` is still accepted for compatibility, but
 `OidcInsecureSkipVerify` is the preferred config key.
 
+## iRODS authentication and SSL
+
+`IrodsAdminLoginType` controls the admin/proxy account used by bearer-token and
+ticket-backed requests. `IrodsAuthScheme` controls direct user credentials, such
+as Basic auth requests.
+
+For PAM Basic auth, set `IrodsAuthScheme: pam`. go-irodsclient requires SSL for
+PAM accounts, and DRS applies the same connection settings to Basic, bearer, and
+ticket accounts.
+
+```yaml
+IrodsAdminLoginType: native
+IrodsAuthScheme: pam
+IrodsNegotiationPolicy: CS_NEG_REQUIRE
+IrodsSSLConfig:
+  CACertificateFile: /etc/irods/ca.pem
+  CACertificatePath:
+  EncryptionKeySize: 32
+  EncryptionAlgorithm: AES-256-CBC
+  EncryptionSaltSize: 8
+  EncryptionNumHashRounds: 16
+  VerifyServer: hostname
+  DHParamsFile:
+  ServerName: irods.example.org
+```
+
+Environment equivalents:
+
+```bash
+DRS_IRODS_ADMIN_LOGIN_TYPE=native
+DRS_IRODS_AUTH_SCHEME=pam
+DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_REQUIRE
+DRS_IRODS_SSL_CA_CERTIFICATE_FILE=/etc/irods/ca.pem
+DRS_IRODS_SSL_CA_CERTIFICATE_PATH=
+DRS_IRODS_ENCRYPTION_KEY_SIZE=32
+DRS_IRODS_ENCRYPTION_ALGORITHM=AES-256-CBC
+DRS_IRODS_ENCRYPTION_SALT_SIZE=8
+DRS_IRODS_ENCRYPTION_NUM_HASH_ROUNDS=16
+DRS_IRODS_SSL_VERIFY_SERVER=hostname
+DRS_IRODS_SSL_DH_PARAMS_FILE=
+DRS_IRODS_SSL_SERVER_NAME=irods.example.org
+```
+
+`VerifyServer` accepts `hostname`, `cert`, or `none`. Use `hostname` for normal
+production verification.
+
 ## Resource affinity
 
-`ResourceAffinity` is optional and maps iRODS storage resources to HTTPS DRS
+`HttpsResourceAffinity` is optional and maps iRODS storage resources to HTTPS DRS
 hosts that are proximate to those resources.
 
 Supported forms:
 
 ```yaml
-ResourceAffinity:
+HttpsResourceAffinity:
   - Host: https://drs-resc-a.example.org
     Resources:
       - demoResc
@@ -74,19 +119,13 @@ ResourceAffinity:
     Resources: []
 ```
 
-or environment override:
-
-```bash
-DRS_RESOURCE_AFFINITY=demoResc,edgeResc
-```
-
 Notes:
 
 - `resources` entries with exact names are preferred for matching replicas.
 - The first entry with an empty `Resources` array is the default for unmatched resources.
 - `*` is still accepted for backward compatibility.
-- Environment override remains a legacy compatibility path and maps to one
-  default affinity entry using `HttpsAccessMethodBaseURL` as the host base URL.
+- `HttpsAccessMethodBaseURL` is a path/query suffix appended to the matched
+  affinity host when constructing HTTPS access URLs.
 
 ## Secrets
 
@@ -160,7 +199,7 @@ IrodsAccessMethodSupported: false
 FileAccessMethodSupported: false
 HttpsAccessMethodSupported: true
 HttpsAccessImplementation: irods-go-rest
-HttpsAccessMethodBaseURL: https://drs.example.org/api/v1/path/contents?irods_path=
+HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
 HttpsAccessUseTicket: true
 LocalAccessRootPath: /mnt/irods
 ```

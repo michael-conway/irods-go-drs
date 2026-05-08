@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -20,11 +21,12 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_HTTPS_ACCESS_IMPLEMENTATION", "irods-go-rest")
 	t.Setenv("DRS_HTTPS_ACCESS_METHOD_BASE_URL", "https://download.example.org/api/v1/path/contents?irods_path=")
 	t.Setenv("DRS_HTTPS_ACCESS_USE_TICKET", "true")
+	t.Setenv("DRS_S3_ACCESS_METHOD_SUPPORTED", "true")
+	t.Setenv("DRS_S3_ACCESS_METHOD_BASE_URL", "s3://")
 	t.Setenv("DRS_DEFAULT_TICKET_LIFETIME_MINUTES", "1440")
 	t.Setenv("DRS_DEFAULT_TICKET_USE_LIMIT", "100")
 	t.Setenv("DRS_IRODS_ACCESS_METHOD_SUPPORTED", "true")
 	t.Setenv("DRS_FILE_ACCESS_METHOD_SUPPORTED", "true")
-	t.Setenv("DRS_RESOURCE_AFFINITY", "demoResc, edgeResc , archiveResc")
 
 	var confs = [1]string{"./resources/"}
 	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
@@ -73,6 +75,12 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	if !config.HttpsAccessUseTicket {
 		t.Fatal("expected env override for HttpsAccessUseTicket")
 	}
+	if !config.S3AccessMethodSupported {
+		t.Fatal("expected env override for S3AccessMethodSupported")
+	}
+	if config.S3AccessMethodBaseURL != "s3://" {
+		t.Fatalf("expected env override for S3AccessMethodBaseURL, got %q", config.S3AccessMethodBaseURL)
+	}
 	if config.DefaultTicketLifetimeMinutes != 1440 {
 		t.Fatalf("expected env override for DefaultTicketLifetimeMinutes, got %d", config.DefaultTicketLifetimeMinutes)
 	}
@@ -86,9 +94,6 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 
 	if !config.FileAccessMethodSupported {
 		t.Fatal("expected env override for FileAccessMethodSupported")
-	}
-	if len(config.ResourceAffinity) != 1 || len(config.ResourceAffinity[0].Resources) != 3 || config.ResourceAffinity[0].Resources[0] != "demoResc" || config.ResourceAffinity[0].Resources[1] != "edgeResc" || config.ResourceAffinity[0].Resources[2] != "archiveResc" {
-		t.Fatalf("expected env override for ResourceAffinity, got %+v", config.ResourceAffinity)
 	}
 }
 
@@ -133,6 +138,102 @@ func TestReadDrsConfigSecretFileSupport(t *testing.T) {
 	}
 }
 
+func TestReadDrsConfigIRODSSSLConfigYAML(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "ssl-drs-config.yaml")
+	configBody := "" +
+		"DrsIdAvuValue: ssl-config\n" +
+		"IrodsHost: localhost\n" +
+		"IrodsPort: 1247\n" +
+		"IrodsZone: tempZone\n" +
+		"IrodsAdminUser: rods\n" +
+		"IrodsAdminLoginType: native\n" +
+		"IrodsAuthScheme: pam\n" +
+		"IrodsNegotiationPolicy: CS_NEG_REQUIRE\n" +
+		"IrodsSSLConfig:\n" +
+		"  CACertificateFile: /etc/irods/ca.pem\n" +
+		"  CACertificatePath: /etc/irods/certs\n" +
+		"  EncryptionKeySize: 32\n" +
+		"  EncryptionAlgorithm: AES-256-CBC\n" +
+		"  EncryptionSaltSize: 8\n" +
+		"  EncryptionNumHashRounds: 16\n" +
+		"  VerifyServer: hostname\n" +
+		"  DHParamsFile: /etc/irods/dhparams.pem\n" +
+		"  ServerName: irods.example.org\n"
+
+	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	t.Setenv(drs_support.ConfigFileEnvVar, configPath)
+
+	cfg, err := drs_support.ReadDrsConfig("does-not-exist", "yaml", []string{"./resources/"})
+	if err != nil {
+		t.Fatalf("error reading drs config with SSL config: %s", err)
+	}
+
+	if cfg.IrodsAdminLoginType != "native" {
+		t.Fatalf("expected admin login type from YAML, got %q", cfg.IrodsAdminLoginType)
+	}
+	if cfg.IrodsSSLConfig.CACertificateFile != "/etc/irods/ca.pem" {
+		t.Fatalf("expected CA certificate file from YAML, got %q", cfg.IrodsSSLConfig.CACertificateFile)
+	}
+	if cfg.IrodsSSLConfig.ServerName != "irods.example.org" {
+		t.Fatalf("expected SSL server name from YAML, got %q", cfg.IrodsSSLConfig.ServerName)
+	}
+
+	account := cfg.ToIrodsAccount()
+	if !account.ClientServerNegotiation {
+		t.Fatal("expected client-server negotiation for SSL policy")
+	}
+	if account.CSNegotiationPolicy != irodstypes.CSNegotiationPolicyRequestSSL {
+		t.Fatalf("expected SSL negotiation policy, got %q", account.CSNegotiationPolicy)
+	}
+	if account.AuthenticationScheme != irodstypes.AuthSchemeNative {
+		t.Fatalf("expected admin account to use native auth, got %q", account.AuthenticationScheme)
+	}
+	if account.SSLConfiguration == nil {
+		t.Fatal("expected SSL configuration on account")
+	}
+	if account.SSLConfiguration.VerifyServer != irodstypes.SSLVerifyServerHostname {
+		t.Fatalf("expected hostname verification, got %q", account.SSLConfiguration.VerifyServer)
+	}
+	if account.SSLConfiguration.ServerName != "irods.example.org" {
+		t.Fatalf("expected SSL server name on account, got %q", account.SSLConfiguration.ServerName)
+	}
+}
+
+func TestReadDrsConfigIRODSSSLConfigEnvOverride(t *testing.T) {
+	t.Setenv("DRS_IRODS_SSL_CA_CERTIFICATE_FILE", "/env/ca.pem")
+	t.Setenv("DRS_IRODS_SSL_VERIFY_SERVER", "none")
+	t.Setenv("DRS_IRODS_SSL_SERVER_NAME", "env-irods.example.org")
+	t.Setenv("DRS_IRODS_ENCRYPTION_KEY_SIZE", "64")
+
+	var confs = [1]string{"./resources/"}
+	cfg, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
+	if err != nil {
+		t.Fatalf("error reading drs config: %s", err)
+	}
+
+	if cfg.IrodsSSLConfig.CACertificateFile != "/env/ca.pem" {
+		t.Fatalf("expected SSL CA file from env override, got %q", cfg.IrodsSSLConfig.CACertificateFile)
+	}
+	if cfg.IrodsSSLConfig.VerifyServer != "none" {
+		t.Fatalf("expected SSL verify server from env override, got %q", cfg.IrodsSSLConfig.VerifyServer)
+	}
+	if cfg.IrodsSSLConfig.EncryptionKeySize != 64 {
+		t.Fatalf("expected SSL encryption key size from env override, got %d", cfg.IrodsSSLConfig.EncryptionKeySize)
+	}
+
+	sslConfig := cfg.ToIRODSSSLConfig()
+	if sslConfig.VerifyServer != irodstypes.SSLVerifyServerNone {
+		t.Fatalf("expected no server verification, got %q", sslConfig.VerifyServer)
+	}
+	if sslConfig.ServerName != "env-irods.example.org" {
+		t.Fatalf("expected SSL server name from env override, got %q", sslConfig.ServerName)
+	}
+}
+
 func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "custom-drs-config.yaml")
@@ -154,7 +255,7 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 		"IrodsZone: tempZone\n" +
 		"IrodsAdminUser: rods\n" +
 		"IrodsAuthScheme: native\n" +
-		"IrodsNegotiationPolicy: native\n"
+		"IrodsNegotiationPolicy: CS_NEG_DONT_CARE\n"
 
 	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
 		t.Fatalf("write config file: %v", err)
@@ -226,7 +327,7 @@ func TestReadDrsConfigTrimsWhitespaceFromInputs(t *testing.T) {
 		"IrodsZone: tempZone\n" +
 		"IrodsAdminUser: rods\n" +
 		"IrodsAuthScheme: native\n" +
-		"IrodsNegotiationPolicy: native\n"
+		"IrodsNegotiationPolicy: CS_NEG_DONT_CARE\n"
 
 	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
 		t.Fatalf("write config file: %v", err)
@@ -263,7 +364,7 @@ func TestReadDrsConfigSupportsOidcInsecureSkipVerifyKey(t *testing.T) {
 		"IrodsZone: tempZone\n" +
 		"IrodsAdminUser: rods\n" +
 		"IrodsAuthScheme: native\n" +
-		"IrodsNegotiationPolicy: native\n" +
+		"IrodsNegotiationPolicy: CS_NEG_DONT_CARE\n" +
 		"OidcUrl: https://localhost:8443\n" +
 		"OidcInsecureSkipVerify: true\n"
 
@@ -287,7 +388,7 @@ func TestReadDrsConfigSupportsOidcInsecureSkipVerifyKey(t *testing.T) {
 	}
 }
 
-func TestReadDrsConfigResourceAffinityYAMLList(t *testing.T) {
+func TestReadDrsConfigHttpsResourceAffinityYAMLStructuredEntries(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "resource-affinity-config.yaml")
 	configBody := "" +
@@ -297,11 +398,14 @@ func TestReadDrsConfigResourceAffinityYAMLList(t *testing.T) {
 		"IrodsZone: tempZone\n" +
 		"IrodsAdminUser: rods\n" +
 		"IrodsAuthScheme: native\n" +
-		"IrodsNegotiationPolicy: native\n" +
-		"ResourceAffinity:\n" +
-		"  - demoResc\n" +
-		"  - edgeResc\n" +
-		"  - archiveResc\n"
+		"IrodsNegotiationPolicy: CS_NEG_DONT_CARE\n" +
+		"HttpsResourceAffinity:\n" +
+		"  - Host: https://download.example.org\n" +
+		"    Resources:\n" +
+		"      - demoResc\n" +
+		"      - edgeResc\n" +
+		"  - Host: https://download-alt.example.org\n" +
+		"    Resources: []\n"
 
 	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
 		t.Fatalf("write config file: %v", err)
@@ -314,7 +418,13 @@ func TestReadDrsConfigResourceAffinityYAMLList(t *testing.T) {
 		t.Fatalf("error reading drs config with %s override: %s", drs_support.ConfigFileEnvVar, err)
 	}
 
-	if len(config.ResourceAffinity) != 1 || len(config.ResourceAffinity[0].Resources) != 3 || config.ResourceAffinity[0].Resources[0] != "demoResc" || config.ResourceAffinity[0].Resources[1] != "edgeResc" || config.ResourceAffinity[0].Resources[2] != "archiveResc" {
-		t.Fatalf("expected ResourceAffinity from YAML list, got %+v", config.ResourceAffinity)
+	if len(config.HttpsResourceAffinity) != 2 {
+		t.Fatalf("expected two HttpsResourceAffinity entries, got %+v", config.HttpsResourceAffinity)
+	}
+	if config.HttpsResourceAffinity[0].Host != "https://download.example.org" || len(config.HttpsResourceAffinity[0].Resources) != 2 || config.HttpsResourceAffinity[0].Resources[0] != "demoResc" || config.HttpsResourceAffinity[0].Resources[1] != "edgeResc" {
+		t.Fatalf("expected first HttpsResourceAffinity entry from YAML, got %+v", config.HttpsResourceAffinity)
+	}
+	if config.HttpsResourceAffinity[1].Host != "https://download-alt.example.org" || len(config.HttpsResourceAffinity[1].Resources) != 0 {
+		t.Fatalf("expected second HttpsResourceAffinity entry from YAML, got %+v", config.HttpsResourceAffinity)
 	}
 }

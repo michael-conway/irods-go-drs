@@ -94,7 +94,7 @@ func NewDrsServiceContext(ctx context.Context, drsConfig *drs_support.DrsConfig)
 			drsConfig.IrodsZone,
 			drsConfig.IrodsAdminUser,
 			drsConfig.IrodsZone,
-			types.GetAuthScheme(drsConfig.IrodsAuthScheme),
+			drsConfig.AdminAuthScheme(),
 			drsConfig.IrodsAdminPassword,
 			drsConfig.IrodsDefaultResource,
 		)
@@ -112,7 +112,7 @@ func NewDrsServiceContext(ctx context.Context, drsConfig *drs_support.DrsConfig)
 			drsConfig.IrodsPort,
 			userName,
 			drsConfig.IrodsZone,
-			types.GetAuthScheme(drsConfig.IrodsAuthScheme),
+			drsConfig.RequestAuthScheme(),
 			password,
 			drsConfig.IrodsDefaultResource,
 		)
@@ -122,6 +122,8 @@ func NewDrsServiceContext(ctx context.Context, drsConfig *drs_support.DrsConfig)
 	default:
 		return nil, fmt.Errorf("unsupported auth scheme %q", authScheme)
 	}
+
+	drsConfig.ApplyIRODSConnectionConfig(irodsAccount)
 
 	return &DrsServiceContext{
 		DrsConfig:    drsConfig,
