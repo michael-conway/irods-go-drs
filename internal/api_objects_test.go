@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -117,6 +118,68 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	}
 }
 
+func TestGetObjectReturnsCompoundObjectWithOnlyHTTPSAccessMethod(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-compound", nil)
+	req.Host = "drs.example.org"
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			IrodsAccessMethodSupported: true,
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+			OidcUrl:                    "https://issuer.example.org",
+			OidcRealm:                  "drs",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-compound"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response DrsObject
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if response.Id != "object-compound" {
+		t.Fatalf("expected id object-compound, got %q", response.Id)
+	}
+	if len(response.AccessMethods) != 1 {
+		t.Fatalf("expected one access method for compound object, got %+v", response.AccessMethods)
+	}
+	method := response.AccessMethods[0]
+	if method.Type_ != "https" {
+		t.Fatalf("expected compound https access method, got %+v", method)
+	}
+	if method.AccessId != "" {
+		t.Fatalf("expected no access_id for compound https access method, got %+v", method)
+	}
+	if method.AccessUrl == nil {
+		t.Fatalf("expected direct access_url for compound https access method, got %+v", method)
+	}
+	expectedURL := "http://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
+	if method.AccessUrl.Url != expectedURL {
+		t.Fatalf("expected compound access_url %q, got %+v", expectedURL, method)
+	}
+	if method.Authorizations == nil || len(method.Authorizations.SupportedTypes) != 2 {
+		t.Fatalf("expected basic/bearer authorizations, got %+v", method.Authorizations)
+	}
+	if method.Authorizations.SupportedTypes[0] != "BasicAuth" || method.Authorizations.SupportedTypes[1] != "BearerAuth" {
+		t.Fatalf("expected supported auth types basic/bearer, got %+v", method.Authorizations)
+	}
+}
+
 func TestGetObjectReturnsHTTPSAccessMethodPerReplicaResource(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()
@@ -215,6 +278,84 @@ func TestGetAccessURLReturnsIRODSGoRestAffinityHostAccessURL(t *testing.T) {
 	expectedURL := "https://dedicated.example.org/api/v1/path/contents?irods_path=" + neturl.QueryEscape("/tempZone/home/test1/file.txt")
 	if response.Url != expectedURL {
 		t.Fatalf("expected access url %q, got %q", expectedURL, response.Url)
+	}
+}
+
+func TestGetAccessURLReturnsCompoundManifestExtURL(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-compound/access/"+compoundManifestHTTPSAccessID, nil)
+	req.Host = "drs.example.org"
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-compound",
+		"access_id": compoundManifestHTTPSAccessID,
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expectedURL := "http://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
+	if response.Url != expectedURL {
+		t.Fatalf("expected compound ext url %q, got %q", expectedURL, response.Url)
+	}
+	if len(response.Headers) != 0 {
+		t.Fatalf("expected no headers for compound manifest ext url, got %+v", response.Headers)
+	}
+}
+
+func TestGetCompoundManifestExtReturnsRuntimeManifest(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/ext/compound/object-compound", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-compound"})
+
+	rec := httptest.NewRecorder()
+	GetCompoundManifestExt(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response drs_support.CompoundRuntimeManifest
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if response.RootPath != "/tempZone/home/test1/compound" || response.RootDrsID != "object-compound" {
+		t.Fatalf("unexpected compound manifest root %+v", response)
+	}
+	if response.Manifest == nil {
+		t.Fatalf("expected nested manifest payload")
+	}
+	if manifestContainsPathForInternalTests(response.Manifest, "/tempZone/home/test1/compound/.drsignore") {
+		t.Fatalf("expected .drsignore to be excluded from runtime manifest")
 	}
 }
 
@@ -589,6 +730,52 @@ func TestGetAccessURLReturnsIRODSGoRestTicketAccessURL(t *testing.T) {
 	}
 	if fs.ticketExpiryTimes[fs.createdTickets[0].name].IsZero() {
 		t.Fatalf("expected ticket expiry time to be set, got %+v", fs.ticketExpiryTimes)
+	}
+}
+
+func TestGetAccessURLDefaultIDUsesPrimaryResourceAffinityHost(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/irods-go-rest-https", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+			HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
+				{
+					Host:      "https://default.example.org",
+					Resources: []string{},
+				},
+			},
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "irods-go-rest-https",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expectedURL := "https://default.example.org/api/v1/path/contents?irods_path=" + neturl.QueryEscape("/tempZone/home/test1/file.txt")
+	if response.Url != expectedURL {
+		t.Fatalf("expected access url %q, got %q", expectedURL, response.Url)
 	}
 }
 
@@ -976,6 +1163,40 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 					},
 				},
 			},
+			"/tempZone/home/test1/compound": {
+				ID:         100,
+				Type:       irodsfs.DirectoryEntry,
+				Name:       "compound",
+				Path:       "/tempZone/home/test1/compound",
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
+			"/tempZone/home/test1/compound/child.txt": {
+				ID:         101,
+				Type:       irodsfs.FileEntry,
+				Name:       "child.txt",
+				Path:       "/tempZone/home/test1/compound/child.txt",
+				Size:       32,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+				IRODSReplicas: []irodstypes.IRODSReplica{
+					{
+						Owner:        "test1",
+						ResourceName: "demoResc",
+						CreateTime:   createTime,
+						ModifyTime:   updateTime,
+					},
+				},
+			},
+			"/tempZone/home/test1/compound/.drsignore": {
+				ID:         102,
+				Type:       irodsfs.FileEntry,
+				Name:       ".drsignore",
+				Path:       "/tempZone/home/test1/compound/.drsignore",
+				Size:       8,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
 		},
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			"/tempZone/home/test1/file.txt": {
@@ -991,6 +1212,20 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 				{Name: drs_support.DrsAvuMimeTypeAttrib, Value: "text/plain", Units: drs_support.DrsAvuUnit},
 				{Name: drs_support.DrsAvuVersionAttrib, Value: "def456", Units: drs_support.DrsAvuUnit},
 			},
+			"/tempZone/home/test1/compound": {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "object-compound", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuCompoundManifestAttrib, Value: "true", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuAliasAttrib, Value: ".", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "compound root", Units: drs_support.DrsAvuUnit},
+			},
+			"/tempZone/home/test1/compound/child.txt": {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "object-compound-child", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuAliasAttrib, Value: "child.txt", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "child data object", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuMimeTypeAttrib, Value: "text/plain", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuVersionAttrib, Value: "child-version", Units: drs_support.DrsAvuUnit},
+			},
+			"/tempZone/home/test1/compound/.drsignore": {},
 		},
 		ticketUseLimits:   map[string]int64{},
 		ticketExpiryTimes: map[string]time.Time{},
@@ -1007,7 +1242,25 @@ func (f *routeTestFileSystem) StatFile(irodsPath string) (*irodsfs.Entry, error)
 }
 
 func (f *routeTestFileSystem) List(irodsPath string) ([]*irodsfs.Entry, error) {
-	return []*irodsfs.Entry{}, nil
+	irodsPath = strings.TrimSuffix(irodsPath, "/")
+	if irodsPath == "" {
+		irodsPath = "/"
+	}
+
+	results := []*irodsfs.Entry{}
+	for candidatePath, entry := range f.entriesByPath {
+		if entry == nil || candidatePath == irodsPath {
+			continue
+		}
+		parent := path.Dir(candidatePath)
+		if parent == "." {
+			parent = "/"
+		}
+		if parent == irodsPath {
+			results = append(results, entry)
+		}
+	}
+	return results, nil
 }
 
 func (f *routeTestFileSystem) SearchByMeta(name string, value string) ([]*irodsfs.Entry, error) {
@@ -1061,4 +1314,20 @@ func (f *routeTestFileSystem) DeleteTicket(ticketName string) error {
 	delete(f.ticketUseLimits, ticketName)
 	delete(f.ticketExpiryTimes, ticketName)
 	return nil
+}
+
+func manifestContainsPathForInternalTests(node *drs_support.CompoundManifestNode, targetPath string) bool {
+	if node == nil {
+		return false
+	}
+	if node.Path == targetPath {
+		return true
+	}
+	for _, child := range node.Children {
+		childCopy := child
+		if manifestContainsPathForInternalTests(&childCopy, targetPath) {
+			return true
+		}
+	}
+	return false
 }

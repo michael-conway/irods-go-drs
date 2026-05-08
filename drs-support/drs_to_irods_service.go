@@ -219,18 +219,14 @@ func CreateDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePath stri
 	return drsID, nil
 }
 
-// CreateCompoundDrsObjectFromDataObject is the placeholder entry point for manifest-backed
-// compound DRS objects and currently validates only the minimal required inputs.
+// CreateCompoundDrsObjectFromDataObject is deprecated. Compound objects are collection-based
+// and should be created with CreateCompoundDrsObjectFromCollection.
 func CreateCompoundDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePath string, description string, aliases []string) (string, error) {
-	if filesystem == nil {
-		return "", fmt.Errorf("no iRODS filesystem provided")
+	result, err := CreateCompoundDrsObjectFromCollection(filesystem, absolutePath)
+	if err != nil {
+		return "", err
 	}
-
-	if strings.TrimSpace(absolutePath) == "" {
-		return "", fmt.Errorf("a data object absolute path is required")
-	}
-
-	return "", fmt.Errorf("compound DRS object creation is not implemented")
+	return result.DrsID, nil
 }
 
 // GetDrsObjectByID resolves one DRS object by its DRS id and returns the hydrated internal model.
@@ -279,9 +275,9 @@ func GetDrsObjectByID(filesystem IRODSFilesystem, drsID string) (*InternalDrsObj
 		return nil, fmt.Errorf("DRS id %q matched multiple data objects", drsID)
 	}
 
-	entry, err := filesystem.StatFile(matches[0].Path)
+	entry, err := statEntry(filesystem, matches[0].Path)
 	if err != nil {
-		return nil, fmt.Errorf("stat data object %q: %w", matches[0].Path, err)
+		return nil, fmt.Errorf("stat iRODS entry %q: %w", matches[0].Path, err)
 	}
 
 	object, err := drsObjectFromEntry(filesystem, entry)
@@ -305,9 +301,9 @@ func GetDrsObjectByIRODSPath(filesystem IRODSFilesystem, absolutePath string) (*
 		return nil, fmt.Errorf("an iRODS data object absolute path is required")
 	}
 
-	entry, err := filesystem.StatFile(correctPath)
+	entry, err := statEntry(filesystem, correctPath)
 	if err != nil {
-		return nil, fmt.Errorf("stat data object %q: %w", correctPath, err)
+		return nil, fmt.Errorf("stat iRODS path %q: %w", correctPath, err)
 	}
 
 	object, err := drsObjectFromEntry(filesystem, entry)
@@ -863,6 +859,9 @@ func drsObjectFromEntry(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*Inte
 
 func entryWithAllReplicas(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*irodsfs.Entry, error) {
 	if entry == nil || strings.TrimSpace(entry.Path) == "" {
+		return entry, nil
+	}
+	if entry.IsDir() {
 		return entry, nil
 	}
 
