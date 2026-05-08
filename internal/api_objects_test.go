@@ -76,8 +76,21 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 		t.Fatalf("expected checksum type sha-256, got %+v", response.Checksums)
 	}
 
-	if len(response.Aliases) != 2 || response.Aliases[0] != "alias-1" || response.Aliases[1] != "alias-2" {
-		t.Fatalf("expected aliases to be mapped, got %+v", response.Aliases)
+	if len(response.Aliases) != 3 {
+		t.Fatalf("expected 3 aliases including irods uri alias, got %+v", response.Aliases)
+	}
+	if response.Aliases[0] != "alias-1" || response.Aliases[1] != "alias-2" {
+		t.Fatalf("expected original aliases to be preserved first, got %+v", response.Aliases)
+	}
+	parsedAliasURI, err := extension_irodsuri.Parse(response.Aliases[2])
+	if err != nil {
+		t.Fatalf("expected valid iRODS uri alias, got %q: %v", response.Aliases[2], err)
+	}
+	if parsedAliasURI.UserInfo != nil {
+		t.Fatalf("expected iRODS uri alias without user info, got %+v", parsedAliasURI.UserInfo)
+	}
+	if parsedAliasURI.Host != "icat-from-account.example.org" || parsedAliasURI.Port != 1247 || parsedAliasURI.Path != "/tempZone/home/test1/file.txt" {
+		t.Fatalf("unexpected iRODS alias URI %+v", parsedAliasURI)
 	}
 
 	if len(response.AccessMethods) != 1 {

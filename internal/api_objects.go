@@ -409,6 +409,20 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 		accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethodsWithFilesystem(serviceContext.DrsConfig, object, filesystem))
 	}
 
+	aliases := append([]string(nil), object.Aliases...)
+	if irodsURIAlias := buildAnonymousIRODSAliasURI(filesystem, object); irodsURIAlias != "" {
+		alreadyPresent := false
+		for _, alias := range aliases {
+			if strings.EqualFold(strings.TrimSpace(alias), strings.TrimSpace(irodsURIAlias)) {
+				alreadyPresent = true
+				break
+			}
+		}
+		if !alreadyPresent {
+			aliases = append(aliases, irodsURIAlias)
+		}
+	}
+
 	response := DrsObject{
 		Id:            object.Id,
 		Name:          object.AbsolutePath,
@@ -420,7 +434,7 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 		MimeType:      object.MimeType,
 		AccessMethods: accessMethods,
 		Description:   object.Description,
-		Aliases:       append([]string(nil), object.Aliases...),
+		Aliases:       aliases,
 	}
 
 	if object.Checksum != nil && object.Checksum.Value != "" {
@@ -444,6 +458,28 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 	}
 
 	return response
+}
+
+func buildAnonymousIRODSAliasURI(filesystem drs_support.IRODSFilesystem, object *drs_support.InternalDrsObject) string {
+	if filesystem == nil || object == nil {
+		return ""
+	}
+
+	absolutePath := strings.TrimSpace(object.AbsolutePath)
+	if absolutePath == "" {
+		return ""
+	}
+
+	account := filesystem.GetAccount()
+	if account == nil {
+		return ""
+	}
+
+	uri, err := extension_irodsuri.BuildForAccountWithoutUserInfo(account, absolutePath)
+	if err != nil || uri == nil {
+		return ""
+	}
+	return uri.String()
 }
 
 func accessMethodsFromInternal(methods []drs_support.DrsAccessMethod) []AccessMethod {
