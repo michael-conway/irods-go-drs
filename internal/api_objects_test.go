@@ -159,8 +159,18 @@ func TestGetObjectReturnsCompoundObjectWithOnlyHTTPSAccessMethod(t *testing.T) {
 		t.Fatalf("expected one access method for compound object, got %+v", response.AccessMethods)
 	}
 	method := response.AccessMethods[0]
-	if method.Type_ != "https" || method.AccessId != compoundManifestHTTPSAccessID {
+	if method.Type_ != "https" {
 		t.Fatalf("expected compound https access method, got %+v", method)
+	}
+	if method.AccessId != "" {
+		t.Fatalf("expected no access_id for compound https access method, got %+v", method)
+	}
+	if method.AccessUrl == nil {
+		t.Fatalf("expected direct access_url for compound https access method, got %+v", method)
+	}
+	expectedURL := "http://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
+	if method.AccessUrl.Url != expectedURL {
+		t.Fatalf("expected compound access_url %q, got %+v", expectedURL, method)
 	}
 	if method.Authorizations == nil || len(method.Authorizations.SupportedTypes) != 2 {
 		t.Fatalf("expected basic/bearer authorizations, got %+v", method.Authorizations)

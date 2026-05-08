@@ -861,6 +861,9 @@ func entryWithAllReplicas(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*ir
 	if entry == nil || strings.TrimSpace(entry.Path) == "" {
 		return entry, nil
 	}
+	if entry.IsDir() {
+		return entry, nil
+	}
 
 	switch fs := any(filesystem).(type) {
 	case allReplicaStatFilesystem:

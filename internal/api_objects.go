@@ -491,7 +491,7 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 	var accessMethods []AccessMethod
 	if serviceContext, ok := DrsServiceContextFromContext(r.Context()); ok && serviceContext != nil {
 		if object != nil && object.IsManifest {
-			accessMethods = []AccessMethod{buildCompoundManifestAccessMethod(serviceContext.DrsConfig, object)}
+			accessMethods = []AccessMethod{buildCompoundManifestAccessMethod(r, serviceContext.DrsConfig, object)}
 		} else {
 			accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethodsWithFilesystem(serviceContext.DrsConfig, object, filesystem))
 		}
@@ -604,7 +604,7 @@ func accessMethodsFromInternal(methods []drs_support.DrsAccessMethod) []AccessMe
 	return response
 }
 
-func buildCompoundManifestAccessMethod(drsConfig *drs_support.DrsConfig, object *drs_support.InternalDrsObject) AccessMethod {
+func buildCompoundManifestAccessMethod(r *http.Request, drsConfig *drs_support.DrsConfig, object *drs_support.InternalDrsObject) AccessMethod {
 	region := ""
 	zone := ""
 	if object != nil {
@@ -615,10 +615,14 @@ func buildCompoundManifestAccessMethod(drsConfig *drs_support.DrsConfig, object 
 	if issuer := bearerAuthIssuerFromConfig(drsConfig); issuer != "" {
 		issuers = append(issuers, issuer)
 	}
+	compoundPath := "/ga4gh/drs/v1/ext/compound/"
+	if object != nil {
+		compoundPath = compoundPath + neturl.PathEscape(strings.TrimSpace(object.Id))
+	}
 
 	return AccessMethod{
 		Type_:     "https",
-		AccessId:  compoundManifestHTTPSAccessID,
+		AccessUrl: &AllOfAccessMethodAccessUrl{Url: buildAbsoluteRequestURL(r, compoundPath)},
 		Cloud:     "irods:" + zone,
 		Region:    region,
 		Available: false,
