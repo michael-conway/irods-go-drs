@@ -1111,7 +1111,7 @@ func TestGetAccessURLReturnsNotFoundForUnknownAccessID(t *testing.T) {
 	}
 }
 
-func TestGetAccessURLReturnsNotFoundForS3AccessID(t *testing.T) {
+func TestGetAccessURLReturnsNotImplementedForS3AccessID(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()
 	fs.metadataByPath["/tempZone/home/test1"] = []*irodstypes.IRODSMeta{
@@ -1138,8 +1138,16 @@ func TestGetAccessURLReturnsNotFoundForS3AccessID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	GetAccessURL(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for unsupported s3 access_id resolution, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501 for unsupported s3 access_id resolution, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(response["message"], "not supported by /access in this deployment") {
+		t.Fatalf("expected explicit unsupported-access-method message, got %+v", response)
 	}
 }
 

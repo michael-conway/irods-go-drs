@@ -10,23 +10,112 @@
 package internal
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
+
+	"github.com/gorilla/mux"
 )
+
+var requestLogger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+type statusCapturingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *statusCapturingResponseWriter) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
 
 func Logger(inner http.Handler, name string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		responseWriter := &statusCapturingResponseWriter{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK,
+		}
 
-		inner.ServeHTTP(w, r)
+		inner.ServeHTTP(responseWriter, r)
 
-		log.Printf(
-			"%s %s %s %s",
-			r.Method,
-			r.RequestURI,
-			name,
-			time.Since(start),
+		routeVars := mux.Vars(r)
+		objectID := strings.TrimSpace(routeVars["object_id"])
+		accessID := strings.TrimSpace(routeVars["access_id"])
+		authMode := requestAuthMode(r)
+		errorClass := requestErrorClass(responseWriter.statusCode)
+
+		requestLogger.Info(
+			"request completed",
+			"route", strings.TrimSpace(name),
+			"method", strings.TrimSpace(r.Method),
+			"path", strings.TrimSpace(r.URL.Path),
+			"status", responseWriter.statusCode,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"object_id", objectID,
+			"access_id", accessID,
+			"auth_mode", authMode,
+			"error_class", errorClass,
 		)
 	})
+}
+
+func requestAuthMode(r *http.Request) string {
+	if r != nil {
+		if scheme, ok := AuthSchemeFromContext(r.Context()); ok {
+			scheme = strings.TrimSpace(scheme)
+			if scheme != "" {
+				return scheme
+			}
+		}
+	}
+
+	authHeader := ""
+	if r != nil {
+		authHeader = strings.TrimSpace(r.Header.Get("Authorization"))
+	}
+	if authHeader == "" {
+		return "none"
+	}
+
+	authType, _, found := strings.Cut(authHeader, " ")
+	if !found {
+		return "unknown"
+	}
+
+	switch {
+	case strings.EqualFold(authType, "Bearer"):
+		return "bearer"
+	case strings.EqualFold(authType, "Basic"):
+		return "basic"
+	default:
+		return "unknown"
+	}
+}
+
+func requestErrorClass(statusCode int) string {
+	switch {
+	case statusCode < 400:
+		return "none"
+	case statusCode == http.StatusBadRequest:
+		return "bad_request"
+	case statusCode == http.StatusUnauthorized:
+		return "auth_error"
+	case statusCode == http.StatusForbidden:
+		return "forbidden"
+	case statusCode == http.StatusNotFound:
+		return "not_found"
+	case statusCode == http.StatusMethodNotAllowed:
+		return "method_not_allowed"
+	case statusCode == http.StatusNotImplemented:
+		return "not_implemented"
+	case statusCode >= 400 && statusCode < 500:
+		return "client_error"
+	case statusCode >= 500:
+		return "server_error"
+	default:
+		return "unknown"
+	}
 }

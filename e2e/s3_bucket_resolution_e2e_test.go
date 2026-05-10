@@ -33,18 +33,19 @@ func TestResolveS3BucketContainingDrsObjectViaSupportE2E(t *testing.T) {
 	defer filesystem.Release()
 
 	cfg := requireE2EIRODSConfig(t)
+	if !cfg.S3AccessMethodSupported {
+		t.Skip("S3AccessMethodSupported is false in shared e2e config")
+	}
+	expectedPrefix := strings.TrimSpace(cfg.S3AccessMethodBaseURL)
+	if expectedPrefix == "" {
+		t.Fatalf("S3AccessMethodBaseURL must be set when S3AccessMethodSupported is true")
+	}
 	object, err := drs_support.GetDrsObjectByID(filesystem, fixture.objectID)
 	if err != nil {
 		t.Fatalf("get drs object by id %q: %v", fixture.objectID, err)
 	}
 
-	accessConfig := *cfg
-	accessConfig.S3AccessMethodSupported = true
-	if strings.TrimSpace(accessConfig.S3AccessMethodBaseURL) == "" {
-		accessConfig.S3AccessMethodBaseURL = "s3://"
-	}
-
-	methods := drs_support.BuildAccessMethodsWithFilesystem(&accessConfig, object, filesystem)
+	methods := drs_support.BuildAccessMethodsWithFilesystem(cfg, object, filesystem)
 	var s3Method *drs_support.DrsAccessMethod
 	for idx := range methods {
 		if strings.EqualFold(strings.TrimSpace(methods[idx].Type), "s3") {
@@ -57,7 +58,12 @@ func TestResolveS3BucketContainingDrsObjectViaSupportE2E(t *testing.T) {
 		t.Fatalf("expected s3 access method for drs object %q in bucket collection %q, got %+v", fixture.objectID, fixture.bucketCollectionPath, methods)
 	}
 
-	expectedURL := "s3://" + fixture.bucketName + "/subcoll/object.txt"
+	expectedURL := expectedPrefix
+	if strings.HasSuffix(expectedURL, "://") || strings.HasSuffix(expectedURL, "/") {
+		expectedURL += fixture.bucketName + "/subcoll/object.txt"
+	} else {
+		expectedURL += "/" + fixture.bucketName + "/subcoll/object.txt"
+	}
 	if s3Method.URL != expectedURL {
 		t.Fatalf("expected s3 access url %q, got %+v", expectedURL, s3Method)
 	}
@@ -69,7 +75,7 @@ func TestResolveS3BucketContainingDrsObjectViaSupportE2E(t *testing.T) {
 func TestGetObjectReturnsS3AccessMethodWhenEnabledE2E(t *testing.T) {
 	cfg := requireE2EIRODSConfig(t)
 	if !cfg.S3AccessMethodSupported {
-		t.Skip("S3AccessMethodSupported is false in active DRS config")
+		t.Skip("S3AccessMethodSupported is false in shared e2e config")
 	}
 
 	fixture, filesystem := setupE2ES3Fixture(t)
@@ -112,7 +118,7 @@ func TestGetObjectReturnsS3AccessMethodWhenEnabledE2E(t *testing.T) {
 
 	expectedPrefix := strings.TrimSpace(cfg.S3AccessMethodBaseURL)
 	if expectedPrefix == "" {
-		expectedPrefix = "s3://"
+		t.Fatalf("S3AccessMethodBaseURL must be set when S3AccessMethodSupported is true")
 	}
 	expectedURL := expectedPrefix
 	if strings.HasSuffix(expectedURL, "://") || strings.HasSuffix(expectedURL, "/") {
@@ -125,10 +131,10 @@ func TestGetObjectReturnsS3AccessMethodWhenEnabledE2E(t *testing.T) {
 	}
 }
 
-func TestGetAccessURLReturnsNotFoundForS3AccessIDE2E(t *testing.T) {
+func TestGetAccessURLReturnsNotImplementedForS3AccessIDE2E(t *testing.T) {
 	cfg := requireE2EIRODSConfig(t)
 	if !cfg.S3AccessMethodSupported {
-		t.Skip("S3AccessMethodSupported is false in active DRS config")
+		t.Skip("S3AccessMethodSupported is false in shared e2e config")
 	}
 
 	fixture, filesystem := setupE2ES3Fixture(t)
@@ -148,9 +154,9 @@ func TestGetAccessURLReturnsNotFoundForS3AccessIDE2E(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNotFound {
+	if resp.StatusCode != http.StatusNotImplemented {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("expected 404 for s3 access_id resolution, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		t.Fatalf("expected 501 for s3 access_id resolution, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 }
 

@@ -142,8 +142,32 @@ func accessURLForObject(r *http.Request, filesystem RouteFileSystem, drsConfig *
 		if ok {
 			return buildHTTPSProviderAccessURL(filesystem, drsConfig, objectID, object, parsedAccessID)
 		}
+		if existingType, found := accessMethodTypeByAccessID(drs_support.BuildAccessMethodsWithFilesystem(drsConfig, object, filesystem), accessID); found {
+			return nil, http.StatusNotImplemented, fmt.Errorf("access id %q resolves to access method type %q, which is not supported by /access in this deployment", accessID, existingType)
+		}
 		return nil, http.StatusNotFound, fmt.Errorf("access id %q not found for object %q", accessID, objectID)
 	}
+}
+
+func accessMethodTypeByAccessID(methods []drs_support.DrsAccessMethod, accessID string) (string, bool) {
+	accessID = strings.TrimSpace(accessID)
+	if accessID == "" || len(methods) == 0 {
+		return "", false
+	}
+
+	for _, method := range methods {
+		if strings.TrimSpace(method.AccessID) != accessID {
+			continue
+		}
+
+		methodType := strings.TrimSpace(method.Type)
+		if methodType == "" {
+			methodType = "unknown"
+		}
+		return methodType, true
+	}
+
+	return "", false
 }
 
 func buildHTTPSProviderAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, object *drs_support.InternalDrsObject, parsedAccessID drs_support.ParsedHTTPSAccessID) (*AccessUrl, int, error) {
@@ -490,7 +514,7 @@ func writeUnsupportedOperation(w http.ResponseWriter, endpoint string) {
 	writeJSONError(
 		w,
 		http.StatusNotImplemented,
-		fmt.Sprintf("%s is not supported in this deployment; passport-based and bulk POST DRS endpoints are disabled", endpoint),
+		fmt.Sprintf("%s is not supported in this deployment", endpoint),
 	)
 }
 

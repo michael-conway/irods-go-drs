@@ -38,10 +38,11 @@ This checklist defines the minimum hardening, API alignment, and operational rea
   - Resolve current TODOs around S3 access method behavior (including affinity expectations).
   - Acceptance: S3 method generation behavior is deterministic and documented.
 
-- [ ] Dependency and reproducible build hygiene.
+- [x] Dependency and reproducible build hygiene.
   - Ensure pinned module versions exist remotely.
   - Ensure `go.mod`/`go.sum` are CI-clean with workspace disabled.
   - Acceptance: CI passes with `GOWORK=off` and no local `replace` assumptions.
+  - Status: no local `replace` directives in `go.mod`; `GOWORK=off go mod download`, `GOWORK=off go list -m all`, `GOWORK=off go test ./...`, and `GOWORK=off go build ./...` all pass; `go.mod` and `go.sum` remain unchanged after verification.
 
 ## P1 - Strongly Recommended Before Alpha
 
@@ -60,14 +61,16 @@ This checklist defines the minimum hardening, API alignment, and operational rea
   - Ticketed URL/URI behavior where configured
   - Acceptance: each enabled access method has passing positive/negative tests.
 
-- [ ] Response semantics normalization.
+- [x] Response semantics normalization.
   - Use consistent status policy for unsupported endpoints/features.
   - Avoid placeholder success responses with empty payloads.
   - Acceptance: unsupported behavior is explicit and predictable to clients.
+  - Status: unsupported operations return explicit `501` JSON errors, `/access/{access_id}` now distinguishes unknown IDs (`404`) from known-but-unsupported access method resolvers (`501`), and the previous `/ga4gh/drs/v1/` placeholder success response was removed in favor of explicit unsupported behavior.
 
-- [ ] Observability baseline.
+- [x] Observability baseline.
   - Structured request logs include route, object id/access id, auth mode, and error class.
   - Acceptance: production debugging can trace failures without code changes.
+  - Status: request middleware now emits structured JSON logs with `route`, `object_id`, `access_id`, `auth_mode`, `error_class`, status, and duration.
 
 - [ ] iRODS operation safety/timeouts.
   - Add and verify timeout/cancellation handling in long-running iRODS calls on request path.

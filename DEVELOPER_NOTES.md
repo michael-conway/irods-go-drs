@@ -83,11 +83,15 @@ Use three layers:
 - integration tests under `test/`, run with `go test -tags=integration ./test/...`
 - end-to-end tests under `e2e/`, run with `go test -tags=e2e ./e2e/...`
 
-Shared live-test variables:
+Shared live-test variable:
 
-- `DRS_E2E_BASE_URL`
-- `DRS_TEST_BEARER_TOKEN`
-- `DRS_E2E_SKIP_TLS_VERIFY`
+- `DRS_E2E_CONFIG_FILE`
+
+E2E and integration tests read runtime parameters from that shared config file.
+For HTTP route tests, the base URL is derived from `DrsListenPort` as
+`http://localhost:<DrsListenPort>`.
+Bearer-authenticated route tests are currently skipped by default in this
+harness.
 
 For console and CLI-oriented workflows, assume `gocmd` is available on `PATH`.
 

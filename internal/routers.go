@@ -10,7 +10,6 @@
 package internal
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -54,7 +53,7 @@ func NewRouter() *mux.Router {
 }
 
 func Index(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello World!")
+	writeUnsupportedOperation(w, "GET /ga4gh/drs/v1/")
 }
 
 var routes = Routes{
