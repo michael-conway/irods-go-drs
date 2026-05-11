@@ -6,10 +6,13 @@ package e2e
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"testing"
 
 	extension_irodsuri "github.com/michael-conway/go-irodsclient-extensions/irodsuri"
@@ -193,12 +196,29 @@ func TestGetAccessURLBasicAuthE2E(t *testing.T) {
 		t.Fatalf("expected irods ticket bearer header, got %+v", accessURL.Headers)
 	}
 
-	downloadReq := newE2ERequest(t, http.MethodGet, accessURL.Url, nil)
+	resolvedAccessURL, err := resolveE2EURL(baseURL, accessURL.Url)
+	if err != nil {
+		t.Fatalf("resolve access url %q against base %q: %v", accessURL.Url, baseURL, err)
+	}
+	downloadReq := newE2ERequest(t, http.MethodGet, resolvedAccessURL, nil)
 	applyAccessURLHeaders(downloadReq, accessURL.Headers)
 
 	downloadResp, err := client.Do(downloadReq)
 	if err != nil {
-		t.Fatalf("download via access url: %v", err)
+		fallbackURL, canFallback, fallbackErr := localhostToIPv4URL(resolvedAccessURL)
+		if fallbackErr != nil {
+			t.Fatalf("build IPv4 fallback URL for %q: %v", resolvedAccessURL, fallbackErr)
+		}
+		if isConnectionRefusedError(err) && canFallback {
+			downloadReq = newE2ERequest(t, http.MethodGet, fallbackURL, nil)
+			applyAccessURLHeaders(downloadReq, accessURL.Headers)
+			downloadResp, err = client.Do(downloadReq)
+			if err != nil {
+				t.Fatalf("download via access url failed after localhost IPv4 fallback (%s -> %s): %v", resolvedAccessURL, fallbackURL, err)
+			}
+		} else {
+			t.Fatalf("download via access url: %v", err)
+		}
 	}
 	defer downloadResp.Body.Close()
 
@@ -272,6 +292,133 @@ func TestGetIRODSAccessURLBasicAuthE2E(t *testing.T) {
 	}
 	if !strings.HasPrefix(strings.TrimSpace(parsed.Ticket), "ticket_") {
 		t.Fatalf("expected ticket query parameter, got %+v", parsed)
+	}
+}
+
+func TestGetCompoundObjectBasicAuthE2E(t *testing.T) {
+	baseURL := requireE2EBaseURL(t)
+	username := requireE2EPrimaryTestUser(t)
+	password := requireE2EPrimaryTestPassword(t)
+	fixture := requireE2ECompoundObjectFixture(t)
+	client := newE2EHTTPClient()
+
+	req := newE2ERequest(t, http.MethodGet, getObjectURL(baseURL, fixture.compoundID), nil)
+	setBasicAuth(req, username, password)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("get compound object with basic auth: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var object internal.DrsObject
+	if err := json.NewDecoder(resp.Body).Decode(&object); err != nil {
+		t.Fatalf("decode compound object response: %v", err)
+	}
+
+	if object.Id != fixture.compoundID {
+		t.Fatalf("expected compound DRS id %q, got %q", fixture.compoundID, object.Id)
+	}
+	if object.Name != fixture.compoundPath {
+		t.Fatalf("expected compound object path %q, got %q", fixture.compoundPath, object.Name)
+	}
+	if len(object.AccessMethods) != 1 {
+		t.Fatalf("expected exactly one compound access method, got %+v", object.AccessMethods)
+	}
+
+	method := object.AccessMethods[0]
+	if method.Type_ != "https" {
+		t.Fatalf("expected https compound access method, got %+v", method)
+	}
+	if strings.TrimSpace(method.AccessId) != "" {
+		t.Fatalf("expected compound access method to omit access_id, got %+v", method)
+	}
+	if method.AccessUrl == nil || strings.TrimSpace(method.AccessUrl.Url) == "" {
+		t.Fatalf("expected direct compound access_url, got %+v", method)
+	}
+
+	expectedExtURL := getCompoundExtURL(baseURL, fixture.compoundID)
+	if method.AccessUrl.Url != expectedExtURL {
+		t.Fatalf("expected compound access_url %q, got %+v", expectedExtURL, method)
+	}
+
+	manifestReq := newE2ERequest(t, http.MethodGet, method.AccessUrl.Url, nil)
+	setBasicAuth(manifestReq, username, password)
+
+	manifestResp, err := client.Do(manifestReq)
+	if err != nil {
+		t.Fatalf("get compound manifest via direct access_url: %v", err)
+	}
+	defer manifestResp.Body.Close()
+
+	if manifestResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(manifestResp.Body)
+		t.Fatalf("expected 200 from compound manifest url, got %d: %s", manifestResp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var manifest drs_support.CompoundRuntimeManifest
+	if err := json.NewDecoder(manifestResp.Body).Decode(&manifest); err != nil {
+		t.Fatalf("decode compound manifest response: %v", err)
+	}
+
+	if manifest.RootDrsID != fixture.compoundID {
+		t.Fatalf("expected compound root drs id %q, got %+v", fixture.compoundID, manifest)
+	}
+	if manifest.RootPath != fixture.compoundPath {
+		t.Fatalf("expected compound root path %q, got %+v", fixture.compoundPath, manifest)
+	}
+	if manifest.Manifest == nil {
+		t.Fatalf("expected nested compound manifest payload")
+	}
+	if !manifestContainsPathE2E(manifest.Manifest, fixture.childObjectPath) {
+		t.Fatalf("expected manifest to include child object path %q, got %+v", fixture.childObjectPath, manifest.Manifest)
+	}
+	// Runtime manifest generation is AVU/state-based and does not re-apply
+	// .drsignore. Paths excluded during compound creation can still appear here.
+	if !manifestContainsPathE2E(manifest.Manifest, fixture.ignoredPath) {
+		t.Fatalf("expected runtime manifest to include ignored path %q, got %+v", fixture.ignoredPath, manifest.Manifest)
+	}
+	if manifestContainsPathE2E(manifest.Manifest, fixture.ignoreFilePath) {
+		t.Fatalf("expected manifest to exclude ignore file path %q, got %+v", fixture.ignoreFilePath, manifest.Manifest)
+	}
+
+	setupFS := newE2EIRODSFilesystem(t, fixture.expectedUser)
+	defer setupFS.Release()
+
+	if _, err := drs_support.GetDrsObjectByIRODSPath(setupFS, fixture.ignoredPath); err == nil {
+		t.Fatalf("expected ignored object %q not to be a DRS object", fixture.ignoredPath)
+	}
+
+	stripResult, err := drs_support.StripDrsSemantics(setupFS, fixture.compoundPath)
+	if err != nil {
+		t.Fatalf("strip DRS semantics for compound path %q: %v", fixture.compoundPath, err)
+	}
+	if stripResult == nil {
+		t.Fatalf("expected strip result for compound path %q", fixture.compoundPath)
+	}
+	if stripResult.PathsWithDrsMetadata == 0 || stripResult.AvusRemoved == 0 {
+		t.Fatalf("expected strip to remove DRS metadata, got %+v", stripResult)
+	}
+
+	reqAfterStrip := newE2ERequest(t, http.MethodGet, getObjectURL(baseURL, fixture.compoundID), nil)
+	setBasicAuth(reqAfterStrip, username, password)
+	respAfterStrip, err := client.Do(reqAfterStrip)
+	if err != nil {
+		t.Fatalf("get stripped compound object with basic auth: %v", err)
+	}
+	defer respAfterStrip.Body.Close()
+	if respAfterStrip.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(respAfterStrip.Body)
+		t.Fatalf("expected 404 for stripped compound object, got %d: %s", respAfterStrip.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if _, err := drs_support.GetDrsObjectByIRODSPath(setupFS, fixture.childObjectPath); err == nil {
+		t.Fatalf("expected included object %q not to be a DRS object after strip", fixture.childObjectPath)
 	}
 }
 
@@ -413,6 +560,32 @@ func getObjectAccessURL(baseURL string, objectID string, accessID string) string
 	return getObjectURL(baseURL, objectID) + "/access/" + url.PathEscape(accessID)
 }
 
+func getCompoundExtURL(baseURL string, objectID string) string {
+	return strings.TrimRight(baseURL, "/") + "/ga4gh/drs/v1/ext/compound/" + url.PathEscape(objectID)
+}
+
+func resolveE2EURL(baseURL string, candidate string) (string, error) {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return "", nil
+	}
+
+	parsedCandidate, err := url.Parse(candidate)
+	if err != nil {
+		return "", err
+	}
+	if parsedCandidate.IsAbs() {
+		return parsedCandidate.String(), nil
+	}
+
+	parsedBase, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return "", err
+	}
+
+	return parsedBase.ResolveReference(parsedCandidate).String(), nil
+}
+
 func applyAccessURLHeaders(req *http.Request, headers []string) {
 	for _, header := range headers {
 		name, value, found := strings.Cut(header, ":")
@@ -448,4 +621,64 @@ func containsString(values []string, target string) bool {
 	}
 
 	return false
+}
+
+func manifestContainsPathE2E(node *drs_support.CompoundManifestNode, targetPath string) bool {
+	if node == nil {
+		return false
+	}
+
+	if strings.TrimSpace(node.Path) == strings.TrimSpace(targetPath) {
+		return true
+	}
+
+	for idx := range node.Children {
+		child := &node.Children[idx]
+		if manifestContainsPathE2E(child, targetPath) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isConnectionRefusedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if errors.Is(opErr.Err, syscall.ECONNREFUSED) {
+			return true
+		}
+	}
+
+	return strings.Contains(strings.ToLower(err.Error()), "connection refused")
+}
+
+func localhostToIPv4URL(rawURL string) (string, bool, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "", false, nil
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false, err
+	}
+
+	host := strings.TrimSpace(parsed.Hostname())
+	if !strings.EqualFold(host, "localhost") {
+		return "", false, nil
+	}
+
+	port := strings.TrimSpace(parsed.Port())
+	if port != "" {
+		parsed.Host = "127.0.0.1:" + port
+	} else {
+		parsed.Host = "127.0.0.1"
+	}
+
+	return parsed.String(), true, nil
 }

@@ -142,8 +142,32 @@ func accessURLForObject(r *http.Request, filesystem RouteFileSystem, drsConfig *
 		if ok {
 			return buildHTTPSProviderAccessURL(filesystem, drsConfig, objectID, object, parsedAccessID)
 		}
+		if existingType, found := accessMethodTypeByAccessID(drs_support.BuildAccessMethodsWithFilesystem(drsConfig, object, filesystem), accessID); found {
+			return nil, http.StatusNotImplemented, fmt.Errorf("access id %q resolves to access method type %q, which is not supported by /access in this deployment", accessID, existingType)
+		}
 		return nil, http.StatusNotFound, fmt.Errorf("access id %q not found for object %q", accessID, objectID)
 	}
+}
+
+func accessMethodTypeByAccessID(methods []drs_support.DrsAccessMethod, accessID string) (string, bool) {
+	accessID = strings.TrimSpace(accessID)
+	if accessID == "" || len(methods) == 0 {
+		return "", false
+	}
+
+	for _, method := range methods {
+		if strings.TrimSpace(method.AccessID) != accessID {
+			continue
+		}
+
+		methodType := strings.TrimSpace(method.Type)
+		if methodType == "" {
+			methodType = "unknown"
+		}
+		return methodType, true
+	}
+
+	return "", false
 }
 
 func buildHTTPSProviderAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, object *drs_support.InternalDrsObject, parsedAccessID drs_support.ParsedHTTPSAccessID) (*AccessUrl, int, error) {
@@ -282,14 +306,11 @@ func buildIRODSAccessURL(filesystem RouteFileSystem, drsConfig *drs_support.DrsC
 }
 
 func GetBulkAccessURL(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
+	writeUnsupportedOperation(w, "POST /ga4gh/drs/v1/objects/access")
 }
 
 func GetBulkObjects(w http.ResponseWriter, r *http.Request) {
-	// Passport-based bulk object POST is not implemented yet.
-	// See https://github.com/michael-conway/irods-go-drs/issues/22.
-	writeJSONError(w, http.StatusBadRequest, "POST /ga4gh/drs/v1/objects is not implemented yet; see issue #22")
+	writeUnsupportedOperation(w, "POST /ga4gh/drs/v1/objects")
 }
 
 func GetObject(w http.ResponseWriter, r *http.Request) {
@@ -477,14 +498,24 @@ func OptionsObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func PostAccessURL(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
+	writeUnsupportedOperation(w, "POST /ga4gh/drs/v1/objects/{object_id}/access/{access_id}")
 }
 
 func PostObject(w http.ResponseWriter, r *http.Request) {
-	// Passport-based single-object POST is not implemented yet.
-	// See https://github.com/michael-conway/irods-go-drs/issues/22.
-	writeJSONError(w, http.StatusBadRequest, "POST /ga4gh/drs/v1/objects/{object_id} is not implemented yet; see issue #22")
+	writeUnsupportedOperation(w, "POST /ga4gh/drs/v1/objects/{object_id}")
+}
+
+func writeUnsupportedOperation(w http.ResponseWriter, endpoint string) {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		endpoint = "requested endpoint"
+	}
+
+	writeJSONError(
+		w,
+		http.StatusNotImplemented,
+		fmt.Sprintf("%s is not supported in this deployment", endpoint),
+	)
 }
 
 func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool, filesystem drs_support.IRODSFilesystem) DrsObject {

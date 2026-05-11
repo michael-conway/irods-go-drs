@@ -88,6 +88,16 @@ Show command help:
 drscmd drsinfo --help
 ```
 
+For compound DRS objects, `drsinfo` includes the generated runtime manifest.
+At the API layer, the same compound object resolves from `GET /objects/{id}`
+with a direct HTTPS `access_url` pointing to:
+
+```text
+/ga4gh/drs/v1/ext/compound/{object_id}
+```
+
+Compound object access methods do not require a compound `access_id` lookup hop.
+
 ### Create a DRS object
 
 drsmake creates a DRS object from an existing iRODS data object. This is only for a single object. 

@@ -123,17 +123,3 @@ Top-level warnings list only:
   ]
 }
 ```
-
-## 9) Implementation sequencing 
-
-1. Define AVU contract constants and validation helpers.
-2. Add tree snapshot builder (path, kind, avus, children).
-3. Add create preflight conflict scanner (pre-ignore).
-4. Add create bootstrap flow with ignore integration and best-effort reporting.
-5. Add runtime manifest assembler and warning collector.
-6. Add tests:
-   - nested compound conflict before ignore
-   - ignore-scaffold behavior
-   - ID preservation and assignment rules
-   - runtime AVU-driven manifest with warnings
-

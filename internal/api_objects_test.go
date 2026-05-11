@@ -409,6 +409,65 @@ func TestGetObjectReturnsMappedDrsObjectWithIRODSAccessMethod(t *testing.T) {
 	}
 }
 
+func TestGetObjectReturnsMappedDrsObjectWithS3AccessMethod(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	fs.metadataByPath["/tempZone/home/test1"] = []*irodstypes.IRODSMeta{
+		{Name: "iRODS:S3:Bucket", Value: "drscol11", Units: ""},
+	}
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req.Host = "drs.example.org"
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			S3AccessMethodSupported: true,
+			S3AccessMethodBaseURL:   "s3://",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response DrsObject
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(response.AccessMethods) != 1 {
+		t.Fatalf("expected one s3 access method, got %+v", response.AccessMethods)
+	}
+
+	method := response.AccessMethods[0]
+	if method.Type_ != "s3" {
+		t.Fatalf("expected s3 access method type, got %+v", method)
+	}
+	if method.AccessId != "test1" {
+		t.Fatalf("expected s3 access_id %q, got %+v", "test1", method)
+	}
+	if method.AccessUrl == nil || method.AccessUrl.Url != "s3://drscol11/file.txt" {
+		t.Fatalf("expected s3 access_url %q, got %+v", "s3://drscol11/file.txt", method)
+	}
+	if method.Cloud != "irods:tempZone" {
+		t.Fatalf("expected irods cloud name, got %+v", method)
+	}
+	if method.Region != "demoResc" {
+		t.Fatalf("expected resource-backed region, got %+v", method)
+	}
+	if !method.Available {
+		t.Fatalf("expected s3 method to be available, got %+v", method)
+	}
+}
+
 func TestGetObjectReturnsNotFound(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
@@ -430,14 +489,14 @@ func TestGetObjectReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestGetBulkObjectsReturnsBadRequestUntilImplemented(t *testing.T) {
+func TestGetBulkObjectsReturnsNotImplemented(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects", strings.NewReader(`{"passports":["example"]}`))
 	rec := httptest.NewRecorder()
 
 	GetBulkObjects(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
 	}
 
 	var response map[string]string
@@ -445,20 +504,20 @@ func TestGetBulkObjectsReturnsBadRequestUntilImplemented(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	if !strings.Contains(response["message"], "issue #22") {
-		t.Fatalf("expected issue reference in response, got %+v", response)
+	if !strings.Contains(response["message"], "not supported in this deployment") {
+		t.Fatalf("expected unsupported operation message, got %+v", response)
 	}
 }
 
-func TestPostObjectReturnsBadRequestUntilImplemented(t *testing.T) {
+func TestPostObjectReturnsNotImplemented(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects/object-123", strings.NewReader(`{"passports":["example"]}`))
 	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
 	rec := httptest.NewRecorder()
 
 	PostObject(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
 	}
 
 	var response map[string]string
@@ -466,8 +525,47 @@ func TestPostObjectReturnsBadRequestUntilImplemented(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	if !strings.Contains(response["message"], "issue #22") {
-		t.Fatalf("expected issue reference in response, got %+v", response)
+	if !strings.Contains(response["message"], "not supported in this deployment") {
+		t.Fatalf("expected unsupported operation message, got %+v", response)
+	}
+}
+
+func TestPostAccessURLReturnsNotImplemented(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects/object-123/access/some-id", strings.NewReader(`{"passports":["example"]}`))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123", "access_id": "some-id"})
+	rec := httptest.NewRecorder()
+
+	PostAccessURL(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(response["message"], "not supported in this deployment") {
+		t.Fatalf("expected unsupported operation message, got %+v", response)
+	}
+}
+
+func TestGetBulkAccessURLReturnsNotImplemented(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects/access", strings.NewReader(`{"bulk_object_access_ids":[]}`))
+	rec := httptest.NewRecorder()
+
+	GetBulkAccessURL(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(response["message"], "not supported in this deployment") {
+		t.Fatalf("expected unsupported operation message, got %+v", response)
 	}
 }
 
@@ -1010,6 +1108,46 @@ func TestGetAccessURLReturnsNotFoundForUnknownAccessID(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestGetAccessURLReturnsNotImplementedForS3AccessID(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	fs.metadataByPath["/tempZone/home/test1"] = []*irodstypes.IRODSMeta{
+		{Name: "iRODS:S3:Bucket", Value: "drscol11", Units: ""},
+	}
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/test1", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			S3AccessMethodSupported: true,
+			S3AccessMethodBaseURL:   "s3://",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "test1",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501 for unsupported s3 access_id resolution, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(response["message"], "not supported by /access in this deployment") {
+		t.Fatalf("expected explicit unsupported-access-method message, got %+v", response)
 	}
 }
 

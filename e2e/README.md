@@ -8,7 +8,6 @@ These tests are intended to exercise the full stack:
 * authentication
 * service context creation
 * iRODS integration
-* Keycloak-backed bearer token flows
 * docker-compose-managed runtime dependencies
 
 Current route coverage includes:
@@ -16,6 +15,10 @@ Current route coverage includes:
 * `GET /ga4gh/drs/v1/objects/{object_id}` authentication checks
 * `GET /ga4gh/drs/v1/objects/{object_id}` for an existing DRS object
 * `GET /ga4gh/drs/v1/objects/{object_id}` for a missing DRS object
+* `GET /ga4gh/drs/v1/objects/{object_id}` for a compound DRS object with direct `access_url`
+* `GET /ga4gh/drs/v1/ext/compound/{object_id}` runtime manifest retrieval
+* compound workflow checks for `.drsignore` exclusion behavior
+* compound strip/remove semantics using `drs-support` metadata stripping
 
 ## Build Tag
 
@@ -41,20 +44,12 @@ Use one shared config file and point the test helpers at it with:
 
 * `DRS_E2E_CONFIG_FILE`
 
-Optional overrides still exist for convenience, but the shared config file is
-the intended source of truth.
+The shared config file is the only source of runtime settings for both
+`test/` integration runs and `e2e/` runs.
 
-The current E2E inputs are:
+For HTTP route tests, the E2E client base URL is derived from:
 
-* `DRS_E2E_CONFIG_FILE` - required shared config file for both `test/` integration runs and `e2e/` runs
-* `DRS_E2E_BASE_URL` - base URL of the running DRS service
-* `DRS_TEST_BEARER_TOKEN` - optional override for the bearer token in the shared config file
-* `DRS_E2E_SKIP_TLS_VERIFY` - optional, set to `true` when the docker test framework uses self-signed TLS
-
-The shared config file may contain:
-
-* normal top-level DRS runtime settings
-* an `E2E` section for test-only values
+* `DrsListenPort` as `http://localhost:<DrsListenPort>`
 
 For direct iRODS-backed test setup in integration helpers, keep these top-level
 fields in the same file:
@@ -70,26 +65,15 @@ Do not use the old YAML keys `IrodsDrsAdminUser`,
 `IrodsDrsAdminPassword`, or `IrodsDrsAdminPasswordFile`.
 
 The test helpers use proxy authentication through the admin account and default
-the effective test user to `IrodsPrimaryTestUser` when no bearer token is
-available.
+the effective test user to `IrodsPrimaryTestUser`.
 
 For Basic-authenticated E2E coverage, use `IrodsPrimaryTestPassword` or
 `IrodsSecondaryTestPassword` from that same shared config file when building the
 Authorization header.
 
-For bearer-authenticated object-route E2E tests, the bearer token should belong
-to that same user, or at least expose a matching `preferred_username`,
-`username`, or `sub` claim that resolves to the intended iRODS user.
-
-Current `E2E` fields:
-
-* `E2E.BaseURL`
-* `E2E.SkipTLSVerify`
-* `E2E.BearerToken`
-
-`E2E.BearerToken` is the default bearer token source for authenticated E2E
-tests. `DRS_TEST_BEARER_TOKEN` overrides it when you want to run against a
-different token without editing the shared config file.
+Bearer-authenticated E2E/integration route tests are currently skipped by
+default in this harness because bearer token injection is not sourced from the
+shared config schema.
 
 For OIDC TLS settings in the shared config file, prefer:
 
@@ -115,4 +99,4 @@ The docker-compose-backed test environment is under:
 
 * `deployments/docker-test-framework/5-0`
 
-Use `DEV_NOTES.md` for the higher-level testing taxonomy and environment setup guidance.
+Use [`DEVELOPER_NOTES.md`](/Users/conwaymc/Documents/workspace-gabble/irods-go-drs/DEVELOPER_NOTES.md) for the higher-level testing taxonomy and environment setup guidance.
