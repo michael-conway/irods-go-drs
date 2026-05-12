@@ -28,7 +28,7 @@ type e2eS3Fixture struct {
 	expectedAccessID     string
 }
 
-func TestResolveS3BucketContainingDrsObjectViaSupportE2E(t *testing.T) {
+func TestResolveS3BucketContainingDrsObjectFromBucketAVUE2E(t *testing.T) {
 	fixture, filesystem := setupE2ES3Fixture(t)
 	defer filesystem.Release()
 
@@ -72,7 +72,7 @@ func TestResolveS3BucketContainingDrsObjectViaSupportE2E(t *testing.T) {
 	}
 }
 
-func TestGetObjectReturnsS3AccessMethodWhenEnabledE2E(t *testing.T) {
+func TestGetObjectReturnsS3AccessMethodFromBucketAVUE2E(t *testing.T) {
 	cfg := requireE2EIRODSConfig(t)
 	if !cfg.S3AccessMethodSupported {
 		t.Skip("S3AccessMethodSupported is false in shared e2e config")

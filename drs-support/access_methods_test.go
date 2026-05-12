@@ -228,62 +228,46 @@ func TestBuildAccessMethodsSkipsUnsupportedHTTPSImplementation(t *testing.T) {
 	}
 }
 
-func TestBuildAccessMethodsBuildsS3DirectURL(t *testing.T) {
+func TestBuildAccessMethodsSkipsS3WithoutFilesystemBucketMapping(t *testing.T) {
 	cfg := &DrsConfig{
 		S3AccessMethodSupported: true,
-		S3AccessEndpoint:        "http://127.0.0.1:9001",
-		S3AccessBucket:          "tempzone",
-		S3AccessIrodsCollection: "/tempZone/home",
-		S3AccessRegion:          "us-east-1",
+		S3AccessMethodBaseURL:   "s3://",
 	}
 
 	object := &InternalDrsObject{
 		Id:           "object-123",
-		AbsolutePath: "/tempZone/home/test1/file with spaces.txt",
-		IrodsZone:    "tempZone",
-	}
-
-	methods := BuildAccessMethods(cfg, object)
-	if len(methods) != 1 {
-		t.Fatalf("expected 1 s3 method, got %+v", methods)
-	}
-
-	if methods[0].Type != "s3" {
-		t.Fatalf("expected s3 access method, got %+v", methods[0])
-	}
-	if methods[0].URL != "s3://tempzone/test1/file%20with%20spaces.txt" {
-		t.Fatalf("expected mapped s3 URL, got %q", methods[0].URL)
-	}
-	if methods[0].Cloud != "irods-s3-api:127.0.0.1:9001" {
-		t.Fatalf("expected cloud to include s3 api endpoint host, got %+v", methods[0])
-	}
-	if methods[0].Region != "us-east-1" {
-		t.Fatalf("expected configured s3 region, got %+v", methods[0])
-	}
-	if !methods[0].Available {
-		t.Fatalf("expected direct s3 access URL to be marked available, got %+v", methods[0])
-	}
-	if len(methods[0].SupportedAuthTypes) != 0 || len(methods[0].BearerAuthIssuers) != 0 {
-		t.Fatalf("expected s3 credentials to remain external to DRS auth, got %+v", methods[0])
-	}
-}
-
-func TestBuildAccessMethodsSkipsS3OutsideMappedCollection(t *testing.T) {
-	cfg := &DrsConfig{
-		S3AccessMethodSupported: true,
-		S3AccessBucket:          "tempzone",
-		S3AccessIrodsCollection: "/tempZone/home",
-	}
-
-	object := &InternalDrsObject{
-		Id:           "object-123",
-		AbsolutePath: "/tempZone/trash/home/test1/file.txt",
+		AbsolutePath: "/tempZone/home/test1/file.txt",
 		IrodsZone:    "tempZone",
 	}
 
 	methods := BuildAccessMethods(cfg, object)
 	if len(methods) != 0 {
-		t.Fatalf("expected s3 method to be skipped outside mapped collection, got %+v", methods)
+		t.Fatalf("expected no s3 methods without filesystem-backed bucket mapping, got %+v", methods)
+	}
+}
+
+func TestBuildAccessMethodsWithFilesystemSkipsS3WithoutBucketAVU(t *testing.T) {
+	cfg := &DrsConfig{
+		S3AccessMethodSupported: true,
+		S3AccessMethodBaseURL:   "s3://",
+	}
+
+	object := &InternalDrsObject{
+		Id:           "object-123",
+		AbsolutePath: "/tempZone/home/test1/drscoll/object.txt",
+		IrodsZone:    "tempZone",
+	}
+
+	filesystem := &accessMethodsTestFilesystem{
+		account: &irodstypes.IRODSAccount{
+			ClientUser: "test1",
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{},
+	}
+
+	methods := BuildAccessMethodsWithFilesystem(cfg, object, filesystem)
+	if len(methods) != 0 {
+		t.Fatalf("expected no s3 methods without iRODS:S3:Bucket AVU, got %+v", methods)
 	}
 }
 
@@ -374,7 +358,7 @@ func TestResolveHTTPSAccessBaseURLUsesConfiguredPathWhenAffinityHostIncludesPath
 	}
 }
 
-func TestBuildAccessMethodsWithFilesystemBuildsS3AccessMethodFromBucket(t *testing.T) {
+func TestBuildAccessMethodsWithFilesystemBuildsS3AccessMethodFromBucketAVU(t *testing.T) {
 	cfg := &DrsConfig{
 		S3AccessMethodSupported: true,
 		S3AccessMethodBaseURL:   "s3://",

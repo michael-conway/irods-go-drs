@@ -233,7 +233,7 @@ func TestGetObjectReturnsHTTPSAccessMethodPerReplicaResource(t *testing.T) {
 	}
 }
 
-func TestGetObjectReturnsS3AccessMethod(t *testing.T) {
+func TestGetObjectSkipsS3AccessMethodWithoutBucketAVU(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
 		return newRouteTestFileSystem(), nil
@@ -244,10 +244,7 @@ func TestGetObjectReturnsS3AccessMethod(t *testing.T) {
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
 			S3AccessMethodSupported: true,
-			S3AccessEndpoint:        "http://127.0.0.1:9001",
-			S3AccessBucket:          "tempzone",
-			S3AccessIrodsCollection: "/tempZone/home",
-			S3AccessRegion:          "us-east-1",
+			S3AccessMethodBaseURL:   "s3://",
 		},
 		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
 	}))
@@ -265,17 +262,8 @@ func TestGetObjectReturnsS3AccessMethod(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	if len(response.AccessMethods) != 1 {
-		t.Fatalf("expected 1 s3 access method, got %+v", response.AccessMethods)
-	}
-	if response.AccessMethods[0].Type_ != "s3" || response.AccessMethods[0].AccessUrl == nil {
-		t.Fatalf("expected s3 access method with direct URL, got %+v", response.AccessMethods[0])
-	}
-	if response.AccessMethods[0].AccessUrl.Url != "s3://tempzone/test1/file.txt" {
-		t.Fatalf("expected mapped s3 URL, got %+v", response.AccessMethods[0].AccessUrl)
-	}
-	if response.AccessMethods[0].Cloud != "irods-s3-api:127.0.0.1:9001" || response.AccessMethods[0].Region != "us-east-1" {
-		t.Fatalf("expected s3 endpoint cloud and region metadata, got %+v", response.AccessMethods[0])
+	if len(response.AccessMethods) != 0 {
+		t.Fatalf("expected no s3 access method without iRODS:S3:Bucket AVU, got %+v", response.AccessMethods)
 	}
 }
 
@@ -455,7 +443,7 @@ func TestGetObjectReturnsMappedDrsObjectWithIRODSAccessMethod(t *testing.T) {
 	}
 }
 
-func TestGetObjectReturnsMappedDrsObjectWithS3AccessMethod(t *testing.T) {
+func TestGetObjectReturnsBucketAVUMappedDrsObjectWithS3AccessMethod(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()
 	fs.metadataByPath["/tempZone/home/test1"] = []*irodstypes.IRODSMeta{

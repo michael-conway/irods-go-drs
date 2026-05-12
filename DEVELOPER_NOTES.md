@@ -62,7 +62,7 @@ Current behavior:
 - Atomic object `irods` access method is returned with `access_id=irods`; clients call `/objects/{object_id}/access/irods`.
 - Compound object `https` access method is returned with a direct `access_url` to `/ga4gh/drs/v1/ext/compound/{object_id}` (no compound `access_id` hop).
 - `local` access method (when enabled) returns a direct mapped `local://` URL.
-- `s3` access method generation is active for objects under S3 bucket-mapped collections and returns direct S3 URL data; affinity tuning remains an open TODO.
+- `s3` access method generation is active for objects under collections marked with `iRODS:S3:Bucket` AVUs and returns inline S3 URL data; affinity tuning remains an open TODO.
 
 API status notes:
 

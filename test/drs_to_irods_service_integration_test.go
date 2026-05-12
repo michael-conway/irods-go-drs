@@ -88,6 +88,75 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 	}
 }
 
+func TestBuildS3AccessMethodFromBucketAVUIntegration(t *testing.T) {
+	cfg := requireIntegrationDrsConfig(t)
+	if !cfg.S3AccessMethodSupported {
+		t.Skip("S3AccessMethodSupported is false in shared integration config")
+	}
+	baseURL := strings.TrimSpace(cfg.S3AccessMethodBaseURL)
+	if baseURL == "" {
+		t.Fatalf("S3AccessMethodBaseURL must be set when S3AccessMethodSupported is true")
+	}
+
+	filesystem := newIntegrationIRODSFilesystem(t)
+	defer filesystem.Release()
+
+	testDir := makeIntegrationTestDir(t, filesystem)
+	bucketCollectionPath := testDir + "/drscoll"
+	subCollectionPath := bucketCollectionPath + "/subcoll"
+	objectPath := subCollectionPath + "/object.txt"
+	bucketName := "drs-integration-bucket"
+
+	if err := filesystem.MakeDir(subCollectionPath, true); err != nil {
+		t.Fatalf("make s3 bucket fixture collection %q: %v", subCollectionPath, err)
+	}
+
+	if err := filesystem.AddMetadata(bucketCollectionPath, "iRODS:S3:Bucket", bucketName, ""); err != nil {
+		t.Fatalf("add iRODS:S3:Bucket AVU on %q: %v", bucketCollectionPath, err)
+	}
+
+	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBufferString("s3 integration object\n"), objectPath, "", false, true, nil); err != nil {
+		t.Fatalf("upload s3 integration object %q: %v", objectPath, err)
+	}
+
+	drsID, err := drs_support.CreateDrsObjectFromDataObject(filesystem, objectPath, "", "s3 integration description", []string{"s3-integration-alias"})
+	if err != nil {
+		t.Fatalf("create s3 integration drs object: %v", err)
+	}
+
+	object, err := drs_support.GetDrsObjectByID(filesystem, drsID)
+	if err != nil {
+		t.Fatalf("get s3 integration drs object by id: %v", err)
+	}
+
+	methods := drs_support.BuildAccessMethodsWithFilesystem(cfg, object, filesystem)
+	var s3Method *drs_support.DrsAccessMethod
+	for idx := range methods {
+		if strings.EqualFold(strings.TrimSpace(methods[idx].Type), "s3") {
+			s3Method = &methods[idx]
+			break
+		}
+	}
+
+	if s3Method == nil {
+		t.Fatalf("expected s3 access method from iRODS:S3:Bucket AVU on %q, got %+v", bucketCollectionPath, methods)
+	}
+
+	expectedURL := expectedIntegrationS3AccessURL(baseURL, bucketName, "subcoll/object.txt")
+	if s3Method.URL != expectedURL {
+		t.Fatalf("expected s3 access URL %q, got %+v", expectedURL, s3Method)
+	}
+	if s3Method.AccessID != strings.TrimSpace(cfg.IrodsPrimaryTestUser) {
+		t.Fatalf("expected s3 access id %q, got %+v", strings.TrimSpace(cfg.IrodsPrimaryTestUser), s3Method)
+	}
+	if s3Method.Cloud != "irods:"+strings.TrimSpace(cfg.IrodsZone) {
+		t.Fatalf("expected irods cloud metadata, got %+v", s3Method)
+	}
+	if !s3Method.Available {
+		t.Fatalf("expected s3 access method to be available, got %+v", s3Method)
+	}
+}
+
 func requireIntegrationObjectChecksum(t *testing.T, filesystem *irodsfs.FileSystem, irodsPath string) {
 	t.Helper()
 
@@ -120,6 +189,16 @@ func normalizedIntegrationChecksumValue(irodsChecksum string) string {
 	}
 
 	return trimmed
+}
+
+func expectedIntegrationS3AccessURL(baseURL string, bucketName string, objectKey string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	bucketName = strings.TrimSpace(bucketName)
+	objectKey = strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
+	if strings.HasSuffix(baseURL, "://") || strings.HasSuffix(baseURL, "/") {
+		return baseURL + bucketName + "/" + objectKey
+	}
+	return baseURL + "/" + bucketName + "/" + objectKey
 }
 
 func TestQueryAndRemovalMethodsIntegration(t *testing.T) {

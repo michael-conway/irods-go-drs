@@ -16,6 +16,7 @@ Current route coverage includes:
 * `GET /ga4gh/drs/v1/objects/{object_id}` for an existing DRS object
 * `GET /ga4gh/drs/v1/objects/{object_id}` for a missing DRS object
 * `GET /ga4gh/drs/v1/objects/{object_id}` for a compound DRS object with direct `access_url`
+* `GET /ga4gh/drs/v1/objects/{object_id}` for an object under an `iRODS:S3:Bucket` AVU-mapped collection
 * `GET /ga4gh/drs/v1/ext/compound/{object_id}` runtime manifest retrieval
 * compound workflow checks for `.drsignore` exclusion behavior
 * compound strip/remove semantics using `drs-support` metadata stripping

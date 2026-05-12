@@ -203,10 +203,7 @@ HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
 HttpsAccessUseTicket: true
 LocalAccessRootPath: /mnt/irods
 S3AccessMethodSupported: true
-S3AccessEndpoint: http://127.0.0.1:9001
-S3AccessBucket: tempzone
-S3AccessIrodsCollection: /tempZone/home
-S3AccessRegion: us-east-1
+S3AccessMethodBaseURL: s3://
 ```
 
 Current behavior:
@@ -214,8 +211,9 @@ Current behavior:
 - `https` returns an `access_id` for later resolution through `/access`
 - `irods` returns an `access_id`
 - `local` returns a `local:///...` path
-- `s3` returns a direct `s3://bucket/key` URL using the configured temporary
-  bucket-to-iRODS collection mapping
+- `s3` returns an inline `s3://bucket/key` URL for objects under an ancestor
+  collection with an `iRODS:S3:Bucket` AVU; the object key is derived from the
+  path relative to that bucket-mapped collection
 
 Current `https` implementations:
 
