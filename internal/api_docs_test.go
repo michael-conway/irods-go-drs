@@ -9,7 +9,7 @@ import (
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
-func TestGetOpenAPISpecUsesConfiguredListenPort(t *testing.T) {
+func TestGetOpenAPISpecUsesRequestHost(t *testing.T) {
 	oldConfigReader := readRouteDrsConfig
 	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
 		return &drs_support.DrsConfig{DrsListenPort: 9443}, nil
@@ -27,12 +27,12 @@ func TestGetOpenAPISpecUsesConfiguredListenPort(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "default: drs.example.org:9443") {
-		t.Fatalf("expected configured host and port in spec, got %q", body)
+	if !strings.Contains(body, "default: drs.example.org:1234") {
+		t.Fatalf("expected request host and port in spec, got %q", body)
 	}
 }
 
-func TestGetSwaggerUIUsesConfiguredListenPort(t *testing.T) {
+func TestGetSwaggerUIUsesSameOriginOpenAPISpec(t *testing.T) {
 	oldConfigReader := readRouteDrsConfig
 	readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
 		return &drs_support.DrsConfig{DrsListenPort: 9443}, nil
@@ -50,7 +50,11 @@ func TestGetSwaggerUIUsesConfiguredListenPort(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, `url: "http://drs.example.org:9443/openapi.yaml"`) {
-		t.Fatalf("expected configured host and port in swagger ui, got %q", body)
+	if !strings.Contains(body, `url: "/openapi.yaml"`) {
+		t.Fatalf("expected same-origin openapi spec url in swagger ui, got %q", body)
+	}
+
+	if strings.Contains(body, `http://drs.example.org`) {
+		t.Fatalf("expected swagger ui not to use an absolute cross-origin spec url, got %q", body)
 	}
 }
