@@ -113,6 +113,55 @@ func TestGetDrsObjectByID(t *testing.T) {
 	}
 }
 
+func TestGetDrsObjectByIDForCompoundCollection(t *testing.T) {
+	collectionPath := "/tempZone/home/rods/compound"
+	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
+	updateTime := createTime.Add(5 * time.Minute)
+
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		searchEntries: []*irodsfs.Entry{
+			{
+				ID:         11,
+				Type:       irodsfs.DirectoryEntry,
+				Name:       "compound",
+				Path:       collectionPath,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
+		},
+		entryByPath: map[string]*irodsfs.Entry{
+			collectionPath: {
+				ID:         11,
+				Type:       irodsfs.DirectoryEntry,
+				Name:       "compound",
+				Path:       collectionPath,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{
+			collectionPath: {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "compound-id", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuCompoundManifestAttrib, Value: "true", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "compound collection", Units: drs_support.DrsAvuUnit},
+			},
+		},
+	}
+
+	object, err := drs_support.GetDrsObjectByID(filesystem, "compound-id")
+	if err != nil {
+		t.Fatalf("get drs compound object by id: %v", err)
+	}
+
+	if object.AbsolutePath != collectionPath {
+		t.Fatalf("expected compound path %q, got %q", collectionPath, object.AbsolutePath)
+	}
+	if !object.IsManifest {
+		t.Fatalf("expected compound object to be marked manifest")
+	}
+}
+
 func TestGetDrsObjectByIDReturnsNotFound(t *testing.T) {
 	filesystem := &fakeIRODSFilesystem{
 		account:       &irodstypes.IRODSAccount{ClientZone: "tempZone"},
@@ -192,6 +241,44 @@ func TestGetDrsObjectByIRODSPath(t *testing.T) {
 	}
 }
 
+func TestGetDrsObjectByIRODSPathForCompoundCollection(t *testing.T) {
+	collectionPath := "/tempZone/home/rods/compound"
+	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
+	updateTime := createTime.Add(5 * time.Minute)
+
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		entryByPath: map[string]*irodsfs.Entry{
+			collectionPath: {
+				ID:         12,
+				Type:       irodsfs.DirectoryEntry,
+				Name:       "compound",
+				Path:       collectionPath,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{
+			collectionPath: {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "compound-path-id", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuCompoundManifestAttrib, Value: "true", Units: drs_support.DrsAvuUnit},
+			},
+		},
+	}
+
+	object, err := drs_support.GetDrsObjectByIRODSPath(filesystem, collectionPath)
+	if err != nil {
+		t.Fatalf("get drs compound object by path: %v", err)
+	}
+
+	if object.Id != "compound-path-id" {
+		t.Fatalf("expected compound id compound-path-id, got %q", object.Id)
+	}
+	if !object.IsManifest {
+		t.Fatalf("expected compound object to be marked manifest")
+	}
+}
+
 func TestGetDrsObjectByIDHydratesAllReplicaResources(t *testing.T) {
 	createTime := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
 	updateTime := createTime.Add(5 * time.Minute)
@@ -259,8 +346,8 @@ func TestGetDrsObjectByIDHydratesAllReplicaResources(t *testing.T) {
 	methods := drs_support.BuildAccessMethods(&drs_support.DrsConfig{
 		HttpsAccessMethodSupported: true,
 		HttpsAccessImplementation:  "irods-go-rest",
-		HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
-		ResourceAffinity: []drs_support.ResourceAffinityEntry{
+		HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+		HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
 			{Host: "https://primary.example.org", Resources: []string{"demoResc"}},
 			{Host: "https://archive.example.org", Resources: []string{"archiveResc"}},
 		},
@@ -651,16 +738,23 @@ func TestRemoveSingleDrsObjectFromDataObjectRejectsCompoundManifest(t *testing.T
 	}
 }
 
-func TestCreateCompoundDrsObjectFromDataObjectSkeleton(t *testing.T) {
-	filesystem := &fakeIRODSFilesystem{}
+func TestCreateCompoundDrsObjectFromDataObjectRejectsNonCollectionPath(t *testing.T) {
+	filesystem := &fakeIRODSFilesystem{
+		entry: &irodsfs.Entry{
+			ID:   1,
+			Type: irodsfs.FileEntry,
+			Path: "/tempZone/home/rods/manifest.json",
+			Name: "manifest.json",
+		},
+	}
 
 	_, err := drs_support.CreateCompoundDrsObjectFromDataObject(filesystem, "/tempZone/home/rods/manifest.json", "compound", []string{"alias-1"})
 	if err == nil {
-		t.Fatal("expected skeleton method to return an error")
+		t.Fatal("expected non-collection path to return an error")
 	}
 
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("expected not implemented error, got %v", err)
+	if !strings.Contains(err.Error(), "is not a collection") {
+		t.Fatalf("expected collection error, got %v", err)
 	}
 }
 

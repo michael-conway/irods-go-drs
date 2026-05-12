@@ -32,7 +32,6 @@ DRS_IRODS_PRIMARY_TEST_USER=test1
 DRS_IRODS_PRIMARY_TEST_PASSWORD=test1
 DRS_IRODS_SECONDARY_TEST_USER=test2
 DRS_IRODS_SECONDARY_TEST_PASSWORD=test2
-DRS_RESOURCE_AFFINITY=demoResc,edgeResc
 
 DRS_OIDC_URL=https://localhost:8443
 DRS_OIDC_REALM=drs
@@ -105,13 +104,13 @@ production verification.
 
 ## Resource affinity
 
-`ResourceAffinity` is optional and maps iRODS storage resources to HTTPS DRS
+`HttpsResourceAffinity` is optional and maps iRODS storage resources to HTTPS DRS
 hosts that are proximate to those resources.
 
 Supported forms:
 
 ```yaml
-ResourceAffinity:
+HttpsResourceAffinity:
   - Host: https://drs-resc-a.example.org
     Resources:
       - demoResc
@@ -120,19 +119,13 @@ ResourceAffinity:
     Resources: []
 ```
 
-or environment override:
-
-```bash
-DRS_RESOURCE_AFFINITY=demoResc,edgeResc
-```
-
 Notes:
 
 - `resources` entries with exact names are preferred for matching replicas.
 - The first entry with an empty `Resources` array is the default for unmatched resources.
 - `*` is still accepted for backward compatibility.
-- Environment override remains a legacy compatibility path and maps to one
-  default affinity entry using `HttpsAccessMethodBaseURL` as the host base URL.
+- `HttpsAccessMethodBaseURL` is a path/query suffix appended to the matched
+  affinity host when constructing HTTPS access URLs.
 
 ## Secrets
 
@@ -206,7 +199,7 @@ IrodsAccessMethodSupported: false
 FileAccessMethodSupported: false
 HttpsAccessMethodSupported: true
 HttpsAccessImplementation: irods-go-rest
-HttpsAccessMethodBaseURL: https://drs.example.org/api/v1/path/contents?irods_path=
+HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
 HttpsAccessUseTicket: true
 LocalAccessRootPath: /mnt/irods
 S3AccessMethodSupported: true

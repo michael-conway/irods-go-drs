@@ -1,14 +1,31 @@
-FROM golang:1.10 AS build
-WORKDIR /go/src
-COPY irods-drs ./go
-COPY main.go .
+FROM golang:1.25-alpine AS build
+
+WORKDIR /src
 
 ENV CGO_ENABLED=0
-RUN irods-drs get -d -v ./...
+ENV GOWORK=off
 
-RUN irods-drs build -a -installsuffix cgo -o swagger .
+COPY go.mod go.sum ./
+RUN go mod download
 
-FROM scratch AS runtime
-COPY --from=build /irods-drs/src/swagger ./
+COPY main.go ./
+COPY api ./api
+COPY drs-support ./drs-support
+COPY internal ./internal
+RUN go build -trimpath -ldflags="-s -w" -o /out/irods-go-drs .
+
+FROM alpine:3.22 AS runtime
+
+RUN addgroup -S app \
+    && adduser -S -G app app \
+    && apk add --no-cache ca-certificates
+
+WORKDIR /app
+
+COPY --from=build /out/irods-go-drs /app/irods-go-drs
+
 EXPOSE 8080/tcp
-ENTRYPOINT ["./swagger"]
+
+USER app
+
+ENTRYPOINT ["/app/irods-go-drs"]

@@ -1,9 +1,13 @@
 package drs_support
 
 import (
+	"errors"
+	"log/slog"
+	"net"
 	neturl "net/url"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -22,9 +26,19 @@ type DrsAccessMethod struct {
 const (
 	HTTPSProviderIRODSGoREST   = "irods-go-rest"
 	HTTPSProviderIRODSHTTPSAPI = "irods-https-api"
+	s3BucketAVUAttribute       = "iRODS:S3:Bucket"
+)
+
+var (
+	s3BucketNotFoundError = errors.New("s3 bucket not found")
+	s3BucketNamePattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 )
 
 func BuildAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
+	return BuildAccessMethodsWithFilesystem(cfg, object, nil)
+}
+
+func BuildAccessMethodsWithFilesystem(cfg *DrsConfig, object *InternalDrsObject, filesystem IRODSFilesystem) []DrsAccessMethod {
 	if cfg == nil || object == nil {
 		return nil
 	}
@@ -33,7 +47,7 @@ func BuildAccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMe
 	methods = append(methods, buildHTTPSAccessMethods(cfg, object)...)
 	methods = append(methods, buildIRODSAccessMethods(cfg, object)...)
 	methods = append(methods, buildFileAccessMethods(cfg, object)...)
-	methods = append(methods, buildS3AccessMethods(cfg, object)...)
+	methods = append(methods, buildS3AccessMethods(cfg, object, filesystem)...)
 	return methods
 }
 
@@ -62,7 +76,7 @@ func buildProviderHTTPSAccessMethods(cfg *DrsConfig, object *InternalDrsObject, 
 		return nil
 	}
 
-	affinities := normalizedResourceAffinityForLookup(cfg.ResourceAffinity)
+	affinities := normalizedResourceAffinityForLookup(cfg.HttpsResourceAffinity)
 	cloud := buildIRODSCloudName(object)
 	issuers := buildBearerAuthIssuers(cfg)
 
@@ -159,34 +173,73 @@ func buildLocalAccessMethod(cfg *DrsConfig, object *InternalDrsObject) (DrsAcces
 	}, true
 }
 
-func buildS3AccessMethods(cfg *DrsConfig, object *InternalDrsObject) []DrsAccessMethod {
-	if cfg == nil || object == nil || !cfg.S3AccessMethodSupported {
+func buildS3AccessMethods(cfg *DrsConfig, object *InternalDrsObject, filesystem IRODSFilesystem) []DrsAccessMethod {
+	if cfg == nil || object == nil || filesystem == nil || !cfg.S3AccessMethodSupported {
 		return nil
 	}
 
-	bucket := strings.TrimSpace(cfg.S3AccessBucket)
-	if bucket == "" {
+	baseURL := strings.TrimSpace(cfg.S3AccessMethodBaseURL)
+	if baseURL == "" || strings.TrimSpace(object.AbsolutePath) == "" {
 		return nil
 	}
 
-	key, ok := s3ObjectKeyForIRODSPath(cfg.S3AccessIrodsCollection, object.AbsolutePath)
-	if !ok {
+	resolution, err := resolveS3BucketForDataObjectPath(filesystem, object.AbsolutePath)
+	if err != nil {
+		if errors.Is(err, s3BucketNotFoundError) {
+			slog.Warn(
+				"no s3 bucket parent found for DRS object; skipping s3 access method",
+				"irods_path", object.AbsolutePath,
+			)
+			return nil
+		}
+		slog.Warn(
+			"failed to resolve s3 bucket for DRS object",
+			"irods_path", object.AbsolutePath,
+			"error", err,
+		)
 		return nil
 	}
-
-	uri := neturl.URL{
-		Scheme: "s3",
-		Host:   bucket,
-		Path:   "/" + key,
+	if resolution.CandidateBucketCount > 1 {
+		slog.Warn(
+			"multiple s3 buckets found for DRS object bucket collection; using first bucket",
+			"irods_path", object.AbsolutePath,
+			"bucket_collection_path", resolution.BucketCollectionPath,
+			"bucket_count", resolution.CandidateBucketCount,
+			"selected_bucket", resolution.BucketName,
+		)
 	}
 
-	return []DrsAccessMethod{{
-		Type:      "s3",
-		URL:       uri.String(),
-		Cloud:     s3CloudName(cfg),
-		Region:    s3AccessRegion(cfg, object),
-		Available: true,
-	}}
+	// TODO://add resource affinity to the bucket access method code
+	url := resolveS3BucketAccessURL(baseURL, resolution.BucketName, resolution.RelativeObjectPath)
+	if url == "" {
+		return nil
+	}
+	accessID := resolveS3AccessID(filesystem, object.AbsolutePath)
+	resources := objectReplicaResourceNames(object)
+	if len(resources) == 0 {
+		region := primaryReplicaResourceName(object)
+		if region == "" {
+			return nil
+		}
+		resources = []string{region}
+	}
+
+	methods := make([]DrsAccessMethod, 0, len(resources))
+	for _, resource := range resources {
+		resource = strings.TrimSpace(resource)
+		if resource == "" {
+			continue
+		}
+		methods = append(methods, DrsAccessMethod{
+			Type:      "s3",
+			URL:       url,
+			AccessID:  accessID,
+			Available: true,
+			Cloud:     buildIRODSCloudName(object),
+			Region:    resource,
+		})
+	}
+	return methods
 }
 
 func objectReplicaResourceNames(object *InternalDrsObject) []string {
@@ -447,7 +500,7 @@ func ParseHTTPSAccessID(accessID string) (ParsedHTTPSAccessID, bool) {
 }
 
 func ResolveAffinityHostForResource(cfg *DrsConfig, resource string) string {
-	affinities := normalizedResourceAffinityForLookup(cfg.ResourceAffinity)
+	affinities := normalizedResourceAffinityForLookup(cfg.HttpsResourceAffinity)
 	host, _ := hostForResourceAffinity(affinities, resource)
 	return strings.TrimSpace(host)
 }
@@ -455,9 +508,7 @@ func ResolveAffinityHostForResource(cfg *DrsConfig, resource string) string {
 func ResolveHTTPSAccessBaseURL(configuredBaseURL string, preferredHost string) string {
 	configuredBaseURL = strings.TrimSpace(configuredBaseURL)
 	preferredHost = strings.TrimSpace(preferredHost)
-	if configuredBaseURL == "" {
-		return ""
-	}
+
 	if preferredHost == "" {
 		return configuredBaseURL
 	}
@@ -468,17 +519,21 @@ func ResolveHTTPSAccessBaseURL(configuredBaseURL string, preferredHost string) s
 		return configuredBaseURL
 	}
 
-	if hostURL.Path == "" && hostURL.RawQuery == "" && hostURL.Fragment == "" {
-		merged := *cfgURL
-		if hostURL.Scheme != "" {
-			merged.Scheme = hostURL.Scheme
+	if cfgURL.Scheme != "" && cfgURL.Host != "" {
+		if hostURL.Path == "" && hostURL.RawQuery == "" && hostURL.Fragment == "" {
+			merged := *cfgURL
+			if hostURL.Scheme != "" {
+				merged.Scheme = hostURL.Scheme
+			}
+			merged.Host = hostURL.Host
+			merged.User = hostURL.User
+			return merged.String()
 		}
-		merged.Host = hostURL.Host
-		merged.User = hostURL.User
-		return merged.String()
+		return preferredHost
 	}
 
-	return preferredHost
+	merged := *hostURL
+	return merged.ResolveReference(cfgURL).String()
 }
 
 func SortedAccessMethodRegions(methods []DrsAccessMethod) []string {
@@ -533,4 +588,146 @@ func primaryReplicaResourceName(object *InternalDrsObject) string {
 	}
 
 	return strings.TrimSpace(object.ResourceName)
+}
+
+func resolveS3BucketAccessURL(baseURL string, bucketID string, objectKey string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	bucketID = strings.TrimSpace(bucketID)
+	objectKey = strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
+	if baseURL == "" || bucketID == "" || objectKey == "" {
+		return ""
+	}
+
+	if strings.HasSuffix(baseURL, "://") || strings.HasSuffix(baseURL, "/") {
+		return baseURL + bucketID + "/" + objectKey
+	}
+	return baseURL + "/" + bucketID + "/" + objectKey
+}
+
+func resolveS3AccessID(filesystem IRODSFilesystem, absolutePath string) string {
+	if filesystem != nil {
+		if account := filesystem.GetAccount(); account != nil {
+			userID := strings.TrimSpace(account.ClientUser)
+			if userID != "" {
+				return userID
+			}
+		}
+	}
+
+	absolutePath = strings.TrimSpace(path.Clean(absolutePath))
+	if absolutePath == "" || absolutePath == "." || absolutePath == "/" {
+		return ""
+	}
+
+	parts := strings.Split(strings.TrimPrefix(absolutePath, "/"), "/")
+	// iRODS home-path convention: /<zone>/home/<user>/...
+	if len(parts) >= 3 && parts[1] == "home" {
+		return strings.TrimSpace(parts[2])
+	}
+
+	return ""
+}
+
+type s3BucketResolution struct {
+	BucketName            string
+	BucketCollectionPath  string
+	RelativeObjectPath    string
+	CandidateBucketCount  int
+}
+
+func resolveS3BucketForDataObjectPath(filesystem IRODSFilesystem, dataObjectPath string) (s3BucketResolution, error) {
+	if filesystem == nil {
+		return s3BucketResolution{}, s3BucketNotFoundError
+	}
+
+	dataObjectPath = strings.TrimSpace(path.Clean(dataObjectPath))
+	if dataObjectPath == "" || dataObjectPath == "." || dataObjectPath == "/" {
+		return s3BucketResolution{}, s3BucketNotFoundError
+	}
+
+	current := strings.TrimSpace(path.Clean(path.Dir(dataObjectPath)))
+	for current != "" && current != "." && current != "/" {
+		buckets, err := bucketsForPath(filesystem, current)
+		if err != nil {
+			return s3BucketResolution{}, err
+		}
+		if len(buckets) > 0 {
+			relative := strings.TrimPrefix(dataObjectPath, current+"/")
+			relative = strings.TrimPrefix(relative, "/")
+			if relative == "" {
+				return s3BucketResolution{}, s3BucketNotFoundError
+			}
+			return s3BucketResolution{
+				BucketName:           buckets[0],
+				BucketCollectionPath: current,
+				RelativeObjectPath:   relative,
+				CandidateBucketCount: len(buckets),
+			}, nil
+		}
+
+		parent := strings.TrimSpace(path.Clean(path.Dir(current)))
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+
+	return s3BucketResolution{}, s3BucketNotFoundError
+}
+
+func bucketsForPath(filesystem IRODSFilesystem, irodsPath string) ([]string, error) {
+	if filesystem == nil {
+		return nil, s3BucketNotFoundError
+	}
+
+	metadata, err := filesystem.ListMetadata(irodsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	buckets := make([]string, 0, len(metadata))
+	for _, avu := range metadata {
+		if avu == nil || !strings.EqualFold(avu.Name, s3BucketAVUAttribute) {
+			continue
+		}
+
+		bucketName := strings.TrimSpace(avu.Value)
+		if normalized := normalizeS3BucketName(bucketName); normalized != "" {
+			bucketName = normalized
+		}
+		if bucketName == "" {
+			continue
+		}
+		buckets = append(buckets, bucketName)
+	}
+	if len(buckets) == 0 {
+		return nil, nil
+	}
+
+	sort.Strings(buckets)
+	deduped := buckets[:0]
+	for _, bucket := range buckets {
+		if len(deduped) == 0 || deduped[len(deduped)-1] != bucket {
+			deduped = append(deduped, bucket)
+		}
+	}
+	return deduped, nil
+}
+
+func normalizeS3BucketName(bucketName string) string {
+	bucketName = strings.TrimSpace(strings.ToLower(bucketName))
+	if !isValidS3BucketName(bucketName) {
+		return ""
+	}
+	return bucketName
+}
+
+func isValidS3BucketName(bucketName string) bool {
+	if !s3BucketNamePattern.MatchString(bucketName) {
+		return false
+	}
+	if strings.Contains(bucketName, "..") || strings.Contains(bucketName, ".-") || strings.Contains(bucketName, "-.") {
+		return false
+	}
+	return net.ParseIP(bucketName) == nil
 }

@@ -492,6 +492,9 @@ tags:
       | **HTTP POST** | tokens[] |
   - name: Objects
   - name: Service Info
+  - name: iRODS Extensions
+    description: |
+      Endpoints in this tag are iRODS-specific extensions and are not part of the GA4GH DRS base API contract.
   - name: AccessMethodModel
     x-displayName: AccessMethod
     description: |
@@ -1050,6 +1053,15 @@ paths:
       description: >-
         Returns object metadata, and a list of access methods that can be used
         to fetch object bytes.
+
+        For collection-backed compound DRS objects in `irods-go-drs`, the
+        returned `https` access method uses a direct `access_url` that points to
+        `/ga4gh/drs/v1/ext/compound/{object_id}` and does not require an
+        `access_id` follow-up request.
+
+        Example (compound object access method shape):
+
+        `{"type":"https","access_url":{"url":"https://<drs-host>/ga4gh/drs/v1/ext/compound/<object_id>"}}`
       operationId: GetObject
       parameters:
         - $ref: '#/components/parameters/ObjectId'
@@ -1080,6 +1092,9 @@ paths:
 
         Method is a POST to accommodate a JWT GA4GH Passport sent in the
         formData in order to authorize access.
+
+        Implementation status in `irods-go-drs` alpha: not supported. This
+        endpoint returns `501 Not Implemented`.
       operationId: PostObject
       security:
         - PassportAuth: []
@@ -1096,6 +1111,8 @@ paths:
           $ref: '#/components/responses/403Forbidden'
         '404':
           $ref: '#/components/responses/404NotFoundAccess'
+        '501':
+          $ref: '#/components/responses/501NotImplemented'
         '500':
           $ref: '#/components/responses/500InternalServerError'
       tags:
@@ -1146,6 +1163,9 @@ paths:
         can be used to fetch objects' bytes.  Currently this is limited to use
         passports (one or more) or a single bearer token, so make sure your bulk
         request is for objects that all use the same passports/token.
+
+        Implementation status in `irods-go-drs` alpha: not supported. This
+        endpoint returns `501 Not Implemented`.
       operationId: GetBulkObjects
       security:
         - PassportAuth: []
@@ -1166,6 +1186,8 @@ paths:
           $ref: '#/components/responses/404NotFoundDrsObject'
         '413':
           $ref: '#/components/responses/413RequestTooLarge'
+        '501':
+          $ref: '#/components/responses/501NotImplemented'
         '500':
           $ref: '#/components/responses/500InternalServerError'
       tags:
@@ -1219,6 +1241,9 @@ paths:
 
         Method is a POST to accommodate a JWT GA4GH Passport sent in the
         formData in order to authorize access.
+
+        Implementation status in `irods-go-drs` alpha: not supported. This
+        endpoint returns `501 Not Implemented`.
       operationId: PostAccessURL
       security:
         - PassportAuth: []
@@ -1235,6 +1260,8 @@ paths:
           $ref: '#/components/responses/403Forbidden'
         '404':
           $ref: '#/components/responses/404NotFoundAccess'
+        '501':
+          $ref: '#/components/responses/501NotImplemented'
         '500':
           $ref: '#/components/responses/500InternalServerError'
       tags:
@@ -1261,6 +1288,9 @@ paths:
         Currently this is limited to use passports (one or more) or a single
         bearer token, so make sure your bulk request is for objects that all use
         the same passports/token.
+
+        Implementation status in `irods-go-drs` alpha: not supported. This
+        endpoint returns `501 Not Implemented`.
       operationId: GetBulkAccessURL
       security:
         - PassportAuth: []
@@ -1279,6 +1309,8 @@ paths:
           $ref: '#/components/responses/404NotFoundAccess'
         '413':
           $ref: '#/components/responses/413RequestTooLarge'
+        '501':
+          $ref: '#/components/responses/501NotImplemented'
         '500':
           $ref: '#/components/responses/500InternalServerError'
       tags:
@@ -1290,6 +1322,56 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/BulkObjectAccessId'
+  /ext/compound/{object_id}:
+    get:
+      summary: Retrieve a runtime compound manifest (iRODS extension)
+      description: >-
+        Returns the runtime compound manifest JSON for a collection-backed
+        compound DRS object.
+
+        This endpoint is an iRODS-specific extension and is not part of the
+        GA4GH DRS core API.
+
+        In `irods-go-drs`, this endpoint is the internal HTTPS target used by
+        compound-object `access_url` entries.
+      operationId: GetCompoundManifestExt
+      parameters:
+        - $ref: '#/components/parameters/ObjectId'
+      responses:
+        '200':
+          description: Compound manifest JSON payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+              example:
+                host: localhost
+                port: 1247
+                zone: tempZone
+                rootPath: /tempZone/home/test1/compound-root
+                rootDrsId: compound-drs-id
+                manifest:
+                  path: /tempZone/home/test1/compound-root
+                  relativePath: .
+                  nodeType: collection
+                  drsId: compound-drs-id
+                  alias: .
+                  description: .
+                  children: []
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          $ref: '#/components/responses/403Forbidden'
+        '404':
+          $ref: '#/components/responses/404NotFoundDrsObject'
+        '500':
+          $ref: '#/components/responses/500InternalServerError'
+      tags:
+        - iRODS Extensions
+      x-swagger-router-controller: ga4gh.drs.server
 components:
   securitySchemes:
     BasicAuth:
@@ -1916,6 +1998,12 @@ components:
               - $ref: '#/components/schemas/DrsService'
     500InternalServerError:
       description: An unexpected error occurred.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    501NotImplemented:
+      description: The requested operation is intentionally not supported by this deployment.
       content:
         application/json:
           schema:

@@ -21,21 +21,21 @@ It includes:
 | Field | Value                                            |
 | --- |--------------------------------------------------|
 | Project Name | iRODS DRS Client - GoLang                        |
-| Current Version | `TBD`                                            |
-| Status | `Active Development`                             |
+| Current Version | `Unreleased Alpha`                               |
+| Status | `Alpha`                                          |
 | Primary Developer | `Mike Conway`                                    |
 | Co-Developer | `Deep Patel`                                     |
 | Organization | `NIEHS`                                          |
 | Repository | `https://github.com/michael-conway/irods-go-drs` |
 | Contact | `mike.conway@nih.gov`                            |
 | Issue Tracker | `https://github.com/michael-conway/irods-go-drs/issues` |
-| License | `TBD`                                            |
+| License | `BSD-2-Clause`                                   |
 
 ## Master Index
 
 * [DRS Console User Guide](./tools/drs-console/USERGUIDE.md)
 * [Configuration Notes](./CONFIGURATION_NOTES.md)
-* [Development Notes](./DEV_NOTES.md)
+* [Development Notes](./DEVELOPER_NOTES.md)
 
 ## Project Structure
 
@@ -88,6 +88,52 @@ When the REST service is running locally on the default port, the API documentat
 
 * Swagger UI: `http://localhost:8080/swagger`
 * OpenAPI spec: `http://localhost:8080/openapi.yaml`
+
+### iRODS extension endpoints
+
+The following endpoints are **iRODS-specific extensions**. They are not part of the GA4GH DRS base API contract.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /ga4gh/drs/v1/ext/compound/{object_id}` | Generate and return the runtime compound manifest JSON for a collection-backed compound DRS object. This is the internal HTTPS target used by compound-object `access_url` entries. |
+
+### Compound object access behavior
+
+For a compound DRS object, `GET /ga4gh/drs/v1/objects/{object_id}` returns a direct HTTPS `access_url` in the access method.
+It does not require an `access_id` round-trip through `/objects/{object_id}/access/{access_id}`.
+
+Example shape:
+
+```json
+{
+  "id": "compound-drs-id",
+  "name": "/tempZone/home/test1/compound-root",
+  "access_methods": [
+    {
+      "type": "https",
+      "access_url": {
+        "url": "https://<drs-host>/ga4gh/drs/v1/ext/compound/compound-drs-id"
+      },
+      "authorizations": {
+        "supported_types": [
+          "BasicAuth",
+          "BearerAuth"
+        ]
+      }
+    }
+  ]
+}
+```
+
+### Passport / Bulk POST status
+
+`irods-go-drs` alpha currently does **not** support Passport-based DRS POST flows.
+The following endpoints are intentionally disabled and return `501 Not Implemented`:
+
+* `POST /ga4gh/drs/v1/objects/{object_id}`
+* `POST /ga4gh/drs/v1/objects`
+* `POST /ga4gh/drs/v1/objects/{object_id}/access/{access_id}`
+* `POST /ga4gh/drs/v1/objects/access`
 
 ## References
 

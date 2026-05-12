@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -76,8 +77,21 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 		t.Fatalf("expected checksum type sha-256, got %+v", response.Checksums)
 	}
 
-	if len(response.Aliases) != 2 || response.Aliases[0] != "alias-1" || response.Aliases[1] != "alias-2" {
-		t.Fatalf("expected aliases to be mapped, got %+v", response.Aliases)
+	if len(response.Aliases) != 3 {
+		t.Fatalf("expected 3 aliases including irods uri alias, got %+v", response.Aliases)
+	}
+	if response.Aliases[0] != "alias-1" || response.Aliases[1] != "alias-2" {
+		t.Fatalf("expected original aliases to be preserved first, got %+v", response.Aliases)
+	}
+	parsedAliasURI, err := extension_irodsuri.Parse(response.Aliases[2])
+	if err != nil {
+		t.Fatalf("expected valid iRODS uri alias, got %q: %v", response.Aliases[2], err)
+	}
+	if parsedAliasURI.UserInfo != nil {
+		t.Fatalf("expected iRODS uri alias without user info, got %+v", parsedAliasURI.UserInfo)
+	}
+	if parsedAliasURI.Host != "icat-from-account.example.org" || parsedAliasURI.Port != 1247 || parsedAliasURI.Path != "/tempZone/home/test1/file.txt" {
+		t.Fatalf("unexpected iRODS alias URI %+v", parsedAliasURI)
 	}
 
 	if len(response.AccessMethods) != 1 {
@@ -104,6 +118,68 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	}
 }
 
+func TestGetObjectReturnsCompoundObjectWithOnlyHTTPSAccessMethod(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-compound", nil)
+	req.Host = "drs.example.org"
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			IrodsAccessMethodSupported: true,
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+			OidcUrl:                    "https://issuer.example.org",
+			OidcRealm:                  "drs",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-compound"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response DrsObject
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if response.Id != "object-compound" {
+		t.Fatalf("expected id object-compound, got %q", response.Id)
+	}
+	if len(response.AccessMethods) != 1 {
+		t.Fatalf("expected one access method for compound object, got %+v", response.AccessMethods)
+	}
+	method := response.AccessMethods[0]
+	if method.Type_ != "https" {
+		t.Fatalf("expected compound https access method, got %+v", method)
+	}
+	if method.AccessId != "" {
+		t.Fatalf("expected no access_id for compound https access method, got %+v", method)
+	}
+	if method.AccessUrl == nil {
+		t.Fatalf("expected direct access_url for compound https access method, got %+v", method)
+	}
+	expectedURL := "http://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
+	if method.AccessUrl.Url != expectedURL {
+		t.Fatalf("expected compound access_url %q, got %+v", expectedURL, method)
+	}
+	if method.Authorizations == nil || len(method.Authorizations.SupportedTypes) != 2 {
+		t.Fatalf("expected basic/bearer authorizations, got %+v", method.Authorizations)
+	}
+	if method.Authorizations.SupportedTypes[0] != "BasicAuth" || method.Authorizations.SupportedTypes[1] != "BearerAuth" {
+		t.Fatalf("expected supported auth types basic/bearer, got %+v", method.Authorizations)
+	}
+}
+
 func TestGetObjectReturnsHTTPSAccessMethodPerReplicaResource(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()
@@ -124,8 +200,8 @@ func TestGetObjectReturnsHTTPSAccessMethodPerReplicaResource(t *testing.T) {
 		DrsConfig: &drs_support.DrsConfig{
 			HttpsAccessMethodSupported: true,
 			HttpsAccessImplementation:  "irods-go-rest",
-			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
-			ResourceAffinity: []drs_support.ResourceAffinityEntry{
+			HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+			HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
 				{Host: "https://primary.example.org", Resources: []string{"demoResc"}},
 				{Host: "https://archive.example.org", Resources: []string{"archiveResc"}},
 			},
@@ -218,8 +294,8 @@ func TestGetAccessURLReturnsIRODSGoRestAffinityHostAccessURL(t *testing.T) {
 		DrsConfig: &drs_support.DrsConfig{
 			HttpsAccessMethodSupported: true,
 			HttpsAccessImplementation:  "irods-go-rest",
-			HttpsAccessMethodBaseURL:   "https://rest.example.org/api/v1/path/contents?irods_path=",
-			ResourceAffinity: []drs_support.ResourceAffinityEntry{
+			HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+			HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
 				{
 					Host:      "https://dedicated.example.org",
 					Resources: []string{"demoResc"},
@@ -248,6 +324,84 @@ func TestGetAccessURLReturnsIRODSGoRestAffinityHostAccessURL(t *testing.T) {
 	expectedURL := "https://dedicated.example.org/api/v1/path/contents?irods_path=" + neturl.QueryEscape("/tempZone/home/test1/file.txt")
 	if response.Url != expectedURL {
 		t.Fatalf("expected access url %q, got %q", expectedURL, response.Url)
+	}
+}
+
+func TestGetAccessURLReturnsCompoundManifestExtURL(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-compound/access/"+compoundManifestHTTPSAccessID, nil)
+	req.Host = "drs.example.org"
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-compound",
+		"access_id": compoundManifestHTTPSAccessID,
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expectedURL := "http://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
+	if response.Url != expectedURL {
+		t.Fatalf("expected compound ext url %q, got %q", expectedURL, response.Url)
+	}
+	if len(response.Headers) != 0 {
+		t.Fatalf("expected no headers for compound manifest ext url, got %+v", response.Headers)
+	}
+}
+
+func TestGetCompoundManifestExtReturnsRuntimeManifest(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/ext/compound/object-compound", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-compound"})
+
+	rec := httptest.NewRecorder()
+	GetCompoundManifestExt(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response drs_support.CompoundRuntimeManifest
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if response.RootPath != "/tempZone/home/test1/compound" || response.RootDrsID != "object-compound" {
+		t.Fatalf("unexpected compound manifest root %+v", response)
+	}
+	if response.Manifest == nil {
+		t.Fatalf("expected nested manifest payload")
+	}
+	if manifestContainsPathForInternalTests(response.Manifest, "/tempZone/home/test1/compound/.drsignore") {
+		t.Fatalf("expected .drsignore to be excluded from runtime manifest")
 	}
 }
 
@@ -301,6 +455,65 @@ func TestGetObjectReturnsMappedDrsObjectWithIRODSAccessMethod(t *testing.T) {
 	}
 }
 
+func TestGetObjectReturnsMappedDrsObjectWithS3AccessMethod(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	fs.metadataByPath["/tempZone/home/test1"] = []*irodstypes.IRODSMeta{
+		{Name: "iRODS:S3:Bucket", Value: "drscol11", Units: ""},
+	}
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req.Host = "drs.example.org"
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			S3AccessMethodSupported: true,
+			S3AccessMethodBaseURL:   "s3://",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response DrsObject
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(response.AccessMethods) != 1 {
+		t.Fatalf("expected one s3 access method, got %+v", response.AccessMethods)
+	}
+
+	method := response.AccessMethods[0]
+	if method.Type_ != "s3" {
+		t.Fatalf("expected s3 access method type, got %+v", method)
+	}
+	if method.AccessId != "test1" {
+		t.Fatalf("expected s3 access_id %q, got %+v", "test1", method)
+	}
+	if method.AccessUrl == nil || method.AccessUrl.Url != "s3://drscol11/file.txt" {
+		t.Fatalf("expected s3 access_url %q, got %+v", "s3://drscol11/file.txt", method)
+	}
+	if method.Cloud != "irods:tempZone" {
+		t.Fatalf("expected irods cloud name, got %+v", method)
+	}
+	if method.Region != "demoResc" {
+		t.Fatalf("expected resource-backed region, got %+v", method)
+	}
+	if !method.Available {
+		t.Fatalf("expected s3 method to be available, got %+v", method)
+	}
+}
+
 func TestGetObjectReturnsNotFound(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
@@ -322,14 +535,14 @@ func TestGetObjectReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestGetBulkObjectsReturnsBadRequestUntilImplemented(t *testing.T) {
+func TestGetBulkObjectsReturnsNotImplemented(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects", strings.NewReader(`{"passports":["example"]}`))
 	rec := httptest.NewRecorder()
 
 	GetBulkObjects(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
 	}
 
 	var response map[string]string
@@ -337,20 +550,20 @@ func TestGetBulkObjectsReturnsBadRequestUntilImplemented(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	if !strings.Contains(response["message"], "issue #22") {
-		t.Fatalf("expected issue reference in response, got %+v", response)
+	if !strings.Contains(response["message"], "not supported in this deployment") {
+		t.Fatalf("expected unsupported operation message, got %+v", response)
 	}
 }
 
-func TestPostObjectReturnsBadRequestUntilImplemented(t *testing.T) {
+func TestPostObjectReturnsNotImplemented(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects/object-123", strings.NewReader(`{"passports":["example"]}`))
 	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
 	rec := httptest.NewRecorder()
 
 	PostObject(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
 	}
 
 	var response map[string]string
@@ -358,8 +571,47 @@ func TestPostObjectReturnsBadRequestUntilImplemented(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	if !strings.Contains(response["message"], "issue #22") {
-		t.Fatalf("expected issue reference in response, got %+v", response)
+	if !strings.Contains(response["message"], "not supported in this deployment") {
+		t.Fatalf("expected unsupported operation message, got %+v", response)
+	}
+}
+
+func TestPostAccessURLReturnsNotImplemented(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects/object-123/access/some-id", strings.NewReader(`{"passports":["example"]}`))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123", "access_id": "some-id"})
+	rec := httptest.NewRecorder()
+
+	PostAccessURL(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(response["message"], "not supported in this deployment") {
+		t.Fatalf("expected unsupported operation message, got %+v", response)
+	}
+}
+
+func TestGetBulkAccessURLReturnsNotImplemented(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/ga4gh/drs/v1/objects/access", strings.NewReader(`{"bulk_object_access_ids":[]}`))
+	rec := httptest.NewRecorder()
+
+	GetBulkAccessURL(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", rec.Code)
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(response["message"], "not supported in this deployment") {
+		t.Fatalf("expected unsupported operation message, got %+v", response)
 	}
 }
 
@@ -625,6 +877,52 @@ func TestGetAccessURLReturnsIRODSGoRestTicketAccessURL(t *testing.T) {
 	}
 }
 
+func TestGetAccessURLDefaultIDUsesPrimaryResourceAffinityHost(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/irods-go-rest-https", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
+			HttpsResourceAffinity: []drs_support.ResourceAffinityEntry{
+				{
+					Host:      "https://default.example.org",
+					Resources: []string{},
+				},
+			},
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "irods-go-rest-https",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response AccessUrl
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expectedURL := "https://default.example.org/api/v1/path/contents?irods_path=" + neturl.QueryEscape("/tempZone/home/test1/file.txt")
+	if response.Url != expectedURL {
+		t.Fatalf("expected access url %q, got %q", expectedURL, response.Url)
+	}
+}
+
 func TestGetAccessURLReturnsDirectURLWhenTicketDisabled(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()
@@ -859,6 +1157,46 @@ func TestGetAccessURLReturnsNotFoundForUnknownAccessID(t *testing.T) {
 	}
 }
 
+func TestGetAccessURLReturnsNotImplementedForS3AccessID(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
+	fs.metadataByPath["/tempZone/home/test1"] = []*irodstypes.IRODSMeta{
+		{Name: "iRODS:S3:Bucket", Value: "drscol11", Units: ""},
+	}
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return fs, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123/access/test1", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			S3AccessMethodSupported: true,
+			S3AccessMethodBaseURL:   "s3://",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-123",
+		"access_id": "test1",
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501 for unsupported s3 access_id resolution, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(response["message"], "not supported by /access in this deployment") {
+		t.Fatalf("expected explicit unsupported-access-method message, got %+v", response)
+	}
+}
+
 func TestDrsObjectFromInternalIncludesExpandedContents(t *testing.T) {
 	object := &drs_support.InternalDrsObject{
 		Id:           "bundle-1",
@@ -875,7 +1213,7 @@ func TestDrsObjectFromInternalIncludesExpandedContents(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/bundle-1?expand=true", nil)
 	req.Host = "drs.example.org"
 
-	response := drsObjectFromInternal(req, object, true)
+	response := drsObjectFromInternal(req, object, true, nil)
 	if len(response.Contents) != 2 {
 		t.Fatalf("expected 2 contents entries, got %d", len(response.Contents))
 	}
@@ -1009,6 +1347,40 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 					},
 				},
 			},
+			"/tempZone/home/test1/compound": {
+				ID:         100,
+				Type:       irodsfs.DirectoryEntry,
+				Name:       "compound",
+				Path:       "/tempZone/home/test1/compound",
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
+			"/tempZone/home/test1/compound/child.txt": {
+				ID:         101,
+				Type:       irodsfs.FileEntry,
+				Name:       "child.txt",
+				Path:       "/tempZone/home/test1/compound/child.txt",
+				Size:       32,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+				IRODSReplicas: []irodstypes.IRODSReplica{
+					{
+						Owner:        "test1",
+						ResourceName: "demoResc",
+						CreateTime:   createTime,
+						ModifyTime:   updateTime,
+					},
+				},
+			},
+			"/tempZone/home/test1/compound/.drsignore": {
+				ID:         102,
+				Type:       irodsfs.FileEntry,
+				Name:       ".drsignore",
+				Path:       "/tempZone/home/test1/compound/.drsignore",
+				Size:       8,
+				CreateTime: createTime,
+				ModifyTime: updateTime,
+			},
 		},
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			"/tempZone/home/test1/file.txt": {
@@ -1024,6 +1396,20 @@ func newRouteTestFileSystem() *routeTestFileSystem {
 				{Name: drs_support.DrsAvuMimeTypeAttrib, Value: "text/plain", Units: drs_support.DrsAvuUnit},
 				{Name: drs_support.DrsAvuVersionAttrib, Value: "def456", Units: drs_support.DrsAvuUnit},
 			},
+			"/tempZone/home/test1/compound": {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "object-compound", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuCompoundManifestAttrib, Value: "true", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuAliasAttrib, Value: ".", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "compound root", Units: drs_support.DrsAvuUnit},
+			},
+			"/tempZone/home/test1/compound/child.txt": {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "object-compound-child", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuAliasAttrib, Value: "child.txt", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "child data object", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuMimeTypeAttrib, Value: "text/plain", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuVersionAttrib, Value: "child-version", Units: drs_support.DrsAvuUnit},
+			},
+			"/tempZone/home/test1/compound/.drsignore": {},
 		},
 		ticketUseLimits:   map[string]int64{},
 		ticketExpiryTimes: map[string]time.Time{},
@@ -1040,7 +1426,25 @@ func (f *routeTestFileSystem) StatFile(irodsPath string) (*irodsfs.Entry, error)
 }
 
 func (f *routeTestFileSystem) List(irodsPath string) ([]*irodsfs.Entry, error) {
-	return []*irodsfs.Entry{}, nil
+	irodsPath = strings.TrimSuffix(irodsPath, "/")
+	if irodsPath == "" {
+		irodsPath = "/"
+	}
+
+	results := []*irodsfs.Entry{}
+	for candidatePath, entry := range f.entriesByPath {
+		if entry == nil || candidatePath == irodsPath {
+			continue
+		}
+		parent := path.Dir(candidatePath)
+		if parent == "." {
+			parent = "/"
+		}
+		if parent == irodsPath {
+			results = append(results, entry)
+		}
+	}
+	return results, nil
 }
 
 func (f *routeTestFileSystem) SearchByMeta(name string, value string) ([]*irodsfs.Entry, error) {
@@ -1094,4 +1498,20 @@ func (f *routeTestFileSystem) DeleteTicket(ticketName string) error {
 	delete(f.ticketUseLimits, ticketName)
 	delete(f.ticketExpiryTimes, ticketName)
 	return nil
+}
+
+func manifestContainsPathForInternalTests(node *drs_support.CompoundManifestNode, targetPath string) bool {
+	if node == nil {
+		return false
+	}
+	if node.Path == targetPath {
+		return true
+	}
+	for _, child := range node.Children {
+		childCopy := child
+		if manifestContainsPathForInternalTests(&childCopy, targetPath) {
+			return true
+		}
+	}
+	return false
 }

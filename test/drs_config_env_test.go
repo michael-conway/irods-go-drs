@@ -21,16 +21,12 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	t.Setenv("DRS_HTTPS_ACCESS_IMPLEMENTATION", "irods-go-rest")
 	t.Setenv("DRS_HTTPS_ACCESS_METHOD_BASE_URL", "https://download.example.org/api/v1/path/contents?irods_path=")
 	t.Setenv("DRS_HTTPS_ACCESS_USE_TICKET", "true")
+	t.Setenv("DRS_S3_ACCESS_METHOD_SUPPORTED", "true")
+	t.Setenv("DRS_S3_ACCESS_METHOD_BASE_URL", "s3://")
 	t.Setenv("DRS_DEFAULT_TICKET_LIFETIME_MINUTES", "1440")
 	t.Setenv("DRS_DEFAULT_TICKET_USE_LIMIT", "100")
 	t.Setenv("DRS_IRODS_ACCESS_METHOD_SUPPORTED", "true")
 	t.Setenv("DRS_FILE_ACCESS_METHOD_SUPPORTED", "true")
-	t.Setenv("DRS_S3_ACCESS_METHOD_SUPPORTED", "true")
-	t.Setenv("DRS_S3_ACCESS_ENDPOINT", "http://127.0.0.1:9001")
-	t.Setenv("DRS_S3_ACCESS_BUCKET", "tempzone")
-	t.Setenv("DRS_S3_ACCESS_IRODS_COLLECTION", "tempZone/home")
-	t.Setenv("DRS_S3_ACCESS_REGION", "us-east-1")
-	t.Setenv("DRS_RESOURCE_AFFINITY", "demoResc, edgeResc , archiveResc")
 
 	var confs = [1]string{"./resources/"}
 	config, err := drs_support.ReadDrsConfig("drs-config1", "yaml", confs[:])
@@ -79,6 +75,12 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 	if !config.HttpsAccessUseTicket {
 		t.Fatal("expected env override for HttpsAccessUseTicket")
 	}
+	if !config.S3AccessMethodSupported {
+		t.Fatal("expected env override for S3AccessMethodSupported")
+	}
+	if config.S3AccessMethodBaseURL != "s3://" {
+		t.Fatalf("expected env override for S3AccessMethodBaseURL, got %q", config.S3AccessMethodBaseURL)
+	}
 	if config.DefaultTicketLifetimeMinutes != 1440 {
 		t.Fatalf("expected env override for DefaultTicketLifetimeMinutes, got %d", config.DefaultTicketLifetimeMinutes)
 	}
@@ -92,24 +94,6 @@ func TestReadDrsConfigEnvOverride(t *testing.T) {
 
 	if !config.FileAccessMethodSupported {
 		t.Fatal("expected env override for FileAccessMethodSupported")
-	}
-	if !config.S3AccessMethodSupported {
-		t.Fatal("expected env override for S3AccessMethodSupported")
-	}
-	if config.S3AccessEndpoint != "http://127.0.0.1:9001" {
-		t.Fatalf("expected env override for S3AccessEndpoint, got %q", config.S3AccessEndpoint)
-	}
-	if config.S3AccessBucket != "tempzone" {
-		t.Fatalf("expected env override for S3AccessBucket, got %q", config.S3AccessBucket)
-	}
-	if config.S3AccessIrodsCollection != "/tempZone/home" {
-		t.Fatalf("expected normalized env override for S3AccessIrodsCollection, got %q", config.S3AccessIrodsCollection)
-	}
-	if config.S3AccessRegion != "us-east-1" {
-		t.Fatalf("expected env override for S3AccessRegion, got %q", config.S3AccessRegion)
-	}
-	if len(config.ResourceAffinity) != 1 || len(config.ResourceAffinity[0].Resources) != 3 || config.ResourceAffinity[0].Resources[0] != "demoResc" || config.ResourceAffinity[0].Resources[1] != "edgeResc" || config.ResourceAffinity[0].Resources[2] != "archiveResc" {
-		t.Fatalf("expected env override for ResourceAffinity, got %+v", config.ResourceAffinity)
 	}
 }
 
@@ -404,7 +388,7 @@ func TestReadDrsConfigSupportsOidcInsecureSkipVerifyKey(t *testing.T) {
 	}
 }
 
-func TestReadDrsConfigResourceAffinityYAMLList(t *testing.T) {
+func TestReadDrsConfigHttpsResourceAffinityYAMLStructuredEntries(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "resource-affinity-config.yaml")
 	configBody := "" +
@@ -415,10 +399,13 @@ func TestReadDrsConfigResourceAffinityYAMLList(t *testing.T) {
 		"IrodsAdminUser: rods\n" +
 		"IrodsAuthScheme: native\n" +
 		"IrodsNegotiationPolicy: CS_NEG_DONT_CARE\n" +
-		"ResourceAffinity:\n" +
-		"  - demoResc\n" +
-		"  - edgeResc\n" +
-		"  - archiveResc\n"
+		"HttpsResourceAffinity:\n" +
+		"  - Host: https://download.example.org\n" +
+		"    Resources:\n" +
+		"      - demoResc\n" +
+		"      - edgeResc\n" +
+		"  - Host: https://download-alt.example.org\n" +
+		"    Resources: []\n"
 
 	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
 		t.Fatalf("write config file: %v", err)
@@ -431,7 +418,13 @@ func TestReadDrsConfigResourceAffinityYAMLList(t *testing.T) {
 		t.Fatalf("error reading drs config with %s override: %s", drs_support.ConfigFileEnvVar, err)
 	}
 
-	if len(config.ResourceAffinity) != 1 || len(config.ResourceAffinity[0].Resources) != 3 || config.ResourceAffinity[0].Resources[0] != "demoResc" || config.ResourceAffinity[0].Resources[1] != "edgeResc" || config.ResourceAffinity[0].Resources[2] != "archiveResc" {
-		t.Fatalf("expected ResourceAffinity from YAML list, got %+v", config.ResourceAffinity)
+	if len(config.HttpsResourceAffinity) != 2 {
+		t.Fatalf("expected two HttpsResourceAffinity entries, got %+v", config.HttpsResourceAffinity)
+	}
+	if config.HttpsResourceAffinity[0].Host != "https://download.example.org" || len(config.HttpsResourceAffinity[0].Resources) != 2 || config.HttpsResourceAffinity[0].Resources[0] != "demoResc" || config.HttpsResourceAffinity[0].Resources[1] != "edgeResc" {
+		t.Fatalf("expected first HttpsResourceAffinity entry from YAML, got %+v", config.HttpsResourceAffinity)
+	}
+	if config.HttpsResourceAffinity[1].Host != "https://download-alt.example.org" || len(config.HttpsResourceAffinity[1].Resources) != 0 {
+		t.Fatalf("expected second HttpsResourceAffinity entry from YAML, got %+v", config.HttpsResourceAffinity)
 	}
 }

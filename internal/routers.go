@@ -10,7 +10,6 @@
 package internal
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -54,7 +53,7 @@ func NewRouter() *mux.Router {
 }
 
 func Index(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello World!")
+	writeUnsupportedOperation(w, "GET /ga4gh/drs/v1/")
 }
 
 var routes = Routes{
@@ -109,6 +108,13 @@ var routes = Routes{
 		strings.ToUpper("Get"),
 		"/ga4gh/drs/v1/objects/{object_id}",
 		GetObject,
+		true,
+	},
+	Route{
+		"GetCompoundManifestExt",
+		strings.ToUpper("Get"),
+		"/ga4gh/drs/v1/ext/compound/{object_id}",
+		GetCompoundManifestExt,
 		true,
 	},
 

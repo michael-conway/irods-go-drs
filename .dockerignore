@@ -1,0 +1,13 @@
+.git
+.github
+.DS_Store
+
+/irods-go-drs
+/config
+/deployments
+/e2e
+/test
+/tools
+
+*.md
+*.png

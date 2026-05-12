@@ -27,7 +27,7 @@ func TestReadDrsConfig(t *testing.T) {
 	if actual.HttpsAccessImplementation != "irods-go-rest" {
 		t.Fatalf("expected https access implementation from config, got %q", actual.HttpsAccessImplementation)
 	}
-	if actual.HttpsAccessMethodBaseURL != "https://download.example.org/api/v1/path/contents?irods_path=" {
+	if actual.HttpsAccessMethodBaseURL != "/api/v1/path/contents?irods_path=" {
 		t.Fatalf("expected https access method base URL from config, got %q", actual.HttpsAccessMethodBaseURL)
 	}
 	if !actual.HttpsAccessUseTicket {
@@ -36,17 +36,8 @@ func TestReadDrsConfig(t *testing.T) {
 	if !actual.S3AccessMethodSupported {
 		t.Fatal("expected s3 access method to be enabled from config")
 	}
-	if actual.S3AccessEndpoint != "http://127.0.0.1:9001" {
-		t.Fatalf("expected s3 access endpoint from config, got %q", actual.S3AccessEndpoint)
-	}
-	if actual.S3AccessBucket != "tempzone" {
-		t.Fatalf("expected s3 access bucket from config, got %q", actual.S3AccessBucket)
-	}
-	if actual.S3AccessIrodsCollection != "/tempZone/home" {
-		t.Fatalf("expected s3 access iRODS collection from config, got %q", actual.S3AccessIrodsCollection)
-	}
-	if actual.S3AccessRegion != "us-east-1" {
-		t.Fatalf("expected s3 access region from config, got %q", actual.S3AccessRegion)
+	if actual.S3AccessMethodBaseURL != "s3://" {
+		t.Fatalf("expected s3 access method base URL from config, got %q", actual.S3AccessMethodBaseURL)
 	}
 	if actual.DefaultTicketLifetimeMinutes != 720 {
 		t.Fatalf("expected default ticket lifetime from config to be 720, got %d", actual.DefaultTicketLifetimeMinutes)
@@ -54,14 +45,23 @@ func TestReadDrsConfig(t *testing.T) {
 	if actual.DefaultTicketUseLimit != 50 {
 		t.Fatalf("expected default ticket use limit from config to be 50, got %d", actual.DefaultTicketUseLimit)
 	}
-	if len(actual.ResourceAffinity) != 2 || actual.ResourceAffinity[0].Host != "https://download.example.org" || actual.ResourceAffinity[1].Host != "https://download-alt.example.org" {
-		t.Fatalf("expected resource affinity from config, got %+v", actual.ResourceAffinity)
+	if len(actual.HttpsResourceAffinity) != 2 || actual.HttpsResourceAffinity[0].Host != "https://download.example.org" || actual.HttpsResourceAffinity[1].Host != "https://download-alt.example.org" {
+		t.Fatalf("expected https resource affinity from config, got %+v", actual.HttpsResourceAffinity)
 	}
-	if len(actual.ResourceAffinity[0].Resources) != 1 || actual.ResourceAffinity[0].Resources[0] != "demoResc" {
-		t.Fatalf("expected first resource affinity resources from config, got %+v", actual.ResourceAffinity)
+	if len(actual.HttpsResourceAffinity[0].Resources) != 1 || actual.HttpsResourceAffinity[0].Resources[0] != "demoResc" {
+		t.Fatalf("expected first https resource affinity resources from config, got %+v", actual.HttpsResourceAffinity)
 	}
-	if len(actual.ResourceAffinity[1].Resources) != 0 {
-		t.Fatalf("expected second resource affinity resources from config, got %+v", actual.ResourceAffinity)
+	if len(actual.HttpsResourceAffinity[1].Resources) != 0 {
+		t.Fatalf("expected second https resource affinity resources from config, got %+v", actual.HttpsResourceAffinity)
+	}
+	if len(actual.S3ResourceAffinity) != 2 || actual.S3ResourceAffinity[0].Host != "s3://download.example.org" || actual.S3ResourceAffinity[1].Host != "s3://download-alt.example.org" {
+		t.Fatalf("expected s3 resource affinity from config, got %+v", actual.S3ResourceAffinity)
+	}
+	if len(actual.S3ResourceAffinity[0].Resources) != 1 || actual.S3ResourceAffinity[0].Resources[0] != "demoResc" {
+		t.Fatalf("expected first s3 resource affinity resources from config, got %+v", actual.S3ResourceAffinity)
+	}
+	if len(actual.S3ResourceAffinity[1].Resources) != 0 {
+		t.Fatalf("expected second s3 resource affinity resources from config, got %+v", actual.S3ResourceAffinity)
 	}
 }
 

@@ -17,10 +17,13 @@ It is the right tool for day-to-day iRODS operations such as:
 `drscmd` is narrower. It is intended for DRS-specific administration tasks such as:
 
 - creating a single-object DRS registration for an iRODS data object
+- creating a collection-backed compound DRS object
 - looking up DRS metadata by iRODS path or DRS id
 - listing DRS objects under an iRODS collection
 - updating supported DRS metadata fields on an existing DRS object
 - removing single-object DRS metadata from an iRODS data object
+- stripping DRS metadata from a single object or an entire compound subtree
+- adding a starter `.drsignore` file to a collection
 
 The expected workflow is:
 
@@ -34,6 +37,17 @@ The expected workflow is:
 - if no current working directory has been saved yet, `drscmd` falls back to the iRODS home directory
 
 ## Current commands
+
+Implemented command set:
+
+- `iinit`
+- `drsinfo`
+- `drsmake`
+- `drsmakecompound`
+- `drsls`
+- `drsupdate`
+- `drsrm`
+- `add_drsignore`
 
 ### Initialize environment
 
@@ -74,7 +88,22 @@ Show command help:
 drscmd drsinfo --help
 ```
 
+For compound DRS objects, `drsinfo` includes the generated runtime manifest.
+At the API layer, the same compound object resolves from `GET /objects/{id}`
+with a direct HTTPS `access_url` pointing to:
+
+```text
+/ga4gh/drs/v1/ext/compound/{object_id}
+```
+
+Compound object access methods do not require a compound `access_id` lookup hop.
+
 ### Create a DRS object
+
+drsmake creates a DRS object from an existing iRODS data object. This is only for a single object. 
+For compound objects, utilize the drsmakecompound command.
+
+Note that a compound object can include DRS objects created prior to the compound object being created. 
 
 ```bash
 drscmd drsmake /tempZone/home/rods/file.txt \
@@ -108,6 +137,38 @@ Show command help:
 
 ```bash
 drscmd drsmake --help
+```
+
+### Create a compound DRS object from a collection
+
+Create compound metadata on an existing collection:
+
+```bash
+drscmd drsmakecompound /tempZone/home/rods/projects/compound-a
+```
+
+If `.drsignore` is not present at the collection root, `drsmakecompound` stops and requires an explicit override:
+
+```bash
+drscmd drsmakecompound /tempZone/home/rods/projects/compound-a --allow-no-ignore
+```
+
+Run a no-write preflight to preview the generated manifest from current data and AVUs:
+
+```bash
+drscmd drsmakecompound /tempZone/home/rods/projects/compound-a --preflight
+```
+
+Use both when you want preflight without a `.drsignore`:
+
+```bash
+drscmd drsmakecompound /tempZone/home/rods/projects/compound-a --preflight --allow-no-ignore
+```
+
+Show command help:
+
+```bash
+drscmd drsmakecompound --help
 ```
 
 ### List DRS objects in a collection
@@ -195,7 +256,7 @@ Show command help:
 drscmd drsupdate --help
 ```
 
-### Remove a single-object DRS registration
+### Remove DRS semantics from a DRS object
 
 By iRODS path:
 
@@ -209,12 +270,29 @@ By DRS id:
 drscmd drsrm --id <drs-id>
 ```
 
-This removes the DRS AVUs from the data object but does not delete the data object itself.
+This removes DRS AVUs from the resolved DRS object path. For a single-object DRS
+registration, it strips one data object. For a compound DRS object, it strips
+the full collection subtree. It does not delete objects/collections.
 
 Show command help:
 
 ```bash
 drscmd drsrm --help
+```
+
+### Add a sample `.drsignore`
+
+```bash
+drscmd add_drsignore /tempZone/home/rods/projects/compound-a
+```
+
+This writes the built-in sample `.drsignore` file to the target collection.
+If the file already exists, the command fails and leaves the existing file unchanged.
+
+Show command help:
+
+```bash
+drscmd add_drsignore --help
 ```
 
 ## Help and usage errors
@@ -225,14 +303,16 @@ Each command has its own help screen. The current command-specific help entry po
 - `drscmd drsinfo --help`
 - `drscmd drsls --help`
 - `drscmd drsmake --help`
+- `drscmd drsmakecompound --help`
 - `drscmd drsupdate --help`
 - `drscmd drsrm --help`
+- `drscmd add_drsignore --help`
 
 If a command is invoked with a usage error, such as a missing required path or conflicting selector flags, `drscmd`
 prints that command's help content before returning the error.
 
 ## Notes
 
-- `drscmd` currently manages single-object DRS registrations.
-- Compound manifest administration can be added later as dedicated commands.
+- `drscmd` supports both single-object and collection-backed compound DRS workflows.
+- `drsmakecompound --preflight` returns a generated manifest preview and performs no AVU writes.
 - JSON output is used so the tool is friendly to scripting and automation.
