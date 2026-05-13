@@ -78,8 +78,10 @@ func requestScheme(r *http.Request) string {
 		return "http"
 	}
 
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
-		return forwarded
+	if forwarded := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))); forwarded != "" {
+		if forwarded == "http" || forwarded == "https" {
+			return forwarded
+		}
 	}
 
 	if r.TLS != nil {
