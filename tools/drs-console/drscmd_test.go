@@ -354,7 +354,7 @@ func TestDrsListDefaultsToSessionCwdAndPagesResults(t *testing.T) {
 		t.Fatalf("expected drsls to list from session cwd, got %q", output)
 	}
 
-	if !strings.Contains(output, "\"total\": 2") || !strings.Contains(output, "\"hasMore\": true") {
+	if strings.Contains(output, "\"total\"") || !strings.Contains(output, "\"hasMore\": true") {
 		t.Fatalf("expected drsls paging metadata, got %q", output)
 	}
 
@@ -372,6 +372,11 @@ func TestDrsListDefaultsToSessionCwdAndPagesResults(t *testing.T) {
 
 	if !strings.Contains(output, "\"isBundle\": false") {
 		t.Fatalf("expected drsls output to include isBundle false for atomic objects, got %q", output)
+	}
+
+	exactOutput := runCommand(t, getCommand(), []string{APP_NAME, "drsls", "--exact_total", "--limit", "1"})
+	if !strings.Contains(exactOutput, "\"total\": 2") || !strings.Contains(exactOutput, "\"hasMore\": true") {
+		t.Fatalf("expected drsls exact total metadata, got %q", exactOutput)
 	}
 }
 
@@ -532,7 +537,7 @@ func TestDrsListScopeFlags(t *testing.T) {
 	defer func() { createFileSystem = oldCreateFileSystem }()
 
 	allOutput := runCommand(t, getCommand(), []string{APP_NAME, "drsls", "/tempZone/home/rods/projects"})
-	if !strings.Contains(allOutput, "\"total\": 2") ||
+	if strings.Contains(allOutput, "\"total\"") ||
 		!strings.Contains(allOutput, "\"path\": \"/tempZone/home/rods/projects/alpha.txt\"") ||
 		!strings.Contains(allOutput, "\"path\": \"/tempZone/home/rods/projects/bundle\"") ||
 		!strings.Contains(allOutput, "\"isBundle\": true") {
@@ -540,17 +545,22 @@ func TestDrsListScopeFlags(t *testing.T) {
 	}
 
 	objectsOutput := runCommand(t, getCommand(), []string{APP_NAME, "drsls", "--scope_objects", "/tempZone/home/rods/projects"})
-	if !strings.Contains(objectsOutput, "\"total\": 1") ||
+	if strings.Contains(objectsOutput, "\"total\"") ||
 		!strings.Contains(objectsOutput, "\"path\": \"/tempZone/home/rods/projects/alpha.txt\"") ||
 		strings.Contains(objectsOutput, "\"path\": \"/tempZone/home/rods/projects/bundle\"") {
 		t.Fatalf("expected --scope_objects to include only data objects, got %q", objectsOutput)
 	}
 
 	compoundOutput := runCommand(t, getCommand(), []string{APP_NAME, "drsls", "--scope_compound", "/tempZone/home/rods/projects"})
-	if !strings.Contains(compoundOutput, "\"total\": 1") ||
+	if strings.Contains(compoundOutput, "\"total\"") ||
 		!strings.Contains(compoundOutput, "\"path\": \"/tempZone/home/rods/projects/bundle\"") ||
 		strings.Contains(compoundOutput, "\"path\": \"/tempZone/home/rods/projects/alpha.txt\"") {
 		t.Fatalf("expected --scope_compound to include only compound collections, got %q", compoundOutput)
+	}
+
+	exactScopeOutput := runCommand(t, getCommand(), []string{APP_NAME, "drsls", "--exact_total", "/tempZone/home/rods/projects"})
+	if !strings.Contains(exactScopeOutput, "\"total\": 2") {
+		t.Fatalf("expected --exact_total to include total, got %q", exactScopeOutput)
 	}
 }
 
@@ -787,7 +797,7 @@ func TestDrsListHelp(t *testing.T) {
 		t.Fatalf("expected drsls help to include optional collection path, got %q", helpOutput)
 	}
 
-	if !strings.Contains(helpOutput, "--offset") || !strings.Contains(helpOutput, "--limit") || !strings.Contains(helpOutput, "--recursive") {
+	if !strings.Contains(helpOutput, "--offset") || !strings.Contains(helpOutput, "--limit") || !strings.Contains(helpOutput, "--recursive") || !strings.Contains(helpOutput, "--exact_total") {
 		t.Fatalf("expected drsls help to include paging and recursive flags, got %q", helpOutput)
 	}
 }

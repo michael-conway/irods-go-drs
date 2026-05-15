@@ -390,8 +390,10 @@ func TestGetDrsObjectByIRODSPathRejectsNonDrsObject(t *testing.T) {
 func TestListDrsObjectsUnderCollectionHonorsRecursiveFlag(t *testing.T) {
 	root := "/tempZone/home/rods"
 	sub := root + "/nested"
+	sibling := root + "-sibling"
 	rootDrsPath := root + "/file1.txt"
 	subDrsPath := sub + "/file2.txt"
+	siblingDrsPath := sibling + "/file3.txt"
 
 	filesystem := &fakeIRODSFilesystem{
 		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
@@ -404,6 +406,9 @@ func TestListDrsObjectsUnderCollectionHonorsRecursiveFlag(t *testing.T) {
 			sub: {
 				{ID: 4, Type: irodsfs.FileEntry, Name: "file2.txt", Path: subDrsPath},
 			},
+			sibling: {
+				{ID: 5, Type: irodsfs.FileEntry, Name: "file3.txt", Path: siblingDrsPath},
+			},
 		},
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			rootDrsPath: {
@@ -411,6 +416,9 @@ func TestListDrsObjectsUnderCollectionHonorsRecursiveFlag(t *testing.T) {
 			},
 			subDrsPath: {
 				{Name: drs_support.DrsIdAvuAttrib, Value: "drs-nested", Units: drs_support.DrsAvuUnit},
+			},
+			siblingDrsPath: {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "drs-sibling", Units: drs_support.DrsAvuUnit},
 			},
 			root + "/plain.txt": {
 				{Name: "user:note", Value: "keep-me", Units: "custom"},
@@ -434,6 +442,9 @@ func TestListDrsObjectsUnderCollectionHonorsRecursiveFlag(t *testing.T) {
 
 	if len(recursive) != 2 {
 		t.Fatalf("expected 2 recursive DRS objects, got %d", len(recursive))
+	}
+	if got := strings.Join(drsObjectIDs(recursive), ","); strings.Contains(got, "drs-sibling") {
+		t.Fatalf("expected recursive DRS listing to stay under %q, got %+v", root, got)
 	}
 }
 
@@ -480,6 +491,9 @@ func TestListDrsObjectsUnderCollectionHonorsListingScope(t *testing.T) {
 	}
 	if compoundObject := drsObjectByID(all, "compound-id"); compoundObject == nil || !compoundObject.IsManifest || compoundObject.Description != "compound description" {
 		t.Fatalf("expected compound metadata hydrated from matched AVUs, got %+v", compoundObject)
+	}
+	if len(filesystem.allReplicaStatPaths) != 0 {
+		t.Fatalf("expected listing hydration to avoid all-replica stat calls, got %+v", filesystem.allReplicaStatPaths)
 	}
 
 	objects, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, root, false, drs_support.DrsListingScopeObjects)
@@ -544,6 +558,9 @@ func TestListDrsObjectsReturnsPagedResults(t *testing.T) {
 	if page.Total != 3 {
 		t.Fatalf("expected total 3, got %d", page.Total)
 	}
+	if !page.TotalKnown {
+		t.Fatal("expected exact DRS page to report TotalKnown")
+	}
 
 	if !page.HasMore {
 		t.Fatal("expected HasMore to be true")
@@ -551,6 +568,43 @@ func TestListDrsObjectsReturnsPagedResults(t *testing.T) {
 
 	if len(page.Objects) != 1 || page.Objects[0].Id != "drs-b" {
 		t.Fatalf("expected second sorted object drs-b, got %+v", page.Objects)
+	}
+}
+
+func TestListDrsObjectsUnderCollectionPageFastAvoidsExactTotalScan(t *testing.T) {
+	root := "/tempZone/home/rods"
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		listByPath: map[string][]*irodsfs.Entry{
+			root: {
+				{ID: 1, Type: irodsfs.FileEntry, Name: "a.txt", Path: root + "/a.txt"},
+				{ID: 2, Type: irodsfs.FileEntry, Name: "b.txt", Path: root + "/b.txt"},
+				{ID: 3, Type: irodsfs.FileEntry, Name: "c.txt", Path: root + "/c.txt"},
+			},
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{
+			root + "/a.txt": {{Name: drs_support.DrsIdAvuAttrib, Value: "drs-a", Units: drs_support.DrsAvuUnit}},
+			root + "/b.txt": {{Name: drs_support.DrsIdAvuAttrib, Value: "drs-b", Units: drs_support.DrsAvuUnit}},
+			root + "/c.txt": {{Name: drs_support.DrsIdAvuAttrib, Value: "drs-c", Units: drs_support.DrsAvuUnit}},
+		},
+	}
+
+	page, err := drs_support.ListDrsObjectsUnderCollectionPageFast(filesystem, filesystem, root, false, drs_support.DrsListingScopeObjects, 0, 1)
+	if err != nil {
+		t.Fatalf("fast list DRS objects: %v", err)
+	}
+
+	if page.TotalKnown || page.Total != 0 {
+		t.Fatalf("expected fast page to omit exact total, got totalKnown=%t total=%d", page.TotalKnown, page.Total)
+	}
+	if !page.HasMore {
+		t.Fatal("expected fast page to report HasMore from bounded query")
+	}
+	if len(page.Objects) != 1 || page.Objects[0].Id != "drs-a" {
+		t.Fatalf("expected first sorted fast page object drs-a, got %+v", page.Objects)
+	}
+	if len(filesystem.queryLimits) == 0 || filesystem.queryLimits[0] != 2 {
+		t.Fatalf("expected fast page query limit offset+limit+1, got %+v", filesystem.queryLimits)
 	}
 }
 
@@ -904,6 +958,8 @@ type fakeIRODSFilesystem struct {
 	deletedMetadata       []*irodstypes.IRODSMeta
 	ensuredChecksum       *irodstypes.IRODSChecksum
 	ensuredChecksumPaths  []string
+	allReplicaStatPaths   []string
+	queryLimits           []int
 	statErr               error
 	listDirErr            error
 	searchErr             error
@@ -929,6 +985,7 @@ func (f *fakeIRODSFilesystem) StatFile(irodsPath string) (*irodsfs.Entry, error)
 }
 
 func (f *fakeIRODSFilesystem) StatFileWithAllReplicas(irodsPath string) (*irodsfs.Entry, error) {
+	f.allReplicaStatPaths = append(f.allReplicaStatPaths, irodsPath)
 	if f.allReplicaEntryByPath != nil {
 		if entry, ok := f.allReplicaEntryByPath[irodsPath]; ok {
 			return entry, nil
@@ -960,6 +1017,7 @@ func (f *fakeIRODSFilesystem) QueryMetadataEntries(query extmetadata.EntryQuery)
 	if err != nil {
 		return extmetadata.EntryQueryResult{}, err
 	}
+	f.queryLimits = append(f.queryLimits, normalized.Limit)
 
 	result := extmetadata.EntryQueryResult{
 		Entries:     []*extmetadata.Entry{},

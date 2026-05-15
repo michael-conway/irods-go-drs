@@ -123,7 +123,7 @@ type drsListResult struct {
 	Path    string         `json:"path"`
 	Offset  int            `json:"offset"`
 	Limit   int            `json:"limit"`
-	Total   int            `json:"total"`
+	Total   *int           `json:"total,omitempty"`
 	HasMore bool           `json:"hasMore"`
 	Objects []drsListEntry `json:"objects"`
 }
@@ -276,6 +276,7 @@ func writeDrsListHelp(w io.Writer) {
 	fmt.Fprintf(w, "      --help         show help for drsls\n")
 	fmt.Fprintf(w, "      --offset       zero-based paging offset (default: 0)\n")
 	fmt.Fprintf(w, "      --limit        page size (default: 20)\n")
+	fmt.Fprintf(w, "      --exact_total  scan all matches and include an exact total\n")
 	fmt.Fprintf(w, "  -r, --recursive    recurse into subcollections\n")
 	fmt.Fprintf(w, "      --scope_all    include DRS data objects and compound collection objects (default)\n")
 	fmt.Fprintf(w, "      --scope_objects include only DRS data objects\n")
@@ -368,6 +369,7 @@ func getCommand() *cli.Command {
 	var drsListScopeAll bool
 	var drsListScopeObjects bool
 	var drsListScopeCompound bool
+	var drsListExactTotal bool
 	var drsListOffset int
 	var drsListLimit int
 	var mimeType string
@@ -614,6 +616,7 @@ func getCommand() *cli.Command {
 					&cli.BoolFlag{Name: "help", Usage: "show help for drsls", Destination: &drsListHelp},
 					&cli.IntFlag{Name: "offset", Value: 0, Usage: "zero-based paging offset", Destination: &drsListOffset},
 					&cli.IntFlag{Name: "limit", Value: 20, Usage: "page size", Destination: &drsListLimit},
+					&cli.BoolFlag{Name: "exact_total", Usage: "scan all matches and include an exact total", Destination: &drsListExactTotal},
 					&cli.BoolFlag{Name: "recursive", Aliases: []string{"r"}, Usage: "recurse into subcollections", Destination: &drsListRecursive},
 					&cli.BoolFlag{Name: "scope_all", Usage: "include DRS data objects and compound collection objects (default)", Destination: &drsListScopeAll},
 					&cli.BoolFlag{Name: "scope_objects", Usage: "include only DRS data objects", Destination: &drsListScopeObjects},
@@ -661,7 +664,12 @@ func getCommand() *cli.Command {
 						}
 					}
 
-					page, err := drs_support.ListDrsObjectsUnderCollectionPage(filesystem, filesystem, target, drsListRecursive, drsListScope, drsListOffset, drsListLimit)
+					var page *drs_support.DrsObjectPage
+					if drsListExactTotal {
+						page, err = drs_support.ListDrsObjectsUnderCollectionPage(filesystem, filesystem, target, drsListRecursive, drsListScope, drsListOffset, drsListLimit)
+					} else {
+						page, err = drs_support.ListDrsObjectsUnderCollectionPageFast(filesystem, filesystem, target, drsListRecursive, drsListScope, drsListOffset, drsListLimit)
+					}
 					if err != nil {
 						return err
 					}
@@ -670,9 +678,11 @@ func getCommand() *cli.Command {
 						Path:    target,
 						Offset:  page.Offset,
 						Limit:   page.Limit,
-						Total:   page.Total,
 						HasMore: page.HasMore,
 						Objects: make([]drsListEntry, 0, len(page.Objects)),
+					}
+					if page.TotalKnown {
+						result.Total = &page.Total
 					}
 
 					for _, object := range page.Objects {
