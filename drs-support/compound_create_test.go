@@ -80,24 +80,6 @@ func (f *compoundTestFilesystem) List(irodsPath string) ([]*irodsfs.Entry, error
 	return children, nil
 }
 
-func (f *compoundTestFilesystem) SearchByMeta(metaname string, metavalue string) ([]*irodsfs.Entry, error) {
-	results := []*irodsfs.Entry{}
-	for path, metas := range f.metadataByPath {
-		for _, meta := range metas {
-			if meta == nil {
-				continue
-			}
-			if meta.Name == metaname && meta.Value == metavalue {
-				if entry, ok := f.entriesByPath[path]; ok {
-					results = append(results, entry)
-				}
-				break
-			}
-		}
-	}
-	return results, nil
-}
-
 func (f *compoundTestFilesystem) ListMetadata(irodsPath string) ([]*irodstypes.IRODSMeta, error) {
 	metas, ok := f.metadataByPath[irodsPath]
 	if !ok {

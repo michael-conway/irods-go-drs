@@ -3,12 +3,14 @@ package test
 import (
 	"context"
 	"errors"
+	"path"
 	"strings"
 	"testing"
 	"time"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+	extmetadata "github.com/michael-conway/go-irodsclient-extensions/metadata"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -87,7 +89,7 @@ func TestGetDrsObjectByID(t *testing.T) {
 		},
 	}
 
-	object, err := drs_support.GetDrsObjectByID(filesystem, "drs-123")
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, "drs-123")
 	if err != nil {
 		t.Fatalf("get drs object by id: %v", err)
 	}
@@ -149,7 +151,7 @@ func TestGetDrsObjectByIDForCompoundCollection(t *testing.T) {
 		},
 	}
 
-	object, err := drs_support.GetDrsObjectByID(filesystem, "compound-id")
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, "compound-id")
 	if err != nil {
 		t.Fatalf("get drs compound object by id: %v", err)
 	}
@@ -168,7 +170,7 @@ func TestGetDrsObjectByIDReturnsNotFound(t *testing.T) {
 		searchEntries: []*irodsfs.Entry{},
 	}
 
-	_, err := drs_support.GetDrsObjectByID(filesystem, "missing-drs-id")
+	_, err := drs_support.GetDrsObjectByID(filesystem, filesystem, "missing-drs-id")
 	if err == nil {
 		t.Fatal("expected missing DRS object error")
 	}
@@ -195,7 +197,7 @@ func TestGetDrsObjectByIDRejectsAmbiguousMatches(t *testing.T) {
 		},
 	}
 
-	_, err := drs_support.GetDrsObjectByID(filesystem, "drs-123")
+	_, err := drs_support.GetDrsObjectByID(filesystem, filesystem, "drs-123")
 	if err == nil {
 		t.Fatal("expected ambiguous DRS id error")
 	}
@@ -334,7 +336,7 @@ func TestGetDrsObjectByIDHydratesAllReplicaResources(t *testing.T) {
 		},
 	}
 
-	object, err := drs_support.GetDrsObjectByID(filesystem, "drs-123")
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, "drs-123")
 	if err != nil {
 		t.Fatalf("get drs object by id: %v", err)
 	}
@@ -416,7 +418,7 @@ func TestListDrsObjectsUnderCollectionHonorsRecursiveFlag(t *testing.T) {
 		},
 	}
 
-	nonRecursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, root, false)
+	nonRecursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, root, false, drs_support.DrsListingScopeObjects)
 	if err != nil {
 		t.Fatalf("list non-recursive DRS objects: %v", err)
 	}
@@ -425,7 +427,7 @@ func TestListDrsObjectsUnderCollectionHonorsRecursiveFlag(t *testing.T) {
 		t.Fatalf("expected only root DRS object, got %+v", nonRecursive)
 	}
 
-	recursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, root, true)
+	recursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, root, true, drs_support.DrsListingScopeObjects)
 	if err != nil {
 		t.Fatalf("list recursive DRS objects: %v", err)
 	}
@@ -433,6 +435,87 @@ func TestListDrsObjectsUnderCollectionHonorsRecursiveFlag(t *testing.T) {
 	if len(recursive) != 2 {
 		t.Fatalf("expected 2 recursive DRS objects, got %d", len(recursive))
 	}
+}
+
+func TestListDrsObjectsUnderCollectionHonorsListingScope(t *testing.T) {
+	root := "/tempZone/home/rods"
+	objectPath := root + "/file.txt"
+	compoundPath := root + "/bundle"
+	plainCollectionPath := root + "/plain-coll"
+
+	filesystem := &fakeIRODSFilesystem{
+		account: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+		listErr: errors.New("listing hydration should use matched AVUs"),
+		entryByPath: map[string]*irodsfs.Entry{
+			objectPath:          {ID: 1, Type: irodsfs.FileEntry, Name: "file.txt", Path: objectPath},
+			compoundPath:        {ID: 2, Type: irodsfs.DirectoryEntry, Name: "bundle", Path: compoundPath},
+			plainCollectionPath: {ID: 3, Type: irodsfs.DirectoryEntry, Name: "plain-coll", Path: plainCollectionPath},
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{
+			objectPath: {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "object-id", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "object description", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuAliasAttrib, Value: "object-alias", Units: drs_support.DrsAvuUnit},
+			},
+			compoundPath: {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "compound-id", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuCompoundManifestAttrib, Value: "true", Units: drs_support.DrsAvuUnit},
+				{Name: drs_support.DrsAvuDescriptionAttrib, Value: "compound description", Units: drs_support.DrsAvuUnit},
+			},
+			plainCollectionPath: {
+				{Name: drs_support.DrsIdAvuAttrib, Value: "plain-coll-id", Units: drs_support.DrsAvuUnit},
+			},
+		},
+	}
+
+	all, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, root, false, drs_support.DrsListingScopeAll)
+	if err != nil {
+		t.Fatalf("list all DRS entries: %v", err)
+	}
+	if got := drsObjectIDs(all); strings.Join(got, ",") != "compound-id,object-id" {
+		t.Fatalf("expected object and compound entries, got %+v", got)
+	}
+	if object := drsObjectByID(all, "object-id"); object == nil || object.Description != "object description" || strings.Join(object.Aliases, ",") != "object-alias" {
+		t.Fatalf("expected object metadata hydrated from matched AVUs, got %+v", object)
+	}
+	if compoundObject := drsObjectByID(all, "compound-id"); compoundObject == nil || !compoundObject.IsManifest || compoundObject.Description != "compound description" {
+		t.Fatalf("expected compound metadata hydrated from matched AVUs, got %+v", compoundObject)
+	}
+
+	objects, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, root, false, drs_support.DrsListingScopeObjects)
+	if err != nil {
+		t.Fatalf("list object DRS entries: %v", err)
+	}
+	if got := drsObjectIDs(objects); strings.Join(got, ",") != "object-id" {
+		t.Fatalf("expected only data object entries, got %+v", got)
+	}
+
+	compound, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, root, false, drs_support.DrsListingScopeCompound)
+	if err != nil {
+		t.Fatalf("list compound DRS entries: %v", err)
+	}
+	if got := drsObjectIDs(compound); strings.Join(got, ",") != "compound-id" {
+		t.Fatalf("expected only compound entries, got %+v", got)
+	}
+}
+
+func drsObjectIDs(objects []*drs_support.InternalDrsObject) []string {
+	ids := make([]string, 0, len(objects))
+	for _, object := range objects {
+		if object != nil {
+			ids = append(ids, object.Id)
+		}
+	}
+	return ids
+}
+
+func drsObjectByID(objects []*drs_support.InternalDrsObject, drsID string) *drs_support.InternalDrsObject {
+	for _, object := range objects {
+		if object != nil && object.Id == drsID {
+			return object
+		}
+	}
+	return nil
 }
 
 func TestListDrsObjectsReturnsPagedResults(t *testing.T) {
@@ -453,7 +536,7 @@ func TestListDrsObjectsReturnsPagedResults(t *testing.T) {
 		},
 	}
 
-	page, err := drs_support.ListDrsObjects(filesystem, 1, 1)
+	page, err := drs_support.ListDrsObjects(filesystem, filesystem, drs_support.DrsListingScopeObjects, 1, 1)
 	if err != nil {
 		t.Fatalf("list paged DRS objects: %v", err)
 	}
@@ -868,12 +951,142 @@ func (f *fakeIRODSFilesystem) List(irodsPath string) ([]*irodsfs.Entry, error) {
 	return []*irodsfs.Entry{}, nil
 }
 
-func (f *fakeIRODSFilesystem) SearchByMeta(_ string, _ string) ([]*irodsfs.Entry, error) {
+func (f *fakeIRODSFilesystem) QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error) {
 	if f.searchErr != nil {
-		return nil, f.searchErr
+		return extmetadata.EntryQueryResult{}, f.searchErr
 	}
 
-	return f.searchEntries, nil
+	normalized, err := extmetadata.NormalizeEntryQuery(query)
+	if err != nil {
+		return extmetadata.EntryQueryResult{}, err
+	}
+
+	result := extmetadata.EntryQueryResult{
+		Entries:     []*extmetadata.Entry{},
+		MatchedAVUs: map[string][]extmetadata.AVUStat{},
+		Page: extmetadata.EntryQueryPage{
+			Limit: normalized.Limit,
+		},
+	}
+
+	for irodsPath, metas := range f.metadataByPath {
+		entry := f.queryEntryForPath(irodsPath)
+		if entry == nil || !fakeQueryIncludesEntryKind(normalized, entry) || !fakeQueryEntryInScope(normalized, entry) {
+			continue
+		}
+
+		matched := fakeMatchedAVUsForQuery(normalized, metas)
+		if len(matched) == 0 {
+			continue
+		}
+
+		result.Entries = append(result.Entries, entry)
+		result.MatchedAVUs[entry.Path] = matched
+		if entry.IsDir() {
+			result.Page.Returned.Collections++
+			continue
+		}
+		result.Page.Returned.DataObjects++
+	}
+
+	return result, nil
+}
+
+func (f *fakeIRODSFilesystem) queryEntryForPath(irodsPath string) *irodsfs.Entry {
+	if f.entryByPath != nil {
+		if entry, ok := f.entryByPath[irodsPath]; ok {
+			return entry
+		}
+	}
+	for _, entry := range f.searchEntries {
+		if entry != nil && entry.Path == irodsPath {
+			return entry
+		}
+	}
+	for _, entries := range f.listByPath {
+		for _, entry := range entries {
+			if entry != nil && entry.Path == irodsPath {
+				return entry
+			}
+		}
+	}
+	return nil
+}
+
+func fakeQueryIncludesEntryKind(query extmetadata.EntryQuery, entry *irodsfs.Entry) bool {
+	if entry.IsDir() {
+		return extmetadata.EntryQueryHasKind(query, extmetadata.EntryKindCollection)
+	}
+	return extmetadata.EntryQueryHasKind(query, extmetadata.EntryKindDataObject)
+}
+
+func fakeMatchedAVUsForQuery(query extmetadata.EntryQuery, metas []*irodstypes.IRODSMeta) []extmetadata.AVUStat {
+	matched := []extmetadata.AVUStat{}
+	for _, meta := range metas {
+		if meta == nil || !fakeMetaMatchesConditions(meta, query.Conditions) {
+			continue
+		}
+		matched = append(matched, extmetadata.AVUStat{
+			Name:  meta.Name,
+			Value: meta.Value,
+			Units: meta.Units,
+		})
+	}
+	return matched
+}
+
+func fakeQueryEntryInScope(query extmetadata.EntryQuery, entry *irodsfs.Entry) bool {
+	if query.Scope == nil || query.Scope.Mode == extmetadata.EntryQueryScopeAbsolute {
+		return true
+	}
+
+	root := strings.TrimRight(query.Scope.Root, "/")
+	if root == "" {
+		root = "/"
+	}
+	entryPath := path.Clean(entry.Path)
+
+	switch query.Scope.Mode {
+	case extmetadata.EntryQueryScopeSelf:
+		return entry.IsDir() && entryPath == root
+	case extmetadata.EntryQueryScopeChildren:
+		return path.Dir(entryPath) == root
+	case extmetadata.EntryQueryScopeDescendants:
+		if entry.IsDir() {
+			return strings.HasPrefix(entryPath, root+"/")
+		}
+		return strings.HasPrefix(path.Dir(entryPath), root+"/")
+	default:
+		return true
+	}
+}
+
+func fakeMetaMatchesConditions(meta *irodstypes.IRODSMeta, conditions []extmetadata.EntryCondition) bool {
+	for _, condition := range conditions {
+		var candidate string
+		switch condition.Field {
+		case extmetadata.FieldAVUAttrib:
+			candidate = meta.Name
+		case extmetadata.FieldAVUValue:
+			candidate = meta.Value
+		case extmetadata.FieldAVUUnit:
+			candidate = meta.Units
+		default:
+			continue
+		}
+
+		if condition.Op == extmetadata.OpLike {
+			pattern := strings.TrimSuffix(extmetadata.NormalizeLikePattern(condition.Value), "%")
+			if !strings.HasPrefix(candidate, pattern) {
+				return false
+			}
+			continue
+		}
+		if candidate != condition.Value {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *fakeIRODSFilesystem) ListMetadata(irodsPath string) ([]*irodstypes.IRODSMeta, error) {

@@ -489,10 +489,6 @@ func (f *accessMethodsTestFilesystem) List(irodsPath string) ([]*irodsfs.Entry, 
 	return nil, nil
 }
 
-func (f *accessMethodsTestFilesystem) SearchByMeta(metaname string, metavalue string) ([]*irodsfs.Entry, error) {
-	return nil, nil
-}
-
 func (f *accessMethodsTestFilesystem) ListMetadata(irodsPath string) ([]*irodstypes.IRODSMeta, error) {
 	if f == nil || f.metadataByPath == nil {
 		return nil, nil

@@ -13,6 +13,8 @@ import (
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+	extmetadata "github.com/michael-conway/go-irodsclient-extensions/metadata"
+	extmetadatairodsfs "github.com/michael-conway/go-irodsclient-extensions/metadata/irodsfs"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -111,7 +113,15 @@ func buildE2EObjectFixture(t *testing.T) (*e2eObjectFixture, error) {
 	}, nil
 }
 
-func newE2EIRODSFilesystem(t *testing.T, effectiveUser string) *irodsfs.FileSystem {
+type e2eIRODSFilesystem struct {
+	*irodsfs.FileSystem
+}
+
+func (f *e2eIRODSFilesystem) QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error) {
+	return extmetadatairodsfs.NewAdapter(f.FileSystem).QueryEntries(query)
+}
+
+func newE2EIRODSFilesystem(t *testing.T, effectiveUser string) *e2eIRODSFilesystem {
 	t.Helper()
 
 	cfg := requireE2EIRODSConfig(t)
@@ -140,7 +150,7 @@ func newE2EIRODSFilesystem(t *testing.T, effectiveUser string) *irodsfs.FileSyst
 		t.Fatalf("connect to iRODS for e2e fixture setup: %v", err)
 	}
 
-	return filesystem
+	return &e2eIRODSFilesystem{FileSystem: filesystem}
 }
 
 func requireE2EBulkObjectFixture(t *testing.T) *e2eBulkObjectFixture {

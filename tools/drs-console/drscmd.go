@@ -14,6 +14,8 @@ import (
 	"github.com/cyverse/go-irodsclient/fs"
 	irodslowfs "github.com/cyverse/go-irodsclient/irods/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
+	extmetadata "github.com/michael-conway/go-irodsclient-extensions/metadata"
+	extmetadatairodsfs "github.com/michael-conway/go-irodsclient-extensions/metadata/irodsfs"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	logrus "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v3"
@@ -21,6 +23,7 @@ import (
 
 type FileSystem interface {
 	drs_support.IRODSFilesystem
+	drs_support.EntryMetadataQuerier
 	GetHomeDirPath() string
 	Release()
 }
@@ -31,6 +34,10 @@ type realFileSystem struct {
 
 func (f *realFileSystem) Release() {
 	f.FileSystem.Release()
+}
+
+func (f *realFileSystem) QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error) {
+	return extmetadatairodsfs.NewAdapter(f.FileSystem).QueryEntries(query)
 }
 
 func (f *realFileSystem) EnsureDataObjectChecksum(irodsPath string) (*types.IRODSChecksum, error) {
@@ -270,6 +277,29 @@ func writeDrsListHelp(w io.Writer) {
 	fmt.Fprintf(w, "      --offset       zero-based paging offset (default: 0)\n")
 	fmt.Fprintf(w, "      --limit        page size (default: 20)\n")
 	fmt.Fprintf(w, "  -r, --recursive    recurse into subcollections\n")
+	fmt.Fprintf(w, "      --scope_all    include DRS data objects and compound collection objects (default)\n")
+	fmt.Fprintf(w, "      --scope_objects include only DRS data objects\n")
+	fmt.Fprintf(w, "      --scope_compound include only compound collection objects\n")
+}
+
+func resolveDrsListScope(scopeAll bool, scopeObjects bool, scopeCompound bool) (drs_support.DrsListingScope, error) {
+	selected := 0
+	for _, enabled := range []bool{scopeAll, scopeObjects, scopeCompound} {
+		if enabled {
+			selected++
+		}
+	}
+	if selected > 1 {
+		return "", fmt.Errorf("choose at most one DRS listing scope")
+	}
+
+	if scopeObjects {
+		return drs_support.DrsListingScopeObjects, nil
+	}
+	if scopeCompound {
+		return drs_support.DrsListingScopeCompound, nil
+	}
+	return drs_support.DrsListingScopeAll, nil
 }
 
 func writeDrsRemoveHelp(w io.Writer) {
@@ -335,6 +365,9 @@ func getCommand() *cli.Command {
 	var drsRemovePath bool
 	var drsRemoveID bool
 	var drsListRecursive bool
+	var drsListScopeAll bool
+	var drsListScopeObjects bool
+	var drsListScopeCompound bool
 	var drsListOffset int
 	var drsListLimit int
 	var mimeType string
@@ -582,6 +615,9 @@ func getCommand() *cli.Command {
 					&cli.IntFlag{Name: "offset", Value: 0, Usage: "zero-based paging offset", Destination: &drsListOffset},
 					&cli.IntFlag{Name: "limit", Value: 20, Usage: "page size", Destination: &drsListLimit},
 					&cli.BoolFlag{Name: "recursive", Aliases: []string{"r"}, Usage: "recurse into subcollections", Destination: &drsListRecursive},
+					&cli.BoolFlag{Name: "scope_all", Usage: "include DRS data objects and compound collection objects (default)", Destination: &drsListScopeAll},
+					&cli.BoolFlag{Name: "scope_objects", Usage: "include only DRS data objects", Destination: &drsListScopeObjects},
+					&cli.BoolFlag{Name: "scope_compound", Usage: "include only compound collection objects", Destination: &drsListScopeCompound},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if drsListHelp {
@@ -599,6 +635,11 @@ func getCommand() *cli.Command {
 
 					if drsListLimit <= 0 {
 						return usageError(cmd, writeDrsListHelp, "limit must be greater than zero")
+					}
+
+					drsListScope, err := resolveDrsListScope(drsListScopeAll, drsListScopeObjects, drsListScopeCompound)
+					if err != nil {
+						return usageError(cmd, writeDrsListHelp, "%s", err.Error())
 					}
 
 					filesystem, err := connectFileSystem()
@@ -620,7 +661,7 @@ func getCommand() *cli.Command {
 						}
 					}
 
-					page, err := drs_support.ListDrsObjectsUnderCollectionPage(filesystem, target, drsListRecursive, drsListOffset, drsListLimit)
+					page, err := drs_support.ListDrsObjectsUnderCollectionPage(filesystem, filesystem, target, drsListRecursive, drsListScope, drsListOffset, drsListLimit)
 					if err != nil {
 						return err
 					}
@@ -858,7 +899,7 @@ func getDrsObject(filesystem FileSystem, target string, forcePath bool, forceID 
 	}
 
 	if forceID {
-		return drs_support.GetDrsObjectByID(filesystem, strings.TrimSpace(target))
+		return drs_support.GetDrsObjectByID(filesystem, filesystem, strings.TrimSpace(target))
 	}
 
 	if looksLikeIRODSPath(target) {
@@ -869,7 +910,7 @@ func getDrsObject(filesystem FileSystem, target string, forcePath bool, forceID 
 		return drs_support.GetDrsObjectByIRODSPath(filesystem, targetPath)
 	}
 
-	return drs_support.GetDrsObjectByID(filesystem, strings.TrimSpace(target))
+	return drs_support.GetDrsObjectByID(filesystem, filesystem, strings.TrimSpace(target))
 }
 
 func looksLikeIRODSPath(target string) bool {

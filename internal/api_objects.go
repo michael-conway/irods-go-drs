@@ -21,12 +21,15 @@ import (
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/gorilla/mux"
 	extension_irodsuri "github.com/michael-conway/go-irodsclient-extensions/irodsuri"
+	extmetadata "github.com/michael-conway/go-irodsclient-extensions/metadata"
+	extmetadatairodsfs "github.com/michael-conway/go-irodsclient-extensions/metadata/irodsfs"
 	extension_tickets "github.com/michael-conway/go-irodsclient-extensions/tickets"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
 type RouteFileSystem interface {
 	drs_support.IRODSFilesystem
+	drs_support.EntryMetadataQuerier
 	CreateTicket(ticketName string, ticketType types.TicketType, path string) error
 	ModifyTicketUseLimit(ticketName string, uses int64) error
 	ModifyTicketExpirationTime(ticketName string, expirationTime time.Time) error
@@ -36,12 +39,20 @@ type RouteFileSystem interface {
 
 const compoundManifestHTTPSAccessID = "irods-compound-https"
 
+type routeFileSystem struct {
+	*irodsfs.FileSystem
+}
+
+func (f *routeFileSystem) QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error) {
+	return extmetadatairodsfs.NewAdapter(f.FileSystem).QueryEntries(query)
+}
+
 var createRouteFileSystem = func(account *types.IRODSAccount, applicationName string) (RouteFileSystem, error) {
 	filesystem, err := irodsfs.NewFileSystemWithDefault(account, applicationName)
 	if err != nil {
 		return nil, err
 	}
-	return filesystem, nil
+	return &routeFileSystem{FileSystem: filesystem}, nil
 }
 
 var createAdminRouteFileSystem = func(drsConfig *drs_support.DrsConfig, applicationName string) (RouteFileSystem, error) {
@@ -90,7 +101,7 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 	}
 	defer filesystem.Release()
 
-	object, err := drs_support.GetDrsObjectByID(filesystem, objectID)
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
@@ -334,7 +345,7 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer filesystem.Release()
 
-	object, err := drs_support.GetDrsObjectByID(filesystem, objectID)
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
@@ -382,7 +393,7 @@ func GetCompoundManifestExt(w http.ResponseWriter, r *http.Request) {
 	}
 	defer filesystem.Release()
 
-	object, err := drs_support.GetDrsObjectByID(filesystem, objectID)
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
@@ -478,7 +489,7 @@ func OptionsObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer filesystem.Release()
 
-	if _, err := drs_support.GetDrsObjectByID(filesystem, objectID); err != nil {
+	if _, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID); err != nil {
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
@@ -728,7 +739,7 @@ func bulkAuthorizationsFromIDs(filesystem RouteFileSystem, drsConfig *drs_suppor
 	missingIDs := make([]string, 0)
 
 	for _, objectID := range objectIDs {
-		if _, err := drs_support.GetDrsObjectByID(filesystem, objectID); err != nil {
+		if _, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID); err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				missingIDs = append(missingIDs, objectID)
 				continue

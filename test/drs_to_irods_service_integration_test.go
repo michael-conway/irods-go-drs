@@ -13,6 +13,8 @@ import (
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodslowfs "github.com/cyverse/go-irodsclient/irods/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+	extmetadata "github.com/michael-conway/go-irodsclient-extensions/metadata"
+	extmetadatairodsfs "github.com/michael-conway/go-irodsclient-extensions/metadata/irodsfs"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -124,7 +126,7 @@ func TestBuildS3AccessMethodFromBucketAVUIntegration(t *testing.T) {
 		t.Fatalf("create s3 integration drs object: %v", err)
 	}
 
-	object, err := drs_support.GetDrsObjectByID(filesystem, drsID)
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, drsID)
 	if err != nil {
 		t.Fatalf("get s3 integration drs object by id: %v", err)
 	}
@@ -157,7 +159,7 @@ func TestBuildS3AccessMethodFromBucketAVUIntegration(t *testing.T) {
 	}
 }
 
-func requireIntegrationObjectChecksum(t *testing.T, filesystem *irodsfs.FileSystem, irodsPath string) {
+func requireIntegrationObjectChecksum(t *testing.T, filesystem *integrationIRODSFilesystem, irodsPath string) {
 	t.Helper()
 
 	conn, err := filesystem.GetMetadataConnection(true)
@@ -235,7 +237,7 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 		t.Fatalf("create nested drs object: %v", err)
 	}
 
-	objectByID, err := drs_support.GetDrsObjectByID(filesystem, rootDrsID)
+	objectByID, err := drs_support.GetDrsObjectByID(filesystem, filesystem, rootDrsID)
 	if err != nil {
 		t.Fatalf("get drs object by id: %v", err)
 	}
@@ -253,21 +255,21 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 		t.Fatalf("expected DRS id %q, got %q", rootDrsID, objectByPath.Id)
 	}
 
-	nonRecursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, testDir, false)
+	nonRecursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, testDir, false, drs_support.DrsListingScopeObjects)
 	if err != nil {
 		t.Fatalf("list non-recursive collection objects: %v", err)
 	}
 
 	assertDrsObjectIDs(t, nonRecursive, []string{rootDrsID})
 
-	recursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, testDir, true)
+	recursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, testDir, true, drs_support.DrsListingScopeObjects)
 	if err != nil {
 		t.Fatalf("list recursive collection objects: %v", err)
 	}
 
 	assertDrsObjectIDs(t, recursive, []string{rootDrsID, nestedDrsID})
 
-	pageZero, err := drs_support.ListDrsObjects(filesystem, 0, 1)
+	pageZero, err := drs_support.ListDrsObjects(filesystem, filesystem, drs_support.DrsListingScopeObjects, 0, 1)
 	if err != nil {
 		t.Fatalf("list first page of DRS objects: %v", err)
 	}
@@ -276,7 +278,7 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 		t.Fatalf("expected first page to contain at most 1 object, got %d", len(pageZero.Objects))
 	}
 
-	pageOne, err := drs_support.ListDrsObjects(filesystem, 1, 1)
+	pageOne, err := drs_support.ListDrsObjects(filesystem, filesystem, drs_support.DrsListingScopeObjects, 1, 1)
 	if err != nil {
 		t.Fatalf("list second page of DRS objects: %v", err)
 	}
@@ -289,7 +291,7 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 		t.Fatalf("expected second page to contain at most 1 object, got %d", len(pageOne.Objects))
 	}
 
-	pageAll, err := drs_support.ListDrsObjects(filesystem, 0, 1000)
+	pageAll, err := drs_support.ListDrsObjects(filesystem, filesystem, drs_support.DrsListingScopeObjects, 0, 1000)
 	if err != nil {
 		t.Fatalf("list larger page of DRS objects: %v", err)
 	}
@@ -309,7 +311,15 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 	}
 }
 
-func newIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
+type integrationIRODSFilesystem struct {
+	*irodsfs.FileSystem
+}
+
+func (f *integrationIRODSFilesystem) QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error) {
+	return extmetadatairodsfs.NewAdapter(f.FileSystem).QueryEntries(query)
+}
+
+func newIntegrationIRODSFilesystem(t *testing.T) *integrationIRODSFilesystem {
 	t.Helper()
 
 	cfg := requireIntegrationIrodsConfig(t)
@@ -333,7 +343,7 @@ func newIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
 		t.Fatalf("connect to iRODS. This test requires the docker compose stack in deployments/docker-test-framework/5-0 to be running: %v", err)
 	}
 
-	return filesystem
+	return &integrationIRODSFilesystem{FileSystem: filesystem}
 }
 
 func assertMetadataValue(t *testing.T, metas []*irodstypes.IRODSMeta, name string, expected string) {
@@ -356,7 +366,7 @@ func assertMetadataValues(t *testing.T, metas []*irodstypes.IRODSMeta, name stri
 	}
 }
 
-func makeIntegrationTestDir(t *testing.T, filesystem *irodsfs.FileSystem) string {
+func makeIntegrationTestDir(t *testing.T, filesystem *integrationIRODSFilesystem) string {
 	t.Helper()
 
 	cfg := requireIntegrationIrodsConfig(t)

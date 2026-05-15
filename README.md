@@ -2,6 +2,7 @@
 
 [![Go](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml)
 [![CodeQL Advanced](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml)
+[![Container Build](https://github.com/michael-conway/irods-go-drs/actions/workflows/container-build.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/container-build.yml)
 
 A Go implementation of the GA4GH Data Repository Service (DRS) for iRODS.
 

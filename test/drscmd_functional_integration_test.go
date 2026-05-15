@@ -33,7 +33,7 @@ func TestDrsCommandFunctionalFlowIntegration(t *testing.T) {
 		t.Fatalf("create drs object: %v", err)
 	}
 
-	objectByID, err := drs_support.GetDrsObjectByID(filesystem, drsID)
+	objectByID, err := drs_support.GetDrsObjectByID(filesystem, filesystem, drsID)
 	if err != nil {
 		t.Fatalf("get drs object by id: %v", err)
 	}

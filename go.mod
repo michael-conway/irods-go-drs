@@ -53,3 +53,5 @@ require (
 	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace github.com/michael-conway/go-irodsclient-extensions => ../go-irodsclient-extensions

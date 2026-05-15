@@ -182,7 +182,7 @@ func decodeCommandJSON(t *testing.T, output string, target any) {
 	}
 }
 
-func newToolIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
+func newToolIntegrationIRODSFilesystem(t *testing.T) *realFileSystem {
 	t.Helper()
 
 	cfg := requireToolIntegrationConfig(t)
@@ -206,10 +206,10 @@ func newToolIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
 		t.Fatalf("connect to iRODS: %v", err)
 	}
 
-	return filesystem
+	return &realFileSystem{FileSystem: filesystem}
 }
 
-func makeToolIntegrationTestDir(t *testing.T, filesystem *irodsfs.FileSystem) string {
+func makeToolIntegrationTestDir(t *testing.T, filesystem *realFileSystem) string {
 	t.Helper()
 
 	cfg := requireToolIntegrationConfig(t)
