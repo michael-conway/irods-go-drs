@@ -10,7 +10,7 @@
 It is the right tool for day-to-day iRODS operations such as:
 
 - listing collections and data objects
-  - uploading and downloading data
+- uploading and downloading data
 - setting general metadata
 - managing tickets, ACLs, and environment files
 
@@ -35,6 +35,12 @@ The expected workflow is:
 - a connection created with `gocmd init` is reused by `drscmd`
 - relative iRODS paths are resolved against the saved iCommands current working directory when one exists
 - if no current working directory has been saved yet, `drscmd` falls back to the iRODS home directory
+
+For commands that accept either `<path-or-drs-id>` (`drsinfo`, `drsupdate`, and `drsrm`), use `--path` when passing a
+bare relative path such as `USERGUIDE.md`. Without an explicit selector, only absolute iRODS paths and values beginning
+with `.` are treated as paths; other values are treated as DRS ids.
+
+Successful DRS commands write JSON to stdout. Command errors are written to stderr and return a non-zero exit status.
 
 ## Current commands
 
@@ -80,7 +86,12 @@ drscmd drsinfo --id <drs-id>
 ```
 
 If no explicit selector flag is given, the tool treats values that look like
-iRODS paths as paths and everything else as DRS ids.
+iRODS paths as paths and everything else as DRS ids. Use `--path` for bare
+relative paths:
+
+```bash
+drscmd drsinfo --path USERGUIDE.md
+```
 
 Show command help:
 
@@ -171,6 +182,12 @@ Show command help:
 drscmd drsmakecompound --help
 ```
 
+Compound creation writes the root collection DRS id and compound marker, and it
+ensures included data objects have DRS ids, MIME type, and version metadata.
+It does not create default `iRODS:DRS:DESCRIPTION` or `iRODS:DRS:ALIAS` AVUs
+for the root collection, child collections, or data objects. Add or update
+descriptions and aliases explicitly when they are needed.
+
 ### List DRS objects in a collection
 
 List DRS objects directly under the saved iRODS current working directory:
@@ -195,8 +212,35 @@ Paging options:
 
 - `--offset <n>` for a zero-based page offset
 - `--limit <n>` for page size
+- `--exact_total` to scan all matches and include an exact total
 
-The response includes:
+By default, `drsls` uses a fast listing path and may omit `total`. Use
+`--exact_total` when the exact total count is required.
+
+Scope options:
+
+- `--scope_all` includes DRS data objects and compound collection objects. This is the default.
+- `--scope_objects` includes only DRS data objects.
+- `--scope_compound` includes only compound collection objects.
+
+Examples:
+
+```bash
+drscmd drsls --scope_objects /tempZone/home/rods/projects
+drscmd drsls --scope_compound --recursive /tempZone/home/rods/projects
+drscmd drsls --exact_total --limit 50 /tempZone/home/rods/projects
+```
+
+The response includes top-level paging fields:
+
+- `path`
+- `offset`
+- `limit`
+- `hasMore`
+
+When `--exact_total` is used, the response also includes `total`.
+
+Each object row includes:
 
 - `drsId`
 - `path`
@@ -262,6 +306,12 @@ By iRODS path:
 
 ```bash
 drscmd drsrm --path /tempZone/home/rods/file.txt
+```
+
+Relative path from the saved iRODS current working directory:
+
+```bash
+drscmd drsrm --path USERGUIDE.md
 ```
 
 By DRS id:

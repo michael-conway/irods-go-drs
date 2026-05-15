@@ -29,6 +29,7 @@ type integrationTestConfig struct {
 var (
 	integrationConfigOnce  sync.Once
 	integrationConfigValue *drs_support.DrsConfig
+	integrationConfigPath  string
 	integrationConfigErr   error
 )
 
@@ -72,6 +73,18 @@ func requireIntegrationDrsConfig(t *testing.T) *drs_support.DrsConfig {
 		t.Fatalf("integration tests require %s to point at the shared E2E config file", integrationConfigFileEnvVar)
 	}
 
+	return cfg
+}
+
+func requireIntegrationRouteDrsConfig(t *testing.T) *drs_support.DrsConfig {
+	t.Helper()
+
+	cfg := requireIntegrationDrsConfig(t)
+	if strings.TrimSpace(integrationConfigPath) == "" {
+		t.Fatalf("integration tests require resolved %s path before starting route handlers", integrationConfigFileEnvVar)
+	}
+
+	t.Setenv(drs_support.ConfigFileEnvVar, integrationConfigPath)
 	return cfg
 }
 
@@ -124,6 +137,7 @@ func loadIntegrationConfigs() {
 		return
 	}
 	integrationConfigValue = cfg
+	integrationConfigPath = resolvedPath
 }
 
 func readIntegrationDrsConfig(configFile string) (*drs_support.DrsConfig, error) {

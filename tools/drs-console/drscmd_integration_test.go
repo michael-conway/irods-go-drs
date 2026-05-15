@@ -124,7 +124,7 @@ func TestDrsCmdIntegrationHarness(t *testing.T) {
 		t.Fatalf("expected drsinfo by path %q, got %q", objectPath, infoByPath.Path)
 	}
 
-	removeOutputText := runIntegrationCommand(t, tempHome, gocache, drscmdBinary, "drsrm", "USERGUIDE.md")
+	removeOutputText := runIntegrationCommand(t, tempHome, gocache, drscmdBinary, "drsrm", "--path", "USERGUIDE.md")
 	var removeOutput drscmdRemoveOutput
 	decodeCommandJSON(t, removeOutputText, &removeOutput)
 	if removeOutput.Path != objectPath {
@@ -160,13 +160,24 @@ func runIntegrationCommand(t *testing.T, home string, gocache string, binary str
 
 	cmd := exec.Command(binary, args...)
 	cmd.Env = integrationCommandEnv(home, gocache)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	output, err := cmd.CombinedOutput()
+	err := cmd.Run()
 	if err != nil {
-		t.Fatalf("run %s %s: %v\n%s", binary, strings.Join(args, " "), err, string(output))
+		t.Fatalf(
+			"run %s %s: %v\nstdout:\n%s\nstderr:\n%s",
+			binary,
+			strings.Join(args, " "),
+			err,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 
-	return string(output)
+	return stdout.String()
 }
 
 func decodeCommandJSON(t *testing.T, output string, target any) {
@@ -244,12 +255,12 @@ func integrationIRODSZone(t *testing.T) string {
 
 func integrationIRODSUser(t *testing.T) string {
 	t.Helper()
-	return requireToolIntegrationConfig(t).IrodsAdminUser
+	return strings.TrimSpace(requireToolIntegrationConfig(t).IrodsPrimaryTestUser)
 }
 
 func integrationIRODSPassword(t *testing.T) string {
 	t.Helper()
-	return requireToolIntegrationConfig(t).IrodsAdminPassword
+	return strings.TrimSpace(requireToolIntegrationConfig(t).IrodsPrimaryTestPassword)
 }
 
 func integrationIRODSAuthScheme(t *testing.T) string {
@@ -275,7 +286,8 @@ func requireToolIntegrationConfig(t *testing.T) *drs_support.DrsConfig {
 
 	if strings.TrimSpace(cfg.IrodsHost) == "" || cfg.IrodsPort <= 0 || strings.TrimSpace(cfg.IrodsZone) == "" ||
 		strings.TrimSpace(cfg.IrodsAdminUser) == "" || strings.TrimSpace(cfg.IrodsAdminPassword) == "" ||
-		strings.TrimSpace(cfg.IrodsPrimaryTestUser) == "" || strings.TrimSpace(cfg.IrodsAuthScheme) == "" {
+		strings.TrimSpace(cfg.IrodsPrimaryTestUser) == "" || strings.TrimSpace(cfg.IrodsPrimaryTestPassword) == "" ||
+		strings.TrimSpace(cfg.IrodsAuthScheme) == "" {
 		t.Fatalf("integration tests require iRODS admin and primary test-user settings in %s", toolIntegrationConfigFileEnvVar)
 	}
 

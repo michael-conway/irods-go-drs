@@ -363,11 +363,11 @@ func TestCreateCompoundDrsObjectAppliesIgnoreAndScaffolding(t *testing.T) {
 	if !hasMetadata(rootMetas, DrsAvuCompoundManifestAttrib, "true", DrsAvuUnit) {
 		t.Fatalf("expected root compound marker metadata")
 	}
-	if !hasMetadata(rootMetas, DrsAvuAliasAttrib, ".", DrsAvuUnit) {
-		t.Fatalf("expected root alias metadata")
+	if hasMetadataNameWithValue(rootMetas, DrsAvuAliasAttrib) {
+		t.Fatalf("expected no default root alias metadata, got %+v", rootMetas)
 	}
-	if !hasMetadata(rootMetas, DrsAvuDescriptionAttrib, ".", DrsAvuUnit) {
-		t.Fatalf("expected root description metadata")
+	if hasMetadataNameWithValue(rootMetas, DrsAvuDescriptionAttrib) {
+		t.Fatalf("expected no default root description metadata, got %+v", rootMetas)
 	}
 	if !hasMetadata(rootMetas, DrsIdAvuAttrib, result.DrsID, DrsAvuUnit) {
 		t.Fatalf("expected root DRS id metadata")
@@ -377,11 +377,11 @@ func TestCreateCompoundDrsObjectAppliesIgnoreAndScaffolding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list subcollection metadata: %v", err)
 	}
-	if !hasMetadata(subcollectionMetas, DrsAvuAliasAttrib, "a", DrsAvuUnit) {
-		t.Fatalf("expected subcollection alias metadata")
+	if hasMetadataNameWithValue(subcollectionMetas, DrsAvuAliasAttrib) {
+		t.Fatalf("expected no default subcollection alias metadata, got %+v", subcollectionMetas)
 	}
-	if !hasMetadata(subcollectionMetas, DrsAvuDescriptionAttrib, "a", DrsAvuUnit) {
-		t.Fatalf("expected subcollection description metadata")
+	if hasMetadataNameWithValue(subcollectionMetas, DrsAvuDescriptionAttrib) {
+		t.Fatalf("expected no default subcollection description metadata, got %+v", subcollectionMetas)
 	}
 
 	newObjectMetas, err := filesystem.ListMetadata(rootPath + "/a/new.txt")
@@ -391,11 +391,11 @@ func TestCreateCompoundDrsObjectAppliesIgnoreAndScaffolding(t *testing.T) {
 	if drsIDFromMetadata(newObjectMetas) == "" {
 		t.Fatalf("expected generated DRS id for non-ignored data object")
 	}
-	if !hasMetadataNameWithValue(newObjectMetas, DrsAvuAliasAttrib) {
-		t.Fatalf("expected alias metadata for new data object, got %+v", newObjectMetas)
+	if hasMetadataNameWithValue(newObjectMetas, DrsAvuAliasAttrib) {
+		t.Fatalf("expected no default alias metadata for new data object, got %+v", newObjectMetas)
 	}
-	if !hasMetadataNameWithValue(newObjectMetas, DrsAvuDescriptionAttrib) {
-		t.Fatalf("expected description metadata for new data object, got %+v", newObjectMetas)
+	if hasMetadataNameWithValue(newObjectMetas, DrsAvuDescriptionAttrib) {
+		t.Fatalf("expected no default description metadata for new data object, got %+v", newObjectMetas)
 	}
 	if !hasMetadataNameWithValue(newObjectMetas, DrsAvuMimeTypeAttrib) {
 		t.Fatalf("expected mime type metadata for new data object, got %+v", newObjectMetas)

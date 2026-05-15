@@ -1011,5 +1011,6 @@ func main() {
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		logger.Error("error", "error", err)
+		os.Exit(1)
 	}
 }

@@ -358,30 +358,18 @@ func CreateCompoundDrsObjectFromCollection(filesystem IRODSFilesystem, collectio
 		}
 
 		nodePath := node.Entry.Path
-		relativePath := relativePathFromRoot(rootPath, nodePath)
-		aliasValue := relativePath
-		if aliasValue == "" {
-			aliasValue = "."
-		}
-
 		if node.Entry.IsDir() {
-			if err := upsertDrsMetadata(filesystem, nodePath, DrsAvuAliasAttrib, aliasValue); err != nil {
-				nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: nodePath, Message: err.Error()})
-			}
-			if err := upsertDrsMetadata(filesystem, nodePath, DrsAvuDescriptionAttrib, aliasValue); err != nil {
-				nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: nodePath, Message: err.Error()})
-			}
 			continue
 		}
 
 		if drsIDFromMetadata(node.Metadata) == "" {
-			if _, err := CreateDrsObjectFromDataObject(filesystem, nodePath, "", aliasValue, []string{aliasValue}); err != nil {
+			if _, err := CreateDrsObjectFromDataObject(filesystem, nodePath, "", "", nil); err != nil {
 				nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: nodePath, Message: fmt.Sprintf("create data object DRS metadata: %v", err)})
 				continue
 			}
 		}
 
-		if err := ensureDataObjectDrsCompleteness(filesystem, nodePath, aliasValue, aliasValue); err != nil {
+		if err := ensureDataObjectDrsCompleteness(filesystem, nodePath); err != nil {
 			nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: nodePath, Message: err.Error()})
 		}
 	}
@@ -390,12 +378,6 @@ func CreateCompoundDrsObjectFromCollection(filesystem IRODSFilesystem, collectio
 		nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: rootPath, Message: err.Error()})
 	}
 	if err := upsertDrsMetadata(filesystem, rootPath, DrsAvuCompoundManifestAttrib, "true"); err != nil {
-		nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: rootPath, Message: err.Error()})
-	}
-	if err := upsertDrsMetadata(filesystem, rootPath, DrsAvuAliasAttrib, "."); err != nil {
-		nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: rootPath, Message: err.Error()})
-	}
-	if err := upsertDrsMetadata(filesystem, rootPath, DrsAvuDescriptionAttrib, "."); err != nil {
 		nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: rootPath, Message: err.Error()})
 	}
 
@@ -731,7 +713,7 @@ func compoundNodeType(entry *irodsfs.Entry) string {
 	return "data_object"
 }
 
-func ensureDataObjectDrsCompleteness(filesystem IRODSFilesystem, dataObjectPath string, fallbackAlias string, fallbackDescription string) error {
+func ensureDataObjectDrsCompleteness(filesystem IRODSFilesystem, dataObjectPath string) error {
 	metas, err := filesystem.ListMetadata(dataObjectPath)
 	if err != nil && !isFileNotFoundError(err) {
 		return fmt.Errorf("list metadata for %q: %w", dataObjectPath, err)
@@ -768,13 +750,6 @@ func ensureDataObjectDrsCompleteness(filesystem IRODSFilesystem, dataObjectPath 
 		}
 	}
 
-	if err := ensureDrsMetadataValue(filesystem, dataObjectPath, DrsAvuAliasAttrib, fallbackAlias); err != nil {
-		return err
-	}
-	if err := ensureDrsMetadataValue(filesystem, dataObjectPath, DrsAvuDescriptionAttrib, fallbackDescription); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -794,26 +769,6 @@ func hasDrsMetadataWithValue(metas []*irodstypes.IRODSMeta, attributeName string
 		}
 	}
 	return false
-}
-
-func ensureDrsMetadataValue(filesystem IRODSFilesystem, irodsPath string, attributeName string, fallbackValue string) error {
-	fallbackValue = strings.TrimSpace(fallbackValue)
-	if fallbackValue == "" {
-		return nil
-	}
-
-	metas, err := filesystem.ListMetadata(irodsPath)
-	if err != nil && !isFileNotFoundError(err) {
-		return fmt.Errorf("list metadata for %q: %w", irodsPath, err)
-	}
-	if hasDrsMetadataWithValue(metas, attributeName) {
-		return nil
-	}
-
-	if err := filesystem.AddMetadata(irodsPath, attributeName, fallbackValue, DrsAvuUnit); err != nil {
-		return fmt.Errorf("set metadata %q on %q: %w", attributeName, irodsPath, err)
-	}
-	return nil
 }
 
 func isDefaultExcludedCompoundEntry(entry *irodsfs.Entry) bool {
