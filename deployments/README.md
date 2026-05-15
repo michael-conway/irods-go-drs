@@ -1,5 +1,40 @@
 # Docker iRODS grid test/build tools
 
+## Deprecation Notice
+
+The built-in `deployments/docker-test-framework` compose stack is deprecated
+for new DRS development. It is retained as a compatibility fixture while local
+testing moves to the shared `irods-grid-stack` workspace.
+
+Prefer `irods-grid-stack` for current development:
+
+```bash
+cd ../irods-grid-stack
+cp .env.example .env
+docker compose up -d --build
+```
+
+That backend-only command starts iRODS provider/resource services, Keycloak, and
+the S3 API endpoints without starting the REST, DRS, or Starbase frontend
+services. This is the preferred mode when running `irods-go-drs` or
+`irods-go-rest` locally from source.
+
+For a complete demo stack that also starts REST, DRS, and Starbase containers:
+
+```bash
+docker compose --profile frontend up -d --build
+```
+
+For host-run `irods-go-drs` tests, review `../e2e/drs-config.e2e.sample.yaml`
+and set:
+
+```bash
+export DRS_E2E_CONFIG_FILE=./e2e/drs-config.e2e.sample.yaml
+```
+
+The legacy notes below describe the old in-repository stack and should not be
+used as the source of truth for new environment work.
+
 The docker-test-framework subdirectory includes entries for various iRODS versions. Upon selection of a version, the docker-compose up command
 can be issued from that subdirectory
 

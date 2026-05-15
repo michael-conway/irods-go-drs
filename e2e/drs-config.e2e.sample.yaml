@@ -11,12 +11,13 @@ IrodsPrimaryTestPassword: test
 IrodsSecondaryTestUser: test2
 IrodsSecondaryTestPassword: test
 IrodsAuthScheme: native
-IrodsNegotiationPolicy: request_server_negotiation
-IrodsDefaultResource: demoResc
+IrodsAdminLoginType: native
+IrodsNegotiationPolicy: CS_NEG_DONT_CARE
+IrodsDefaultResource: providerResc
 
 OidcUrl: https://localhost:8443
-OidcClientId: irods-go-rest
-OidcClientSecretFile: /Users/conwaymc/Documents/temp/irods-ext/oidc-client-secret.txt
+OidcClientId: irods-go-drs
+OidcClientSecret: change-me
 OidcRealm: drs
 OidcScope: openid profile email
 OidcInsecureSkipVerify: true
@@ -30,16 +31,21 @@ FileAccessMethodSupported: false
 HttpsAccessMethodSupported: true
 HttpsAccessUseTicket: true
 HttpsAccessImplementation: irods-go-rest
-HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
+HttpsAccessMethodBaseURL: http://127.0.0.1:8080/api/v1/path/contents?irods_path=
 HttpsResourceAffinity:
-  - Host: http://localhost:8080
-    Resources: []
-  - Host: http://localhost:8081
+  - Host: http://127.0.0.1:8080
     Resources:
-      - test2-resc
+      - providerResc
+  - Host: http://127.0.0.1:8082
+    Resources:
+      - resourceResc
 
 S3AccessMethodSupported: true
 S3AccessMethodBaseURL: s3://
 S3ResourceAffinity:
-  - Host: ""
-    Resources: []
+  - Host: http://127.0.0.1:9001
+    Resources:
+      - providerResc
+  - Host: http://127.0.0.1:9002
+    Resources:
+      - resourceResc
