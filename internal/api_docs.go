@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	api "github.com/michael-conway/irods-go-drs/api"
@@ -41,31 +42,70 @@ func GetOpenAPISpec(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetSwaggerUI(w http.ResponseWriter, r *http.Request) {
+	specURL := "/openapi.yaml"
+	if serverURL := configuredServerURL(r); serverURL != "" {
+		specURL = fmt.Sprintf("%s://%s/openapi.yaml", requestScheme(r), serverURL)
+	}
+
+	html := strings.Replace(swaggerUIHTML, `url: "/openapi.yaml"`, fmt.Sprintf(`url: %q`, specURL), 1)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(swaggerUIHTML))
+	_, _ = w.Write([]byte(html))
 }
 
 func configuredServerURL(r *http.Request) string {
-	if r != nil {
-		if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
-			return forwardedHost
-		}
-
-		if host := strings.TrimSpace(r.Host); host != "" {
-			return host
-		}
-	}
-
 	drsConfig, err := readRouteDrsConfig()
 	if err != nil || drsConfig == nil {
-		return ""
+		return strings.TrimSpace(r.Host)
+	}
+
+	host := requestHostName(r)
+	if host == "" {
+		host = "localhost"
 	}
 
 	port := drsConfig.DrsListenPort
 	if port <= 0 {
+		return host
+	}
+
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
+func requestScheme(r *http.Request) string {
+	if r == nil {
+		return "http"
+	}
+
+	if forwarded := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))); forwarded != "" {
+		if forwarded == "http" || forwarded == "https" {
+			return forwarded
+		}
+	}
+
+	if r.TLS != nil {
+		return "https"
+	}
+
+	return "http"
+}
+
+func requestHostName(r *http.Request) string {
+	if r == nil {
 		return ""
 	}
 
-	return fmt.Sprintf("localhost:%d", port)
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return ""
+	}
+
+	if parsed := strings.TrimSpace(host); parsed != "" {
+		if withScheme, err := url.Parse("http://" + parsed); err == nil {
+			return strings.TrimSpace(withScheme.Hostname())
+		}
+	}
+
+	return host
 }
