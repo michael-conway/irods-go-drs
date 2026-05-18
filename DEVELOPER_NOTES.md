@@ -95,6 +95,17 @@ harness.
 
 For console and CLI-oriented workflows, assume `gocmd` is available on `PATH`.
 
+### Test substrate
+
+Prefer `irods-grid-stack` for local live testing. Use the backend-only stack for
+direct iRODS integration tests and the full frontend profile when testing DRS
+through its HTTP surface alongside REST/Starbase.
+
+The legacy compose framework under `deployments/docker-test-framework/` is
+deprecated. Do not add new tests, fixtures, or sample configurations that depend
+on that DRS-local stack. Keep it only for historical reproduction while active
+development and sample config updates move to `irods-grid-stack`.
+
 ## S3 API
 
 iRODS s3 api docker images - https://hub.docker.com/r/irods/irods_s3_api/tags
