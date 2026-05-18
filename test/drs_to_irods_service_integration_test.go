@@ -13,6 +13,8 @@ import (
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	irodslowfs "github.com/cyverse/go-irodsclient/irods/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+	extmetadata "github.com/michael-conway/go-irodsclient-extensions/metadata"
+	extmetadatairodsfs "github.com/michael-conway/go-irodsclient-extensions/metadata/irodsfs"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -88,7 +90,76 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 	}
 }
 
-func requireIntegrationObjectChecksum(t *testing.T, filesystem *irodsfs.FileSystem, irodsPath string) {
+func TestBuildS3AccessMethodFromBucketAVUIntegration(t *testing.T) {
+	cfg := requireIntegrationDrsConfig(t)
+	if !cfg.S3AccessMethodSupported {
+		t.Skip("S3AccessMethodSupported is false in shared integration config")
+	}
+	baseURL := strings.TrimSpace(cfg.S3AccessMethodBaseURL)
+	if baseURL == "" {
+		t.Fatalf("S3AccessMethodBaseURL must be set when S3AccessMethodSupported is true")
+	}
+
+	filesystem := newIntegrationIRODSFilesystem(t)
+	defer filesystem.Release()
+
+	testDir := makeIntegrationTestDir(t, filesystem)
+	bucketCollectionPath := testDir + "/drscoll"
+	subCollectionPath := bucketCollectionPath + "/subcoll"
+	objectPath := subCollectionPath + "/object.txt"
+	bucketName := "drs-integration-bucket"
+
+	if err := filesystem.MakeDir(subCollectionPath, true); err != nil {
+		t.Fatalf("make s3 bucket fixture collection %q: %v", subCollectionPath, err)
+	}
+
+	if err := filesystem.AddMetadata(bucketCollectionPath, "iRODS:S3:Bucket", bucketName, ""); err != nil {
+		t.Fatalf("add iRODS:S3:Bucket AVU on %q: %v", bucketCollectionPath, err)
+	}
+
+	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBufferString("s3 integration object\n"), objectPath, "", false, true, nil); err != nil {
+		t.Fatalf("upload s3 integration object %q: %v", objectPath, err)
+	}
+
+	drsID, err := drs_support.CreateDrsObjectFromDataObject(filesystem, objectPath, "", "s3 integration description", []string{"s3-integration-alias"})
+	if err != nil {
+		t.Fatalf("create s3 integration drs object: %v", err)
+	}
+
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, drsID)
+	if err != nil {
+		t.Fatalf("get s3 integration drs object by id: %v", err)
+	}
+
+	methods := drs_support.BuildAccessMethodsWithFilesystem(cfg, object, filesystem)
+	var s3Method *drs_support.DrsAccessMethod
+	for idx := range methods {
+		if strings.EqualFold(strings.TrimSpace(methods[idx].Type), "s3") {
+			s3Method = &methods[idx]
+			break
+		}
+	}
+
+	if s3Method == nil {
+		t.Fatalf("expected s3 access method from iRODS:S3:Bucket AVU on %q, got %+v", bucketCollectionPath, methods)
+	}
+
+	expectedURL := expectedIntegrationS3AccessURL(baseURL, bucketName, "subcoll/object.txt")
+	if s3Method.URL != expectedURL {
+		t.Fatalf("expected s3 access URL %q, got %+v", expectedURL, s3Method)
+	}
+	if s3Method.AccessID != strings.TrimSpace(cfg.IrodsPrimaryTestUser) {
+		t.Fatalf("expected s3 access id %q, got %+v", strings.TrimSpace(cfg.IrodsPrimaryTestUser), s3Method)
+	}
+	if s3Method.Cloud != "irods:"+strings.TrimSpace(cfg.IrodsZone) {
+		t.Fatalf("expected irods cloud metadata, got %+v", s3Method)
+	}
+	if !s3Method.Available {
+		t.Fatalf("expected s3 access method to be available, got %+v", s3Method)
+	}
+}
+
+func requireIntegrationObjectChecksum(t *testing.T, filesystem *integrationIRODSFilesystem, irodsPath string) {
 	t.Helper()
 
 	conn, err := filesystem.GetMetadataConnection(true)
@@ -120,6 +191,16 @@ func normalizedIntegrationChecksumValue(irodsChecksum string) string {
 	}
 
 	return trimmed
+}
+
+func expectedIntegrationS3AccessURL(baseURL string, bucketName string, objectKey string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	bucketName = strings.TrimSpace(bucketName)
+	objectKey = strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
+	if strings.HasSuffix(baseURL, "://") || strings.HasSuffix(baseURL, "/") {
+		return baseURL + bucketName + "/" + objectKey
+	}
+	return baseURL + "/" + bucketName + "/" + objectKey
 }
 
 func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
@@ -156,7 +237,7 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 		t.Fatalf("create nested drs object: %v", err)
 	}
 
-	objectByID, err := drs_support.GetDrsObjectByID(filesystem, rootDrsID)
+	objectByID, err := drs_support.GetDrsObjectByID(filesystem, filesystem, rootDrsID)
 	if err != nil {
 		t.Fatalf("get drs object by id: %v", err)
 	}
@@ -174,21 +255,21 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 		t.Fatalf("expected DRS id %q, got %q", rootDrsID, objectByPath.Id)
 	}
 
-	nonRecursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, testDir, false)
+	nonRecursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, testDir, false, drs_support.DrsListingScopeObjects)
 	if err != nil {
 		t.Fatalf("list non-recursive collection objects: %v", err)
 	}
 
 	assertDrsObjectIDs(t, nonRecursive, []string{rootDrsID})
 
-	recursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, testDir, true)
+	recursive, err := drs_support.ListDrsObjectsUnderCollection(filesystem, filesystem, testDir, true, drs_support.DrsListingScopeObjects)
 	if err != nil {
 		t.Fatalf("list recursive collection objects: %v", err)
 	}
 
 	assertDrsObjectIDs(t, recursive, []string{rootDrsID, nestedDrsID})
 
-	pageZero, err := drs_support.ListDrsObjects(filesystem, 0, 1)
+	pageZero, err := drs_support.ListDrsObjects(filesystem, filesystem, drs_support.DrsListingScopeObjects, 0, 1)
 	if err != nil {
 		t.Fatalf("list first page of DRS objects: %v", err)
 	}
@@ -197,7 +278,7 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 		t.Fatalf("expected first page to contain at most 1 object, got %d", len(pageZero.Objects))
 	}
 
-	pageOne, err := drs_support.ListDrsObjects(filesystem, 1, 1)
+	pageOne, err := drs_support.ListDrsObjects(filesystem, filesystem, drs_support.DrsListingScopeObjects, 1, 1)
 	if err != nil {
 		t.Fatalf("list second page of DRS objects: %v", err)
 	}
@@ -210,7 +291,7 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 		t.Fatalf("expected second page to contain at most 1 object, got %d", len(pageOne.Objects))
 	}
 
-	pageAll, err := drs_support.ListDrsObjects(filesystem, 0, 1000)
+	pageAll, err := drs_support.ListDrsObjects(filesystem, filesystem, drs_support.DrsListingScopeObjects, 0, 1000)
 	if err != nil {
 		t.Fatalf("list larger page of DRS objects: %v", err)
 	}
@@ -230,7 +311,15 @@ func TestQueryAndRemovalMethodsIntegration(t *testing.T) {
 	}
 }
 
-func newIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
+type integrationIRODSFilesystem struct {
+	*irodsfs.FileSystem
+}
+
+func (f *integrationIRODSFilesystem) QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error) {
+	return extmetadatairodsfs.NewAdapter(f.FileSystem).QueryEntries(query)
+}
+
+func newIntegrationIRODSFilesystem(t *testing.T) *integrationIRODSFilesystem {
 	t.Helper()
 
 	cfg := requireIntegrationIrodsConfig(t)
@@ -251,10 +340,10 @@ func newIntegrationIRODSFilesystem(t *testing.T) *irodsfs.FileSystem {
 
 	filesystem, err := irodsfs.NewFileSystemWithDefault(account, "irods-go-drs-integration-test")
 	if err != nil {
-		t.Fatalf("connect to iRODS. This test requires the docker compose stack in deployments/docker-test-framework/5-0 to be running: %v", err)
+		t.Fatalf("connect to iRODS. This test requires a reachable iRODS test grid; prefer the backend services from irods-grid-stack: %v", err)
 	}
 
-	return filesystem
+	return &integrationIRODSFilesystem{FileSystem: filesystem}
 }
 
 func assertMetadataValue(t *testing.T, metas []*irodstypes.IRODSMeta, name string, expected string) {
@@ -277,7 +366,7 @@ func assertMetadataValues(t *testing.T, metas []*irodstypes.IRODSMeta, name stri
 	}
 }
 
-func makeIntegrationTestDir(t *testing.T, filesystem *irodsfs.FileSystem) string {
+func makeIntegrationTestDir(t *testing.T, filesystem *integrationIRODSFilesystem) string {
 	t.Helper()
 
 	cfg := requireIntegrationIrodsConfig(t)

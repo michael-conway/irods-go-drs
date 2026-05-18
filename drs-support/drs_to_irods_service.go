@@ -3,6 +3,7 @@ package drs_support
 import (
 	"crypto/rand"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	irodslowfs "github.com/cyverse/go-irodsclient/irods/fs"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	irodsutil "github.com/cyverse/go-irodsclient/irods/util"
+	extmetadata "github.com/michael-conway/go-irodsclient-extensions/metadata"
 )
 
 /*
@@ -75,14 +77,15 @@ type InternalDrsObject struct {
 }
 
 // DrsObjectPage represents one page of DRS object results from a listing operation.
-// Offset and Limit reflect the requested page window, Total is the count before paging,
-// and HasMore reports whether another page exists after the returned slice.
+// Offset and Limit reflect the requested page window. Total is populated only when
+// TotalKnown is true. HasMore reports whether another page exists after the returned slice.
 type DrsObjectPage struct {
-	Objects []*InternalDrsObject
-	Offset  int
-	Limit   int
-	Total   int
-	HasMore bool
+	Objects    []*InternalDrsObject
+	Offset     int
+	Limit      int
+	Total      int
+	TotalKnown bool
+	HasMore    bool
 }
 
 type DrsMetadataField string
@@ -94,14 +97,35 @@ const (
 	DrsMetadataFieldAlias       DrsMetadataField = "alias"
 )
 
+type DrsListingScope string
+
+const (
+	DrsListingScopeAll      DrsListingScope = "all"
+	DrsListingScopeObjects  DrsListingScope = "objects"
+	DrsListingScopeCompound DrsListingScope = "compound"
+)
+
+const (
+	drsListingEntryQueryLimit     = 500
+	drsListingAVUAttributePattern = "iRODS:DRS:%"
+)
+
+type drsListingEntry struct {
+	Entry       *irodsfs.Entry
+	MatchedAVUs []extmetadata.AVUStat
+}
+
 type IRODSFilesystem interface {
 	StatFile(irodsPath string) (*irodsfs.Entry, error)
 	List(irodsPath string) ([]*irodsfs.Entry, error)
-	SearchByMeta(metaname string, metavalue string) ([]*irodsfs.Entry, error)
 	ListMetadata(irodsPath string) ([]*irodstypes.IRODSMeta, error)
 	AddMetadata(irodsPath string, attName string, attValue string, attUnits string) error
 	DeleteMetadataByAVU(irodsPath string, attName string, attValue string, attUnits string) error
 	GetAccount() *irodstypes.IRODSAccount
+}
+
+type EntryMetadataQuerier interface {
+	QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error)
 }
 
 type checksumEnsuringFilesystem interface {
@@ -110,6 +134,17 @@ type checksumEnsuringFilesystem interface {
 
 type allReplicaStatFilesystem interface {
 	StatFileWithAllReplicas(irodsPath string) (*irodsfs.Entry, error)
+}
+
+func NormalizeDrsListingScope(scope DrsListingScope) (DrsListingScope, error) {
+	switch scope {
+	case "", DrsListingScopeAll:
+		return DrsListingScopeAll, nil
+	case DrsListingScopeObjects, DrsListingScopeCompound:
+		return scope, nil
+	default:
+		return "", fmt.Errorf("unsupported DRS listing scope %q", scope)
+	}
 }
 
 // ApplyDrsMetadata maps DRS AVUs from iRODS metadata onto an InternalDrsObject.
@@ -234,9 +269,12 @@ func CreateCompoundDrsObjectFromDataObject(filesystem IRODSFilesystem, absoluteP
 // matches with DRS-scoped metadata, and then maps the object's current iRODS state and DRS AVUs
 // into InternalDrsObject. Both single-object DRS entries and compound manifest objects are
 // returned through the same method.
-func GetDrsObjectByID(filesystem IRODSFilesystem, drsID string) (*InternalDrsObject, error) {
+func GetDrsObjectByID(filesystem IRODSFilesystem, metadataQuerier EntryMetadataQuerier, drsID string) (*InternalDrsObject, error) {
 	if filesystem == nil {
 		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+	if metadataQuerier == nil {
+		return nil, fmt.Errorf("no metadata entry querier provided")
 	}
 
 	drsID = strings.TrimSpace(drsID)
@@ -244,27 +282,39 @@ func GetDrsObjectByID(filesystem IRODSFilesystem, drsID string) (*InternalDrsObj
 		return nil, fmt.Errorf("a DRS id is required")
 	}
 
-	entries, err := filesystem.SearchByMeta(DrsIdAvuAttrib, drsID)
-	if err != nil {
-		return nil, fmt.Errorf("search DRS object by id %q: %w", drsID, err)
-	}
-
 	var matches []*irodsfs.Entry
-	for _, entry := range entries {
-		if entry == nil || entry.Path == "" {
-			continue
-		}
+	var cursor *extmetadata.EntryQueryCursor
+	for {
+		query := extmetadata.NewEntryQuery().
+			BothKinds().
+			AVU(DrsIdAvuAttrib, drsID, extmetadata.AnyUnit).
+			IncludeMatchedAVUs(true).
+			Limit(100).
+			Cursor(cursor).
+			Build()
 
-		metas, err := filesystem.ListMetadata(entry.Path)
+		result, err := metadataQuerier.QueryMetadataEntries(query)
 		if err != nil {
-			return nil, fmt.Errorf("list metadata for %q: %w", entry.Path, err)
+			return nil, fmt.Errorf("search DRS object by id %q: %w", drsID, err)
 		}
 
-		if !hasMatchingDrsIDMetadata(metas, drsID) {
-			continue
+		for _, entry := range result.Entries {
+			if entry == nil || entry.Path == "" {
+				continue
+			}
+			if !hasMatchingDrsIDMatchedAVU(result.MatchedAVUs[entry.Path], drsID) {
+				continue
+			}
+			matches = append(matches, entry)
 		}
 
-		matches = append(matches, entry)
+		if len(matches) > 1 || !result.Page.HasMore {
+			break
+		}
+		if result.Page.Next == nil {
+			return nil, fmt.Errorf("search DRS object by id %q returned has_more without a cursor", drsID)
+		}
+		cursor = result.Page.Next
 	}
 
 	if len(matches) == 0 {
@@ -318,13 +368,16 @@ func GetDrsObjectByIRODSPath(filesystem IRODSFilesystem, absolutePath string) (*
 	return object, nil
 }
 
-// ListDrsObjectsUnderCollection lists DRS-decorated data objects contained by an iRODS collection.
+// ListDrsObjectsUnderCollection lists DRS-decorated entries contained by an iRODS collection.
 // When recursive is false, only direct children of the collection are inspected. When recursive is
-// true, subcollections are traversed depth-first and any DRS-decorated data objects found below
-// them are included in the result. Returned objects are sorted by absolute path for stable output.
-func ListDrsObjectsUnderCollection(filesystem IRODSFilesystem, collectionPath string, recursive bool) ([]*InternalDrsObject, error) {
+// true, subcollections are searched using explicit child and descendant AVU queries. Returned
+// objects are sorted by absolute path for stable output.
+func ListDrsObjectsUnderCollection(filesystem IRODSFilesystem, metadataQuerier EntryMetadataQuerier, collectionPath string, recursive bool, scope DrsListingScope) ([]*InternalDrsObject, error) {
 	if filesystem == nil {
 		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+	if metadataQuerier == nil {
+		return nil, fmt.Errorf("no metadata entry querier provided")
 	}
 
 	correctPath := irodsutil.GetCorrectIRODSPath(strings.TrimSpace(collectionPath))
@@ -332,7 +385,12 @@ func ListDrsObjectsUnderCollection(filesystem IRODSFilesystem, collectionPath st
 		return nil, fmt.Errorf("an iRODS collection path is required")
 	}
 
-	objects, err := listDrsObjectsUnderCollection(filesystem, correctPath, recursive)
+	normalizedScope, err := NormalizeDrsListingScope(scope)
+	if err != nil {
+		return nil, err
+	}
+
+	objects, err := listDrsObjectsUnderCollection(filesystem, metadataQuerier, correctPath, recursive, normalizedScope)
 	if err != nil {
 		return nil, err
 	}
@@ -341,9 +399,9 @@ func ListDrsObjectsUnderCollection(filesystem IRODSFilesystem, collectionPath st
 	return objects, nil
 }
 
-// ListDrsObjectsUnderCollectionPage lists DRS-decorated data objects under one collection and
+// ListDrsObjectsUnderCollectionPage lists DRS-decorated entries under one collection and
 // applies zero-based offset/limit paging after sorting by absolute path. Limit must be positive.
-func ListDrsObjectsUnderCollectionPage(filesystem IRODSFilesystem, collectionPath string, recursive bool, offset int, limit int) (*DrsObjectPage, error) {
+func ListDrsObjectsUnderCollectionPage(filesystem IRODSFilesystem, metadataQuerier EntryMetadataQuerier, collectionPath string, recursive bool, scope DrsListingScope, offset int, limit int) (*DrsObjectPage, error) {
 	if filesystem == nil {
 		return nil, fmt.Errorf("no iRODS filesystem provided")
 	}
@@ -356,15 +414,16 @@ func ListDrsObjectsUnderCollectionPage(filesystem IRODSFilesystem, collectionPat
 		return nil, fmt.Errorf("limit must be greater than zero")
 	}
 
-	objects, err := ListDrsObjectsUnderCollection(filesystem, collectionPath, recursive)
+	objects, err := ListDrsObjectsUnderCollection(filesystem, metadataQuerier, collectionPath, recursive, scope)
 	if err != nil {
 		return nil, err
 	}
 
 	page := &DrsObjectPage{
-		Offset: offset,
-		Limit:  limit,
-		Total:  len(objects),
+		Offset:     offset,
+		Limit:      limit,
+		Total:      len(objects),
+		TotalKnown: true,
 	}
 
 	if offset >= len(objects) {
@@ -382,10 +441,10 @@ func ListDrsObjectsUnderCollectionPage(filesystem IRODSFilesystem, collectionPat
 	return page, nil
 }
 
-// ListDrsObjects returns one page of DRS objects discovered under the connected zone root.
-// The scan traverses the zone recursively, sorts results by absolute path, and then applies
-// zero-based offset/limit paging. Limit must be positive.
-func ListDrsObjects(filesystem IRODSFilesystem, offset int, limit int) (*DrsObjectPage, error) {
+// ListDrsObjectsUnderCollectionPageFast lists a bounded page of DRS entries under one collection.
+// It avoids scanning the entire result set, so Total is intentionally unknown. HasMore is derived
+// from one extra fetched row and the metadata query cursor state.
+func ListDrsObjectsUnderCollectionPageFast(filesystem IRODSFilesystem, metadataQuerier EntryMetadataQuerier, collectionPath string, recursive bool, scope DrsListingScope, offset int, limit int) (*DrsObjectPage, error) {
 	if filesystem == nil {
 		return nil, fmt.Errorf("no iRODS filesystem provided")
 	}
@@ -398,7 +457,13 @@ func ListDrsObjects(filesystem IRODSFilesystem, offset int, limit int) (*DrsObje
 		return nil, fmt.Errorf("limit must be greater than zero")
 	}
 
-	objects, err := listDrsObjectsUnderCollection(filesystem, rootCollectionPath(filesystem), true)
+	correctPath := irodsutil.GetCorrectIRODSPath(strings.TrimSpace(collectionPath))
+	if correctPath == "" {
+		return nil, fmt.Errorf("an iRODS collection path is required")
+	}
+
+	fetchLimit := offset + limit + 1
+	objects, queryHasMore, err := listDrsObjectsUnderCollectionBounded(filesystem, metadataQuerier, correctPath, recursive, scope, fetchLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +473,52 @@ func ListDrsObjects(filesystem IRODSFilesystem, offset int, limit int) (*DrsObje
 	page := &DrsObjectPage{
 		Offset: offset,
 		Limit:  limit,
-		Total:  len(objects),
+	}
+
+	if offset >= len(objects) {
+		page.Objects = []*InternalDrsObject{}
+		page.HasMore = queryHasMore
+		return page, nil
+	}
+
+	end := offset + limit
+	if end > len(objects) {
+		end = len(objects)
+	}
+
+	page.Objects = objects[offset:end]
+	page.HasMore = queryHasMore || end < len(objects)
+	return page, nil
+}
+
+// ListDrsObjects returns one page of DRS entries discovered under the connected zone root.
+// The search traverses the zone recursively, sorts results by absolute path, and then applies
+// zero-based offset/limit paging. Limit must be positive.
+func ListDrsObjects(filesystem IRODSFilesystem, metadataQuerier EntryMetadataQuerier, scope DrsListingScope, offset int, limit int) (*DrsObjectPage, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be zero or greater")
+	}
+
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be greater than zero")
+	}
+
+	objects, err := listDrsObjectsUnderCollection(filesystem, metadataQuerier, rootCollectionPath(filesystem), true, scope)
+	if err != nil {
+		return nil, err
+	}
+
+	sortDrsObjects(objects)
+
+	page := &DrsObjectPage{
+		Offset:     offset,
+		Limit:      limit,
+		Total:      len(objects),
+		TotalKnown: true,
 	}
 
 	if offset >= len(objects) {
@@ -578,43 +688,174 @@ func RemoveSingleDrsObjectFromDataObject(filesystem IRODSFilesystem, absolutePat
 	return nil
 }
 
-func listDrsObjectsUnderCollection(filesystem IRODSFilesystem, collectionPath string, recursive bool) ([]*InternalDrsObject, error) {
-	entries, err := filesystem.List(collectionPath)
+func listDrsObjectsUnderCollection(filesystem IRODSFilesystem, metadataQuerier EntryMetadataQuerier, collectionPath string, recursive bool, scope DrsListingScope) ([]*InternalDrsObject, error) {
+	objects, _, err := listDrsObjectsUnderCollectionBounded(filesystem, metadataQuerier, collectionPath, recursive, scope, 0)
+	return objects, err
+}
+
+func listDrsObjectsUnderCollectionBounded(filesystem IRODSFilesystem, metadataQuerier EntryMetadataQuerier, collectionPath string, recursive bool, scope DrsListingScope, maxEntries int) ([]*InternalDrsObject, bool, error) {
+	if metadataQuerier == nil {
+		return nil, false, fmt.Errorf("no metadata entry querier provided")
+	}
+
+	normalizedScope, err := NormalizeDrsListingScope(scope)
 	if err != nil {
-		return nil, fmt.Errorf("list collection %q: %w", collectionPath, err)
+		return nil, false, err
 	}
 
-	objects := []*InternalDrsObject{}
-	for _, entry := range entries {
-		if entry == nil || entry.Path == "" {
+	entriesByPath, queryHasMore, err := queryDrsListingEntriesBounded(metadataQuerier, collectionPath, recursive, normalizedScope, maxEntries)
+	if err != nil {
+		return nil, false, err
+	}
+
+	paths := make([]string, 0, len(entriesByPath))
+	for entryPath := range entriesByPath {
+		paths = append(paths, entryPath)
+	}
+	sort.Strings(paths)
+
+	objects := make([]*InternalDrsObject, 0, len(paths))
+	for _, entryPath := range paths {
+		listingEntry := entriesByPath[entryPath]
+		entry := listingEntry.Entry
+		if entry == nil {
 			continue
 		}
 
-		if entry.IsDir() {
-			if !recursive {
-				continue
-			}
-
-			nested, err := listDrsObjectsUnderCollection(filesystem, entry.Path, true)
-			if err != nil {
-				return nil, err
-			}
-
-			objects = append(objects, nested...)
-			continue
-		}
-
-		object, err := drsObjectFromEntry(filesystem, entry)
+		object, err := drsObjectFromListingEntry(filesystem, entry, listingEntry.MatchedAVUs)
 		if err != nil {
-			return nil, err
+			return nil, false, err
+		}
+		if object == nil || !drsListingScopeIncludesObject(normalizedScope, entry, object) {
+			continue
 		}
 
-		if object != nil {
-			objects = append(objects, object)
+		objects = append(objects, object)
+	}
+
+	return objects, queryHasMore, nil
+}
+
+func queryDrsListingEntries(metadataQuerier EntryMetadataQuerier, collectionPath string, recursive bool, scope DrsListingScope) (map[string]drsListingEntry, error) {
+	entriesByPath, _, err := queryDrsListingEntriesBounded(metadataQuerier, collectionPath, recursive, scope, 0)
+	return entriesByPath, err
+}
+
+func queryDrsListingEntriesBounded(metadataQuerier EntryMetadataQuerier, collectionPath string, recursive bool, scope DrsListingScope, maxEntries int) (map[string]drsListingEntry, bool, error) {
+	entriesByPath := map[string]drsListingEntry{}
+	hasMore := false
+	for _, kind := range drsListingEntryKinds(scope) {
+		var cursor *extmetadata.EntryQueryCursor
+		for {
+			queryBuilder := extmetadata.NewEntryQuery().
+				AVUAttrib(drsListingAVUAttributePattern).
+				IncludeMatchedAVUs(true).
+				Limit(drsListingQueryLimit(maxEntries)).
+				Cursor(cursor)
+
+			switch kind {
+			case extmetadata.EntryKindCollection:
+				queryBuilder.Collections()
+				if recursive {
+					queryBuilder.Like(extmetadata.FieldPath, collectionPath+"/%")
+				} else {
+					queryBuilder.Scope(collectionPath, extmetadata.EntryQueryScopeChildren)
+				}
+			case extmetadata.EntryKindDataObject:
+				queryBuilder.DataObjects()
+				if recursive {
+					queryBuilder.Like(extmetadata.FieldPath, collectionPath+"%/%")
+				} else {
+					queryBuilder.Scope(collectionPath, extmetadata.EntryQueryScopeChildren)
+				}
+			}
+
+			result, err := metadataQuerier.QueryMetadataEntries(queryBuilder.Build())
+			if err != nil {
+				return nil, false, fmt.Errorf("query DRS listing metadata under %q: %w", collectionPath, err)
+			}
+
+			for _, entry := range result.Entries {
+				if entry == nil || strings.TrimSpace(entry.Path) == "" {
+					continue
+				}
+				if !drsListingEntryWithinScope(entry.Path, collectionPath, recursive) {
+					continue
+				}
+				matchedAVUs := result.MatchedAVUs[entry.Path]
+				if !hasAnyDrsIDMatchedAVU(matchedAVUs) {
+					continue
+				}
+				listingEntry := entriesByPath[entry.Path]
+				if listingEntry.Entry == nil {
+					listingEntry.Entry = entry
+				}
+				listingEntry.MatchedAVUs = appendUniqueAVUStats(listingEntry.MatchedAVUs, matchedAVUs)
+				entriesByPath[entry.Path] = listingEntry
+			}
+
+			if maxEntries > 0 && len(entriesByPath) > maxEntries {
+				hasMore = true
+				break
+			}
+
+			if !result.Page.HasMore {
+				break
+			}
+			if result.Page.Next == nil {
+				return nil, false, fmt.Errorf("query DRS listing metadata under %q returned has_more without a cursor", collectionPath)
+			}
+			if maxEntries > 0 && len(entriesByPath) >= maxEntries {
+				hasMore = true
+				break
+			}
+			cursor = result.Page.Next
 		}
 	}
 
-	return objects, nil
+	return entriesByPath, hasMore, nil
+}
+
+func drsListingQueryLimit(maxEntries int) int {
+	if maxEntries <= 0 || maxEntries > drsListingEntryQueryLimit {
+		return drsListingEntryQueryLimit
+	}
+	return maxEntries
+}
+
+func drsListingEntryKinds(scope DrsListingScope) []extmetadata.EntryKind {
+	switch scope {
+	case DrsListingScopeObjects:
+		return []extmetadata.EntryKind{extmetadata.EntryKindDataObject}
+	case DrsListingScopeCompound:
+		return []extmetadata.EntryKind{extmetadata.EntryKindCollection}
+	default:
+		return []extmetadata.EntryKind{extmetadata.EntryKindCollection, extmetadata.EntryKindDataObject}
+	}
+}
+
+func drsListingEntryWithinScope(entryPath string, collectionPath string, recursive bool) bool {
+	entryPath = path.Clean(strings.TrimSpace(entryPath))
+	collectionPath = path.Clean(strings.TrimSpace(collectionPath))
+	if entryPath == "" || entryPath == "." || collectionPath == "" || collectionPath == "." {
+		return false
+	}
+	if recursive {
+		return strings.HasPrefix(entryPath, strings.TrimRight(collectionPath, "/")+"/")
+	}
+	return path.Dir(entryPath) == collectionPath
+}
+
+func drsListingScopeIncludesObject(scope DrsListingScope, entry *irodsfs.Entry, object *InternalDrsObject) bool {
+	if entry == nil || object == nil {
+		return false
+	}
+
+	if entry.IsDir() {
+		return scope != DrsListingScopeObjects && object.IsManifest
+	}
+
+	return scope != DrsListingScopeCompound
 }
 
 // internalDrsObjectFromEntry builds an InternalDrsObject from an iRODS file entry plus any DRS AVUs
@@ -835,14 +1076,22 @@ func drsObjectFromEntry(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*Inte
 		return nil, fmt.Errorf("no iRODS entry provided")
 	}
 
-	entry, err := entryWithAllReplicas(filesystem, entry)
-	if err != nil {
-		return nil, err
-	}
-
 	metas, err := filesystem.ListMetadata(entry.Path)
 	if err != nil {
 		return nil, fmt.Errorf("list metadata for %q: %w", entry.Path, err)
+	}
+
+	return drsObjectFromEntryWithMetadata(filesystem, entry, metas)
+}
+
+func drsObjectFromEntryWithMetadata(filesystem IRODSFilesystem, entry *irodsfs.Entry, metas []*irodstypes.IRODSMeta) (*InternalDrsObject, error) {
+	if entry == nil {
+		return nil, fmt.Errorf("no iRODS entry provided")
+	}
+
+	entry, err := entryWithAllReplicas(filesystem, entry)
+	if err != nil {
+		return nil, err
 	}
 
 	object, err := internalDrsObjectFromEntry(entry, irodsZoneForPath(filesystem, entry.Path), metas)
@@ -855,6 +1104,36 @@ func drsObjectFromEntry(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*Inte
 	}
 
 	return object, nil
+}
+
+func drsObjectFromListingEntry(filesystem IRODSFilesystem, entry *irodsfs.Entry, avus []extmetadata.AVUStat) (*InternalDrsObject, error) {
+	if entry == nil {
+		return nil, fmt.Errorf("no iRODS entry provided")
+	}
+
+	metas := irodsMetasFromAVUStats(avus)
+	object, err := internalDrsObjectFromEntry(entry, irodsZoneForPath(filesystem, entry.Path), metas)
+	if err != nil {
+		return nil, err
+	}
+
+	if !hasMatchingDrsIDMetadata(metas, object.Id) {
+		return nil, nil
+	}
+
+	return object, nil
+}
+
+func irodsMetasFromAVUStats(avus []extmetadata.AVUStat) []*irodstypes.IRODSMeta {
+	metas := make([]*irodstypes.IRODSMeta, 0, len(avus))
+	for _, avu := range avus {
+		metas = append(metas, &irodstypes.IRODSMeta{
+			Name:  avu.Name,
+			Value: avu.Value,
+			Units: avu.Units,
+		})
+	}
+	return metas
 }
 
 func entryWithAllReplicas(filesystem IRODSFilesystem, entry *irodsfs.Entry) (*irodsfs.Entry, error) {
@@ -915,6 +1194,56 @@ func hasMatchingDrsIDMetadata(metas []*irodstypes.IRODSMeta, drsID string) bool 
 	}
 
 	return false
+}
+
+func hasMatchingDrsIDMatchedAVU(avus []extmetadata.AVUStat, drsID string) bool {
+	for _, avu := range avus {
+		if avu.Name != DrsIdAvuAttrib {
+			continue
+		}
+
+		if strings.TrimSpace(avu.Value) != drsID {
+			continue
+		}
+
+		if avu.Units == "" || strings.EqualFold(avu.Units, DrsAvuUnit) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasAnyDrsIDMatchedAVU(avus []extmetadata.AVUStat) bool {
+	for _, avu := range avus {
+		if avu.Name != DrsIdAvuAttrib {
+			continue
+		}
+		if strings.TrimSpace(avu.Value) == "" {
+			continue
+		}
+		if avu.Units == "" || strings.EqualFold(avu.Units, DrsAvuUnit) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func appendUniqueAVUStats(existing []extmetadata.AVUStat, additions []extmetadata.AVUStat) []extmetadata.AVUStat {
+	for _, avu := range additions {
+		found := false
+		for _, candidate := range existing {
+			if candidate.Name == avu.Name && candidate.Value == avu.Value && candidate.Units == avu.Units {
+				found = true
+				break
+			}
+		}
+		if !found {
+			existing = append(existing, avu)
+		}
+	}
+	return existing
 }
 
 func rootCollectionPath(filesystem IRODSFilesystem) string {

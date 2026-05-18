@@ -1,6 +1,12 @@
 # E2E Tests
 
-This directory is reserved for end-to-end tests that run against the real DRS HTTP service and the docker compose test framework.
+This directory is reserved for end-to-end tests that run against the real DRS
+HTTP service and a reachable iRODS test grid.
+
+The preferred local grid is now `irods-grid-stack`. The older
+`deployments/docker-test-framework/` stack in this repository is deprecated and
+kept only as a compatibility fixture while DRS and REST development workflows
+move to the shared grid stack.
 
 These tests are intended to exercise the full stack:
 
@@ -16,6 +22,7 @@ Current route coverage includes:
 * `GET /ga4gh/drs/v1/objects/{object_id}` for an existing DRS object
 * `GET /ga4gh/drs/v1/objects/{object_id}` for a missing DRS object
 * `GET /ga4gh/drs/v1/objects/{object_id}` for a compound DRS object with direct `access_url`
+* `GET /ga4gh/drs/v1/objects/{object_id}` for an object under an `iRODS:S3:Bucket` AVU-mapped collection
 * `GET /ga4gh/drs/v1/ext/compound/{object_id}` runtime manifest retrieval
 * compound workflow checks for `.drsignore` exclusion behavior
 * compound strip/remove semantics using `drs-support` metadata stripping
@@ -95,8 +102,29 @@ Sample file:
 
 ## Source of Truth
 
-The docker-compose-backed test environment is under:
+The docker-compose-backed test environment is `irods-grid-stack`:
+
+```bash
+cd ../irods-grid-stack
+cp .env.example .env
+
+# Backend-only grid for local DRS/REST development from source.
+docker compose up -d --build
+
+# Full demo stack including REST, DRS, and Starbase containers.
+docker compose --profile frontend up -d --build
+```
+
+Use the backend-only mode when you want to run `irods-go-drs` locally from this
+repository while reusing grid-stack iRODS, Keycloak, and S3 services. Use the
+`frontend` profile when E2E tests should target the containerized DRS service
+on the configured host port.
+
+The legacy in-repository compose stack remains under:
 
 * `deployments/docker-test-framework/5-0`
+
+It should not receive new feature work unless a short-term compatibility fix is
+needed.
 
 Use [`DEVELOPER_NOTES.md`](/Users/conwaymc/Documents/workspace-gabble/irods-go-drs/DEVELOPER_NOTES.md) for the higher-level testing taxonomy and environment setup guidance.

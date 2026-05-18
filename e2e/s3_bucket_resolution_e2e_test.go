@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	"github.com/michael-conway/irods-go-drs/internal"
 )
@@ -28,7 +27,7 @@ type e2eS3Fixture struct {
 	expectedAccessID     string
 }
 
-func TestResolveS3BucketContainingDrsObjectViaSupportE2E(t *testing.T) {
+func TestResolveS3BucketContainingDrsObjectFromBucketAVUE2E(t *testing.T) {
 	fixture, filesystem := setupE2ES3Fixture(t)
 	defer filesystem.Release()
 
@@ -40,7 +39,7 @@ func TestResolveS3BucketContainingDrsObjectViaSupportE2E(t *testing.T) {
 	if expectedPrefix == "" {
 		t.Fatalf("S3AccessMethodBaseURL must be set when S3AccessMethodSupported is true")
 	}
-	object, err := drs_support.GetDrsObjectByID(filesystem, fixture.objectID)
+	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, fixture.objectID)
 	if err != nil {
 		t.Fatalf("get drs object by id %q: %v", fixture.objectID, err)
 	}
@@ -72,7 +71,7 @@ func TestResolveS3BucketContainingDrsObjectViaSupportE2E(t *testing.T) {
 	}
 }
 
-func TestGetObjectReturnsS3AccessMethodWhenEnabledE2E(t *testing.T) {
+func TestGetObjectReturnsS3AccessMethodFromBucketAVUE2E(t *testing.T) {
 	cfg := requireE2EIRODSConfig(t)
 	if !cfg.S3AccessMethodSupported {
 		t.Skip("S3AccessMethodSupported is false in shared e2e config")
@@ -160,7 +159,7 @@ func TestGetAccessURLReturnsNotImplementedForS3AccessIDE2E(t *testing.T) {
 	}
 }
 
-func setupE2ES3Fixture(t *testing.T) (*e2eS3Fixture, *irodsfs.FileSystem) {
+func setupE2ES3Fixture(t *testing.T) (*e2eS3Fixture, *e2eIRODSFilesystem) {
 	t.Helper()
 
 	cfg := requireE2EIRODSConfig(t)

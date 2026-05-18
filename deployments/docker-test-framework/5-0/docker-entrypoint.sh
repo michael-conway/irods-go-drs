@@ -14,6 +14,9 @@ IFS=$'\n\t'
 : "${IRODS_VAULT_DIR:=/var/lib/irods/iRODS/Vault}"
 : "${IRODS_HOSTNAME:=irods-provider}"
 
+IRODS_ENV=/var/lib/irods/.irods/irods_environment.json
+ROOT_IRODS_ENV=/root/.irods/irods_environment.json
+
 # Helper: wait for DB to be reachable
 wait_for_db() {
   for i in $(seq 1 60); do
@@ -26,6 +29,32 @@ wait_for_db() {
   done
   echo "ERROR: Postgres did not become reachable" >&2
   return 1
+}
+
+init_irods_auth() {
+  if [ ! -f "$IRODS_ENV" ]; then
+    echo "ERROR: iRODS environment file not found at $IRODS_ENV" >&2
+    return 1
+  fi
+
+  mkdir -p /root/.irods
+  cp "$IRODS_ENV" "$ROOT_IRODS_ENV"
+  chmod 600 "$ROOT_IRODS_ENV"
+  chmod 700 /root/.irods
+
+  echo "Initializing iRODS session for irods service account..."
+  printf '%s\n' "$IRODS_ADMIN_PASSWORD" |
+    sudo -u irods env \
+      HOME=/var/lib/irods \
+      IRODS_ENVIRONMENT_FILE="$IRODS_ENV" \
+      iinit
+  chown irods:irods /var/lib/irods/.irods/.irodsA 2>/dev/null || true
+  chmod 600 /var/lib/irods/.irods/.irodsA 2>/dev/null || true
+
+  echo "Initializing iRODS session for root..."
+  printf '%s\n' "$IRODS_ADMIN_PASSWORD" |
+    IRODS_ENVIRONMENT_FILE="$ROOT_IRODS_ENV" \
+      iinit
 }
 
 # Function to start iRODS services
@@ -57,15 +86,24 @@ start_irods() {
         fi
     fi
 
-  # Prioritize python module in 5.x
-  if python3 -c "import irods_control" >/dev/null 2>&1; then
-      echo "Using python3 -m irods_control"
-      # We need to make sure irods_control is run with the right environment
-      sudo -u irods -E python3 -m irods_control start > /tmp/irods_control.stdout 2> /tmp/irods_control.stderr || true
-      if grep -qi "error" /tmp/irods_control.stderr; then
-          echo "irods_control reported errors, checking stderr:"
-          cat /tmp/irods_control.stderr
-      fi
+  # iRODS 5.x uses the Python controller under /var/lib/irods/scripts.
+  # Starting through the controller is important for correct server-to-server behavior.
+  if [ -f /var/lib/irods/scripts/irods/controller.py ]; then
+      echo "Using iRODS Python controller"
+      sudo -u irods env \
+        HOME=/var/lib/irods \
+        PYTHONPATH=/var/lib/irods/scripts \
+        irodsConfigDir=/etc/irods \
+        python3 - <<'PY'
+from irods.configuration import IrodsConfig
+from irods.controller import IrodsController
+
+controller = IrodsController(IrodsConfig())
+if controller.get_server_proc() is None:
+    controller.start()
+else:
+    print("iRODS server is already running")
+PY
   # Common locations for irods_control.py in 5.x
   elif [ -f /var/lib/irods/irods_control.py ]; then
       echo "Using /var/lib/irods/irods_control.py"
@@ -89,11 +127,7 @@ start_irods() {
       export IRODS_SERVER_CONTROL_PLANE_KEY="32_byte_server_negotiation_key__"
       export IRODS_SERVER_CONTROL_PLANE_PORT=1248
       export IRODS_SERVER_NEGOTIATION_KEY="32_byte_server_negotiation_key__"
-      sudo -u irods -E /usr/sbin/irodsServer > /tmp/irodsServer.stdout 2> /tmp/irodsServer.stderr &
-      if [ -f /usr/sbin/irodsDelayServer ]; then
-          echo "Also starting /usr/sbin/irodsDelayServer..."
-          sudo -u irods -E /usr/sbin/irodsDelayServer > /tmp/irodsDelayServer.stdout 2> /tmp/irodsDelayServer.stderr &
-      fi
+      sudo -u irods -E /usr/sbin/irodsServer -d > /tmp/irodsServer.stdout 2> /tmp/irodsServer.stderr || true
   elif command -v irods_control >/dev/null 2>&1; then
       echo "Using irods_control"
       irods_control start || true
@@ -118,9 +152,15 @@ start_irods() {
   # Wait for iRODS to be ready
   echo "Waiting for iRODS server to become responsive..."
   for i in $(seq 1 30); do
-      if sudo -u irods iadmin lr >/dev/null 2>&1; then
+      if nc -z "$IRODS_HOSTNAME" 1247 >/dev/null 2>&1 &&
+         init_irods_auth >/tmp/init_irods_auth.log 2>&1 &&
+         sudo -u irods env HOME=/var/lib/irods IRODS_ENVIRONMENT_FILE="$IRODS_ENV" iadmin lr >/dev/null 2>&1; then
           echo "iRODS server is ready!"
           return 0
+      fi
+      if [ -s /tmp/init_irods_auth.log ]; then
+          echo "Recent iRODS auth initialization output:"
+          tail -n 5 /tmp/init_irods_auth.log
       fi
       if [ -f /tmp/irodsServer.stderr ]; then
           echo "Recent irodsServer stderr:"
@@ -161,15 +201,12 @@ EOF
   echo 'export HOME=/var/lib/irods' >> /var/lib/irods/.bashrc
   chown irods:irods /var/lib/irods/.bashrc
   
-  # Initialize authentication for irods user
-  echo "Initializing iRODS session for irods user..."
-  su - irods -c "echo '$IRODS_ADMIN_PASSWORD' | iinit" || true
-
   # Ensure root can use icommands too, but irods user shouldn't try to read root's files
   mkdir -p /root/.irods
   cp /var/lib/irods/.irods/irods_environment.json /root/.irods/irods_environment.json
   chmod 600 /root/.irods/irods_environment.json
   chmod 700 /root/.irods
+  init_irods_auth
 
   # Common log paths for 4.x and 5.x
   LOG_PATHS=(
@@ -225,10 +262,6 @@ EOF
   echo 'export HOME=/var/lib/irods' >> /var/lib/irods/.bashrc
   chown irods:irods /var/lib/irods/.bashrc
   
-  # Initialize authentication for irods user
-  echo "Initializing iRODS session for irods user..."
-  su - irods -c "echo '$IRODS_ADMIN_PASSWORD' | iinit" || true
-
   # Ensure root can use icommands too
   mkdir -p /root/.irods
   cp /var/lib/irods/.irods/irods_environment.json /root/.irods/irods_environment.json
@@ -236,6 +269,7 @@ EOF
   chmod 700 /root/.irods
   
   start_irods
+  init_irods_auth
 
   # Still try to run testsetup if it hasn't run yet
   echo "Checking if testsetup-consortium.sh needs to run..."
@@ -530,15 +564,12 @@ EOF
   echo 'export HOME=/var/lib/irods' >> /var/lib/irods/.bashrc
   chown irods:irods /var/lib/irods/.bashrc
   
-  # Initialize authentication for irods user
-  echo "Initializing iRODS session for irods user..."
-  su - irods -c "echo '$IRODS_ADMIN_PASSWORD' | iinit" || true
-
   # Ensure root can use icommands too
   mkdir -p /root/.irods
   cp /var/lib/irods/.irods/irods_environment.json /root/.irods/irods_environment.json
   chmod 600 /root/.irods/irods_environment.json
   chmod 700 /root/.irods
+  init_irods_auth
 
   echo "Running testsetup-consortium.sh..."
   chmod +x /var/lib/irods/testsetup-consortium.sh

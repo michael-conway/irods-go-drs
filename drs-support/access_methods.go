@@ -431,11 +431,9 @@ func ResolveAffinityHostForResource(cfg *DrsConfig, resource string) string {
 func ResolveHTTPSAccessBaseURL(configuredBaseURL string, preferredHost string) string {
 	configuredBaseURL = strings.TrimSpace(configuredBaseURL)
 	preferredHost = strings.TrimSpace(preferredHost)
+
 	if preferredHost == "" {
 		return configuredBaseURL
-	}
-	if configuredBaseURL == "" {
-		return preferredHost
 	}
 
 	cfgURL, cfgErr := neturl.Parse(configuredBaseURL)
@@ -554,10 +552,10 @@ func resolveS3AccessID(filesystem IRODSFilesystem, absolutePath string) string {
 }
 
 type s3BucketResolution struct {
-	BucketName            string
-	BucketCollectionPath  string
-	RelativeObjectPath    string
-	CandidateBucketCount  int
+	BucketName           string
+	BucketCollectionPath string
+	RelativeObjectPath   string
+	CandidateBucketCount int
 }
 
 func resolveS3BucketForDataObjectPath(filesystem IRODSFilesystem, dataObjectPath string) (s3BucketResolution, error) {

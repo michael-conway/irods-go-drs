@@ -62,7 +62,7 @@ Current behavior:
 - Atomic object `irods` access method is returned with `access_id=irods`; clients call `/objects/{object_id}/access/irods`.
 - Compound object `https` access method is returned with a direct `access_url` to `/ga4gh/drs/v1/ext/compound/{object_id}` (no compound `access_id` hop).
 - `local` access method (when enabled) returns a direct mapped `local://` URL.
-- `s3` access method generation is active for objects under S3 bucket-mapped collections and returns direct S3 URL data; affinity tuning remains an open TODO.
+- `s3` access method generation is active for objects under collections marked with `iRODS:S3:Bucket` AVUs and returns inline S3 URL data; affinity tuning remains an open TODO.
 
 API status notes:
 
@@ -94,6 +94,17 @@ Bearer-authenticated route tests are currently skipped by default in this
 harness.
 
 For console and CLI-oriented workflows, assume `gocmd` is available on `PATH`.
+
+### Test substrate
+
+Prefer `irods-grid-stack` for local live testing. Use the backend-only stack for
+direct iRODS integration tests and the full frontend profile when testing DRS
+through its HTTP surface alongside REST/Starbase.
+
+The legacy compose framework under `deployments/docker-test-framework/` is
+deprecated. Do not add new tests, fixtures, or sample configurations that depend
+on that DRS-local stack. Keep it only for historical reproduction while active
+development and sample config updates move to `irods-grid-stack`.
 
 ## S3 API
 

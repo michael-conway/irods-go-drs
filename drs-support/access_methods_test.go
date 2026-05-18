@@ -228,6 +228,49 @@ func TestBuildAccessMethodsSkipsUnsupportedHTTPSImplementation(t *testing.T) {
 	}
 }
 
+func TestBuildAccessMethodsSkipsS3WithoutFilesystemBucketMapping(t *testing.T) {
+	cfg := &DrsConfig{
+		S3AccessMethodSupported: true,
+		S3AccessMethodBaseURL:   "s3://",
+	}
+
+	object := &InternalDrsObject{
+		Id:           "object-123",
+		AbsolutePath: "/tempZone/home/test1/file.txt",
+		IrodsZone:    "tempZone",
+	}
+
+	methods := BuildAccessMethods(cfg, object)
+	if len(methods) != 0 {
+		t.Fatalf("expected no s3 methods without filesystem-backed bucket mapping, got %+v", methods)
+	}
+}
+
+func TestBuildAccessMethodsWithFilesystemSkipsS3WithoutBucketAVU(t *testing.T) {
+	cfg := &DrsConfig{
+		S3AccessMethodSupported: true,
+		S3AccessMethodBaseURL:   "s3://",
+	}
+
+	object := &InternalDrsObject{
+		Id:           "object-123",
+		AbsolutePath: "/tempZone/home/test1/drscoll/object.txt",
+		IrodsZone:    "tempZone",
+	}
+
+	filesystem := &accessMethodsTestFilesystem{
+		account: &irodstypes.IRODSAccount{
+			ClientUser: "test1",
+		},
+		metadataByPath: map[string][]*irodstypes.IRODSMeta{},
+	}
+
+	methods := BuildAccessMethodsWithFilesystem(cfg, object, filesystem)
+	if len(methods) != 0 {
+		t.Fatalf("expected no s3 methods without iRODS:S3:Bucket AVU, got %+v", methods)
+	}
+}
+
 func TestBuildAccessMethodsBuildsIRODSHTTPSAPIProviderPrefix(t *testing.T) {
 	cfg := &DrsConfig{
 		HttpsAccessMethodSupported: true,
@@ -315,7 +358,7 @@ func TestResolveHTTPSAccessBaseURLUsesConfiguredPathWhenAffinityHostIncludesPath
 	}
 }
 
-func TestBuildAccessMethodsWithFilesystemBuildsS3AccessMethodFromBucket(t *testing.T) {
+func TestBuildAccessMethodsWithFilesystemBuildsS3AccessMethodFromBucketAVU(t *testing.T) {
 	cfg := &DrsConfig{
 		S3AccessMethodSupported: true,
 		S3AccessMethodBaseURL:   "s3://",
@@ -443,10 +486,6 @@ func (f *accessMethodsTestFilesystem) StatFile(irodsPath string) (*irodsfs.Entry
 }
 
 func (f *accessMethodsTestFilesystem) List(irodsPath string) ([]*irodsfs.Entry, error) {
-	return nil, nil
-}
-
-func (f *accessMethodsTestFilesystem) SearchByMeta(metaname string, metavalue string) ([]*irodsfs.Entry, error) {
 	return nil, nil
 }
 

@@ -3,7 +3,6 @@ package internal
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	api "github.com/michael-conway/irods-go-drs/api"
@@ -33,7 +32,7 @@ const swaggerUIHTML = `<!DOCTYPE html>
 func GetOpenAPISpec(w http.ResponseWriter, r *http.Request) {
 	specBytes := api.SwaggerSpec
 	if serverURL := configuredServerURL(r); serverURL != "" {
-		specBytes = []byte(strings.Replace(string(api.SwaggerSpec), "default: localhost:8080", "default: "+serverURL, 1))
+		specBytes = openAPISpecWithServerURL(api.SwaggerSpec, serverURL)
 	}
 
 	w.Header().Set("Content-Type", "application/yaml")
@@ -42,70 +41,59 @@ func GetOpenAPISpec(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetSwaggerUI(w http.ResponseWriter, r *http.Request) {
-	specURL := "/openapi.yaml"
-	if serverURL := configuredServerURL(r); serverURL != "" {
-		specURL = fmt.Sprintf("%s://%s/openapi.yaml", requestScheme(r), serverURL)
-	}
-
-	html := strings.Replace(swaggerUIHTML, `url: "/openapi.yaml"`, fmt.Sprintf(`url: %q`, specURL), 1)
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(html))
+	_, _ = w.Write([]byte(swaggerUIHTML))
 }
 
 func configuredServerURL(r *http.Request) string {
-	drsConfig, err := readRouteDrsConfig()
-	if err != nil || drsConfig == nil {
-		return strings.TrimSpace(r.Host)
+	if r != nil {
+		if host := strings.TrimSpace(r.Host); host != "" {
+			return host
+		}
 	}
 
-	host := requestHostName(r)
-	if host == "" {
-		host = "localhost"
+	drsConfig, err := readRouteDrsConfig()
+	if err != nil || drsConfig == nil {
+		return ""
 	}
 
 	port := drsConfig.DrsListenPort
 	if port <= 0 {
-		return host
+		return "localhost"
 	}
 
-	return fmt.Sprintf("%s:%d", host, port)
+	return fmt.Sprintf("localhost:%d", port)
 }
 
-func requestScheme(r *http.Request) string {
-	if r == nil {
-		return "http"
+func openAPISpecWithServerURL(spec []byte, serverURL string) []byte {
+	serverURL = strings.TrimSpace(serverURL)
+	if serverURL == "" {
+		return spec
 	}
 
-	if forwarded := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))); forwarded != "" {
-		if forwarded == "http" || forwarded == "https" {
-			return forwarded
-		}
+	specText := string(spec)
+	serverURLIndex := strings.Index(specText, "serverURL:")
+	if serverURLIndex < 0 {
+		return spec
 	}
 
-	if r.TLS != nil {
-		return "https"
+	defaultIndex := strings.Index(specText[serverURLIndex:], "default:")
+	if defaultIndex < 0 {
+		return spec
+	}
+	defaultIndex += serverURLIndex
+
+	valueStart := defaultIndex + len("default:")
+	for valueStart < len(specText) && (specText[valueStart] == ' ' || specText[valueStart] == '\t') {
+		valueStart++
 	}
 
-	return "http"
-}
-
-func requestHostName(r *http.Request) string {
-	if r == nil {
-		return ""
+	lineEnd := strings.IndexByte(specText[valueStart:], '\n')
+	if lineEnd < 0 {
+		return []byte(specText[:valueStart] + serverURL)
 	}
+	lineEnd += valueStart
 
-	host := strings.TrimSpace(r.Host)
-	if host == "" {
-		return ""
-	}
-
-	if parsed := strings.TrimSpace(host); parsed != "" {
-		if withScheme, err := url.Parse("http://" + parsed); err == nil {
-			return strings.TrimSpace(withScheme.Hostname())
-		}
-	}
-
-	return host
+	return []byte(specText[:valueStart] + serverURL + specText[lineEnd:])
 }

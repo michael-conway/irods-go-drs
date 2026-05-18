@@ -15,6 +15,7 @@ import (
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/gorilla/mux"
 	extension_irodsuri "github.com/michael-conway/go-irodsclient-extensions/irodsuri"
+	extmetadata "github.com/michael-conway/go-irodsclient-extensions/metadata"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -233,6 +234,40 @@ func TestGetObjectReturnsHTTPSAccessMethodPerReplicaResource(t *testing.T) {
 	}
 }
 
+func TestGetObjectSkipsS3AccessMethodWithoutBucketAVU(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			S3AccessMethodSupported: true,
+			S3AccessMethodBaseURL:   "s3://",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response DrsObject
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(response.AccessMethods) != 0 {
+		t.Fatalf("expected no s3 access method without iRODS:S3:Bucket AVU, got %+v", response.AccessMethods)
+	}
+}
+
 func TestGetAccessURLReturnsIRODSGoRestAffinityHostAccessURL(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()
@@ -409,7 +444,7 @@ func TestGetObjectReturnsMappedDrsObjectWithIRODSAccessMethod(t *testing.T) {
 	}
 }
 
-func TestGetObjectReturnsMappedDrsObjectWithS3AccessMethod(t *testing.T) {
+func TestGetObjectReturnsBucketAVUMappedDrsObjectWithS3AccessMethod(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	fs := newRouteTestFileSystem()
 	fs.metadataByPath["/tempZone/home/test1"] = []*irodstypes.IRODSMeta{
@@ -1401,17 +1436,117 @@ func (f *routeTestFileSystem) List(irodsPath string) ([]*irodsfs.Entry, error) {
 	return results, nil
 }
 
-func (f *routeTestFileSystem) SearchByMeta(name string, value string) ([]*irodsfs.Entry, error) {
-	results := []*irodsfs.Entry{}
-	for path, metas := range f.metadataByPath {
-		for _, meta := range metas {
-			if meta != nil && meta.Name == name && meta.Value == value && meta.Units == drs_support.DrsAvuUnit {
-				results = append(results, f.entriesByPath[path])
-				break
+func (f *routeTestFileSystem) QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error) {
+	normalized, err := extmetadata.NormalizeEntryQuery(query)
+	if err != nil {
+		return extmetadata.EntryQueryResult{}, err
+	}
+
+	result := extmetadata.EntryQueryResult{
+		Entries:     []*extmetadata.Entry{},
+		MatchedAVUs: map[string][]extmetadata.AVUStat{},
+		Page: extmetadata.EntryQueryPage{
+			Limit: normalized.Limit,
+		},
+	}
+
+	for irodsPath, metas := range f.metadataByPath {
+		entry := f.entriesByPath[irodsPath]
+		if entry == nil || !routeQueryIncludesEntryKind(normalized, entry) || !routeQueryEntryInScope(normalized, entry) {
+			continue
+		}
+
+		matched := routeMatchedAVUsForQuery(normalized, metas)
+		if len(matched) == 0 {
+			continue
+		}
+
+		result.Entries = append(result.Entries, entry)
+		result.MatchedAVUs[entry.Path] = matched
+		if entry.IsDir() {
+			result.Page.Returned.Collections++
+			continue
+		}
+		result.Page.Returned.DataObjects++
+	}
+
+	return result, nil
+}
+
+func routeQueryIncludesEntryKind(query extmetadata.EntryQuery, entry *irodsfs.Entry) bool {
+	if entry.IsDir() {
+		return extmetadata.EntryQueryHasKind(query, extmetadata.EntryKindCollection)
+	}
+	return extmetadata.EntryQueryHasKind(query, extmetadata.EntryKindDataObject)
+}
+
+func routeMatchedAVUsForQuery(query extmetadata.EntryQuery, metas []*irodstypes.IRODSMeta) []extmetadata.AVUStat {
+	matched := []extmetadata.AVUStat{}
+	for _, meta := range metas {
+		if meta == nil || !routeMetaMatchesConditions(meta, query.Conditions) {
+			continue
+		}
+		matched = append(matched, extmetadata.AVUStat{
+			Name:  meta.Name,
+			Value: meta.Value,
+			Units: meta.Units,
+		})
+	}
+	return matched
+}
+
+func routeQueryEntryInScope(query extmetadata.EntryQuery, entry *irodsfs.Entry) bool {
+	if query.Scope == nil || query.Scope.Mode == extmetadata.EntryQueryScopeAbsolute {
+		return true
+	}
+
+	root := strings.TrimRight(query.Scope.Root, "/")
+	if root == "" {
+		root = "/"
+	}
+	entryPath := path.Clean(entry.Path)
+
+	switch query.Scope.Mode {
+	case extmetadata.EntryQueryScopeSelf:
+		return entry.IsDir() && entryPath == root
+	case extmetadata.EntryQueryScopeChildren:
+		return path.Dir(entryPath) == root
+	case extmetadata.EntryQueryScopeDescendants:
+		if entry.IsDir() {
+			return strings.HasPrefix(entryPath, root+"/")
+		}
+		return strings.HasPrefix(path.Dir(entryPath), root+"/")
+	default:
+		return true
+	}
+}
+
+func routeMetaMatchesConditions(meta *irodstypes.IRODSMeta, conditions []extmetadata.EntryCondition) bool {
+	for _, condition := range conditions {
+		var candidate string
+		switch condition.Field {
+		case extmetadata.FieldAVUAttrib:
+			candidate = meta.Name
+		case extmetadata.FieldAVUValue:
+			candidate = meta.Value
+		case extmetadata.FieldAVUUnit:
+			candidate = meta.Units
+		default:
+			continue
+		}
+
+		if condition.Op == extmetadata.OpLike {
+			pattern := strings.TrimSuffix(extmetadata.NormalizeLikePattern(condition.Value), "%")
+			if !strings.HasPrefix(candidate, pattern) {
+				return false
 			}
+			continue
+		}
+		if candidate != condition.Value {
+			return false
 		}
 	}
-	return results, nil
+	return true
 }
 
 func (f *routeTestFileSystem) ListMetadata(irodsPath string) ([]*irodstypes.IRODSMeta, error) {

@@ -18,6 +18,7 @@ import (
 func TestOptionsObjectIntegration(t *testing.T) {
 	filesystem := newIntegrationIRODSFilesystem(t)
 	defer filesystem.Release()
+	cfg := requireIntegrationRouteDrsConfig(t)
 
 	testDir := makeIntegrationTestDir(t, filesystem)
 	objectPath := testDir + "/options-object.txt"
@@ -68,7 +69,6 @@ func TestOptionsObjectIntegration(t *testing.T) {
 		t.Fatalf("expected basic and bearer support, got %+v", response.SupportedTypes)
 	}
 
-	cfg := requireIntegrationDrsConfig(t)
 	expectedIssuer := strings.TrimRight(strings.TrimSpace(cfg.OidcUrl), "/")
 	if realm := strings.TrimSpace(cfg.OidcRealm); realm != "" {
 		expectedIssuer += "/realms/" + realm
@@ -84,6 +84,7 @@ func TestOptionsObjectIntegration(t *testing.T) {
 func TestOptionsBulkObjectIntegration(t *testing.T) {
 	filesystem := newIntegrationIRODSFilesystem(t)
 	defer filesystem.Release()
+	cfg := requireIntegrationRouteDrsConfig(t)
 
 	testDir := makeIntegrationTestDir(t, filesystem)
 	objectPaths := []string{
@@ -155,7 +156,6 @@ func TestOptionsBulkObjectIntegration(t *testing.T) {
 		}
 	}
 
-	cfg := requireIntegrationDrsConfig(t)
 	expectedIssuer := strings.TrimRight(strings.TrimSpace(cfg.OidcUrl), "/")
 	if realm := strings.TrimSpace(cfg.OidcRealm); realm != "" {
 		expectedIssuer += "/realms/" + realm

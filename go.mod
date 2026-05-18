@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/cyverse/go-irodsclient v0.19.10
 	github.com/gorilla/mux v1.8.1
-	github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260508140730-f5af8c49b859
+	github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260518122643-42dfbc2fcba3
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/viper v1.21.0
 	github.com/urfave/cli/v3 v3.8.0
@@ -13,14 +13,14 @@ require (
 
 require (
 	github.com/Nerzal/gocloak/v13 v13.9.0 // direct
-	github.com/cockroachdb/errors v1.12.0 // indirect
-	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
-	github.com/cockroachdb/redact v1.1.5 // indirect
+	github.com/cockroachdb/errors v1.13.0 // indirect
+	github.com/cockroachdb/logtags v0.0.0-20241215232642-bb51bb14a506 // indirect
+	github.com/cockroachdb/redact v1.1.8 // indirect
 	github.com/danwakefield/fnmatch v0.0.0-20160403171240-cbb64ac3d964 // indirect
-	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/evanphx/json-patch v4.12.0+incompatible // indirect
+	github.com/dlclark/regexp2 v1.12.0 // indirect
+	github.com/evanphx/json-patch v5.9.11+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/getsentry/sentry-go v0.27.0 // indirect
+	github.com/getsentry/sentry-go v0.46.2 // indirect
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -36,7 +36,7 @@ require (
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/rogpeppe/go-internal v1.13.1 // indirect
+	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/segmentio/ksuid v1.0.4 // indirect
@@ -47,9 +47,9 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/term v0.42.0 // indirect
+	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

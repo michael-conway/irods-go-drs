@@ -2,6 +2,7 @@
 
 [![Go](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml)
 [![CodeQL Advanced](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml)
+[![Container Build](https://github.com/michael-conway/irods-go-drs/actions/workflows/container-build.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/container-build.yml)
 
 A Go implementation of the GA4GH Data Repository Service (DRS) for iRODS.
 
@@ -49,9 +50,9 @@ The repository follows a conventional Go layout centered around a generated-and-
 | `tools/drs-console/` | `drscmd` command-line tool for DRS administration |
 | `api/` | OpenAPI source documents embedded and served by the service |
 | `config/` | Sample runtime configuration including `drs-config.yaml` and `service-info.json` |
-| `test/` | Broader integration tests that span packages without requiring the full docker-compose stack |
-| `e2e/` | Docker-compose-backed end-to-end HTTP and workflow tests |
-| `deployments/` | Development and integration test deployment assets, including docker-based test environments |
+| `test/` | Broader integration tests that span packages and run against a reachable iRODS test grid |
+| `e2e/` | End-to-end HTTP and workflow tests that run against a reachable DRS service and iRODS test grid |
+| `deployments/` | Legacy docker-test-framework assets retained during migration to `irods-grid-stack` |
 
 ## Stack and Testing Strategy
 
@@ -63,6 +64,26 @@ Testing is organized in layers:
 * integration tests live under `test/` and are opt-in with the `integration` build tag
 * end-to-end tests live under `e2e/` and are opt-in with the `e2e` build tag
 * live CLI functional tests use the built `drscmd` binary and a reachable iRODS test environment
+
+The preferred local test environment is now
+[`irods-grid-stack`](https://github.com/michael-conway/irods-grid-stack). The
+legacy compose files under `deployments/docker-test-framework/` are deprecated
+and should be treated as compatibility fixtures while DRS and REST development
+workflows move to the shared grid stack.
+
+Use `irods-grid-stack` in one of two modes:
+
+* backend-only: run `docker compose up -d --build` from `irods-grid-stack` to
+  start iRODS provider/resource, Keycloak, and S3 API services, then run
+  `irods-go-drs` or `irods-go-rest` locally from source
+* full stack: run `docker compose --profile frontend up -d --build` from
+  `irods-grid-stack` to also start REST, DRS, and Starbase containers
+
+For host-run `irods-go-drs` integration or E2E tests, point
+`DRS_E2E_CONFIG_FILE` at a host-facing config such as
+`./e2e/drs-config.e2e.sample.yaml` after reviewing local ports and credentials.
+That sample is aligned with the default `irods-grid-stack` ports and resource
+names.
 
 For CLI-centered development, `gocmd` should be installed and on `PATH` so that `drscmd` can consume the saved iCommands-compatible environment and session state.
 
@@ -146,3 +167,9 @@ The following endpoints are intentionally disabled and return `501 Not Implement
 * Keycloak: https://www.keycloak.org/documentation
 * GoCloak - https://github.com/Nerzal/gocloak
 * Gorilla Mux: https://github.com/gorilla/mux
+
+### S3 API
+
+iRODS s3 api docker images - https://hub.docker.com/r/irods/irods_s3_api/tags
+iRODS s3 config - https://github.com/irods/irods_client_s3_api#configuration
+iRODS s3 dockerhub - https://hub.docker.com/r/irods/irods_s3_api

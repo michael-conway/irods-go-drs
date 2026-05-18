@@ -36,7 +36,6 @@ type DrsConfig struct {
 	S3AccessMethodSupported          bool
 	S3AccessMethodBaseURL            string
 	S3ResourceAffinity               []ResourceAffinityEntry
-	S3AccessEndpoint                 string
 	IrodsHost                        string
 	IrodsPort                        int
 	IrodsZone                        string
@@ -223,7 +222,6 @@ func bindEnvVars(v *viper.Viper) error {
 		"LocalAccessRootPath":                    {"DRS_LOCAL_ACCESS_ROOT_PATH", "DRS_LOCALACCESSROOTPATH"},
 		"S3AccessMethodSupported":                {"DRS_S3_ACCESS_METHOD_SUPPORTED", "DRS_S3ACCESSMETHODSUPPORTED"},
 		"S3AccessMethodBaseURL":                  {"DRS_S3_ACCESS_METHOD_BASE_URL", "DRS_S3ACCESSMETHODBASEURL"},
-		"S3AccessEndpoint":                       {"DRS_S3_ACCESS_ENDPOINT", "DRS_S3ACCESSENDPOINT"},
 		"IrodsHost":                              {"DRS_IRODS_HOST", "DRS_IRODSHOST"},
 		"IrodsPort":                              {"DRS_IRODS_PORT", "DRS_IRODSPORT"},
 		"IrodsZone":                              {"DRS_IRODS_ZONE", "DRS_IRODSZONE"},
@@ -393,7 +391,6 @@ func ReadDrsConfig(configName string, configType string, configPaths []string) (
 	C.LocalAccessRootPath = resolveConfigPath(C.LocalAccessRootPath, configDir)
 	C.S3AccessMethodBaseURL = strings.TrimSpace(C.S3AccessMethodBaseURL)
 	C.S3ResourceAffinity = normalizeResourceAffinities(C.S3ResourceAffinity)
-	C.S3AccessEndpoint = strings.TrimSpace(C.S3AccessEndpoint)
 	C.HttpsResourceAffinity = normalizeResourceAffinities(C.HttpsResourceAffinity)
 	C.OidcSkipTLSVerify = C.OidcSkipTLSVerify || C.OidcInsecureSkipVerify
 	C.OidcInsecureSkipVerify = C.OidcSkipTLSVerify

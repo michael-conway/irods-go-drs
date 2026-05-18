@@ -202,6 +202,8 @@ HttpsAccessImplementation: irods-go-rest
 HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
 HttpsAccessUseTicket: true
 LocalAccessRootPath: /mnt/irods
+S3AccessMethodSupported: true
+S3AccessMethodBaseURL: s3://
 ```
 
 Current behavior:
@@ -209,7 +211,9 @@ Current behavior:
 - `https` returns an `access_id` for later resolution through `/access`
 - `irods` returns an `access_id`
 - `local` returns a `local:///...` path
-- `s3` is a placeholder
+- `s3` returns an inline `s3://bucket/key` URL for objects under an ancestor
+  collection with an `iRODS:S3:Bucket` AVU; the object key is derived from the
+  path relative to that bucket-mapped collection
 
 Current `https` implementations:
 
@@ -248,3 +252,27 @@ If you keep a private `keycloak.env` outside the repo, point Compose at it with:
 ```bash
 KEYCLOAK_ENV_FILE=/path/to/keycloak.env
 ```
+
+The iRODS S3 API service reads its local-file bucket and user mappings from a
+shared directory mounted at `/shared-s3-config` inside the container. By
+default, Compose uses:
+
+```text
+deployments/docker-test-framework/5-0/shared-s3-config
+```
+
+To use an externally managed mapping directory, set:
+
+```bash
+ENV_SHARED_S3_CONFIG=/absolute/path/to/shared-s3-config
+```
+
+That directory must contain:
+
+```text
+irods-s3-bucket-mapping.json
+irods-s3-user-mapping.json
+```
+
+The directory mount allows the mapping files to be updated outside the S3 API
+container while the test framework continues to read the same paths.
