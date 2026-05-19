@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	irodsfs "github.com/cyverse/go-irodsclient/fs"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -17,13 +18,18 @@ type ServiceInfoSnapshot struct {
 	ServiceInfoJSON json.RawMessage
 }
 
-func NewServiceInfoSnapshot(drsConfig *drs_support.DrsConfig) (*ServiceInfoSnapshot, error) {
+func NewServiceInfoSnapshot(drsConfig *drs_support.DrsConfig, summaries ...drs_support.DrsDataObjectSummary) (*ServiceInfoSnapshot, error) {
 	if drsConfig == nil {
 		return nil, fmt.Errorf("no drs config provided")
 	}
 
 	now := time.Now().UTC()
-	serviceInfo, err := loadServiceInfoJSON(drsConfig, now)
+	var summary *drs_support.DrsDataObjectSummary
+	if len(summaries) > 0 {
+		summary = &summaries[0]
+	}
+
+	serviceInfo, err := loadServiceInfoJSON(drsConfig, now, summary)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +41,7 @@ func NewServiceInfoSnapshot(drsConfig *drs_support.DrsConfig) (*ServiceInfoSnaps
 	}, nil
 }
 
-func loadServiceInfoJSON(drsConfig *drs_support.DrsConfig, now time.Time) (json.RawMessage, error) {
+func loadServiceInfoJSON(drsConfig *drs_support.DrsConfig, now time.Time, summary *drs_support.DrsDataObjectSummary) (json.RawMessage, error) {
 	serviceInfoData := defaultServiceInfoData(drsConfig, now)
 
 	if drsConfig.ServiceInfoFilePath != "" {
@@ -49,7 +55,7 @@ func loadServiceInfoJSON(drsConfig *drs_support.DrsConfig, now time.Time) (json.
 		}
 	}
 
-	applyServiceInfoPlaceholders(serviceInfoData, now)
+	applyServiceInfoPlaceholders(serviceInfoData, now, summary)
 
 	serviceInfoJSON, err := json.Marshal(serviceInfoData)
 	if err != nil {
@@ -81,7 +87,7 @@ func defaultServiceInfoData(drsConfig *drs_support.DrsConfig, now time.Time) map
 	}
 }
 
-func applyServiceInfoPlaceholders(serviceInfoData map[string]interface{}, now time.Time) {
+func applyServiceInfoPlaceholders(serviceInfoData map[string]interface{}, now time.Time, summary *drs_support.DrsDataObjectSummary) {
 	if _, ok := serviceInfoData["maxBulkRequestLength"]; !ok {
 		serviceInfoData["maxBulkRequestLength"] = 1000
 	}
@@ -100,20 +106,36 @@ func applyServiceInfoPlaceholders(serviceInfoData map[string]interface{}, now ti
 		drsSection["maxBulkRequestLength"] = serviceInfoData["maxBulkRequestLength"]
 	}
 
-	// Placeholder values until the real count logic is added.
-	drsSection["objectCount"] = 0
-	drsSection["totalObjectSize"] = 0
+	if summary == nil {
+		drsSection["objectCount"] = 0
+		drsSection["totalObjectSize"] = 0
+		return
+	}
+
+	drsSection["objectCount"] = summary.DataObjectCount
+	drsSection["totalObjectSize"] = summary.TotalSize
 }
 
 type ServiceInfoSampler struct {
-	drsConfig *drs_support.DrsConfig
-	interval  time.Duration
+	drsConfig       *drs_support.DrsConfig
+	interval        time.Duration
+	summaryProvider ServiceInfoSummaryProvider
 
 	mu       sync.RWMutex
 	snapshot *ServiceInfoSnapshot
 }
 
-func NewServiceInfoSampler(drsConfig *drs_support.DrsConfig) (*ServiceInfoSampler, error) {
+type ServiceInfoSummaryProvider func(context.Context, *drs_support.DrsConfig) (drs_support.DrsDataObjectSummary, error)
+
+type ServiceInfoSamplerOption func(*ServiceInfoSampler)
+
+func WithServiceInfoSummaryProvider(provider ServiceInfoSummaryProvider) ServiceInfoSamplerOption {
+	return func(s *ServiceInfoSampler) {
+		s.summaryProvider = provider
+	}
+}
+
+func NewServiceInfoSampler(drsConfig *drs_support.DrsConfig, options ...ServiceInfoSamplerOption) (*ServiceInfoSampler, error) {
 	if drsConfig == nil {
 		return nil, fmt.Errorf("no drs config provided")
 	}
@@ -123,10 +145,22 @@ func NewServiceInfoSampler(drsConfig *drs_support.DrsConfig) (*ServiceInfoSample
 		intervalMinutes = 5
 	}
 
-	return &ServiceInfoSampler{
-		drsConfig: drsConfig,
-		interval:  time.Duration(intervalMinutes) * time.Minute,
-	}, nil
+	sampler := &ServiceInfoSampler{
+		drsConfig:       drsConfig,
+		interval:        time.Duration(intervalMinutes) * time.Minute,
+		summaryProvider: queryServiceInfoDRSDataObjectSummary,
+	}
+
+	for _, option := range options {
+		if option != nil {
+			option(sampler)
+		}
+	}
+	if sampler.summaryProvider == nil {
+		sampler.summaryProvider = queryServiceInfoDRSDataObjectSummary
+	}
+
+	return sampler, nil
 }
 
 func (s *ServiceInfoSampler) Start(ctx context.Context) error {
@@ -134,7 +168,9 @@ func (s *ServiceInfoSampler) Start(ctx context.Context) error {
 		return fmt.Errorf("no context provided")
 	}
 
-	s.sample()
+	if err := s.sample(ctx); err != nil {
+		return err
+	}
 
 	ticker := time.NewTicker(s.interval)
 
@@ -146,7 +182,9 @@ func (s *ServiceInfoSampler) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.sample()
+				if err := s.sample(ctx); err != nil {
+					logger.Error(fmt.Sprintf("service info sampling failed: %v", err))
+				}
 			}
 		}
 	}()
@@ -161,16 +199,44 @@ func (s *ServiceInfoSampler) Snapshot() *ServiceInfoSnapshot {
 	return s.snapshot
 }
 
-func (s *ServiceInfoSampler) sample() {
-	snapshot, err := NewServiceInfoSnapshot(s.drsConfig)
+func (s *ServiceInfoSampler) sample(ctx context.Context) error {
+	summary, err := s.summaryProvider(ctx, s.drsConfig)
 	if err != nil {
-		logger.Error(fmt.Sprintf("service info sampling failed: %v", err))
-		return
+		return fmt.Errorf("query service info DRS object summary: %w", err)
+	}
+
+	snapshot, err := NewServiceInfoSnapshot(s.drsConfig, summary)
+	if err != nil {
+		return err
 	}
 
 	s.mu.Lock()
 	s.snapshot = snapshot
 	s.mu.Unlock()
+
+	return nil
+}
+
+func queryServiceInfoDRSDataObjectSummary(ctx context.Context, drsConfig *drs_support.DrsConfig) (drs_support.DrsDataObjectSummary, error) {
+	var summary drs_support.DrsDataObjectSummary
+	if ctx == nil {
+		return summary, fmt.Errorf("no context provided")
+	}
+	if err := ctx.Err(); err != nil {
+		return summary, err
+	}
+	if drsConfig == nil {
+		return summary, fmt.Errorf("no drs config provided")
+	}
+
+	account := drsConfig.ToIrodsAccount()
+	filesystem, err := irodsfs.NewFileSystemWithDefault(&account, "irods-go-drs-service-info-sampler")
+	if err != nil {
+		return summary, fmt.Errorf("create iRODS filesystem for service info sampler: %w", err)
+	}
+	defer filesystem.Release()
+
+	return drs_support.QueryDrsDataObjectSummary(filesystem)
 }
 
 var defaultServiceInfoSampler *ServiceInfoSampler

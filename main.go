@@ -39,6 +39,7 @@ func main() {
 
 	sw.SetDefaultServiceInfoSampler(sampler)
 
+	log.Print("Running initial service info sampler query")
 	if err := sampler.Start(context.Background()); err != nil {
 		log.Fatalf("start service info sampler: %v", err)
 	}

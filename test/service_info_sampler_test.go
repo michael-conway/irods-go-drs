@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,7 +23,7 @@ func TestServiceInfoSamplerCapturesSnapshotOnStart(t *testing.T) {
 		IrodsHost:                        "localhost",
 		IrodsPort:                        1247,
 		IrodsZone:                        "tempZone",
-	})
+	}, internal.WithServiceInfoSummaryProvider(fixedServiceInfoSummaryProvider(3, 4096)))
 	if err != nil {
 		t.Fatalf("create sampler: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestGetServiceInfoReturnsLatestSnapshot(t *testing.T) {
 		IrodsHost:                        "localhost",
 		IrodsPort:                        1247,
 		IrodsZone:                        "tempZone",
-	})
+	}, internal.WithServiceInfoSummaryProvider(fixedServiceInfoSummaryProvider(7, 12345)))
 	if err != nil {
 		t.Fatalf("create sampler: %v", err)
 	}
@@ -92,12 +93,46 @@ func TestGetServiceInfoReturnsLatestSnapshot(t *testing.T) {
 		t.Fatalf("expected drs section in response, got %#v", response["drs"])
 	}
 
-	if drsSection["objectCount"] != float64(0) {
-		t.Fatalf("expected placeholder objectCount 0, got %v", drsSection["objectCount"])
+	if drsSection["objectCount"] != float64(7) {
+		t.Fatalf("expected sampled objectCount 7, got %v", drsSection["objectCount"])
 	}
 
-	if drsSection["totalObjectSize"] != float64(0) {
-		t.Fatalf("expected placeholder totalObjectSize 0, got %v", drsSection["totalObjectSize"])
+	if drsSection["totalObjectSize"] != float64(12345) {
+		t.Fatalf("expected sampled totalObjectSize 12345, got %v", drsSection["totalObjectSize"])
+	}
+}
+
+func TestServiceInfoSamplerStartFailsWhenInitialSummaryQueryFails(t *testing.T) {
+	serviceInfoPath := writeServiceInfoFixture(t, `{"name":"Configured DRS"}`)
+
+	sampler, err := internal.NewServiceInfoSampler(&drs_support.DrsConfig{
+		ServiceInfoSampleIntervalMinutes: 1,
+		ServiceInfoFilePath:              serviceInfoPath,
+		IrodsHost:                        "localhost",
+		IrodsPort:                        1247,
+		IrodsZone:                        "tempZone",
+	}, internal.WithServiceInfoSummaryProvider(func(context.Context, *drs_support.DrsConfig) (drs_support.DrsDataObjectSummary, error) {
+		return drs_support.DrsDataObjectSummary{}, fmt.Errorf("catalog unavailable")
+	}))
+	if err != nil {
+		t.Fatalf("create sampler: %v", err)
+	}
+
+	err = sampler.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected initial service info sample failure")
+	}
+	if sampler.Snapshot() != nil {
+		t.Fatal("expected no snapshot after failed initial sample")
+	}
+}
+
+func fixedServiceInfoSummaryProvider(count int64, totalSize int64) internal.ServiceInfoSummaryProvider {
+	return func(context.Context, *drs_support.DrsConfig) (drs_support.DrsDataObjectSummary, error) {
+		return drs_support.DrsDataObjectSummary{
+			DataObjectCount: count,
+			TotalSize:       totalSize,
+		}, nil
 	}
 }
 

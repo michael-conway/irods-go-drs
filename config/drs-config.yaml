@@ -2,7 +2,7 @@ DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
 DrsListenPort: 8888
-ServiceInfoSampleIntervalMinutes: 5
+ServiceInfoSampleIntervalMinutes: 420
 ServiceInfoFilePath: service-info.json
 IRODSAccessHost: localhost
 IRODSAccessPort: 1247
