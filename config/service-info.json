@@ -9,9 +9,11 @@
   "contactUrl": "mailto:drs-support@example.org",
   "documentationUrl": "https://example.org/drs/docs",
   "environment": "prod",
-  "version": "1.5.0",
+  "version": "1.0.0-alpha",
   "type": {
-    "artifact": "drs"
+    "artifact": "drs",
+    "group": "org.ga4gh",
+    "version": "1.5.0"
   },
   "drs": {
     "maxBulkRequestLength": 1000

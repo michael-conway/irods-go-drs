@@ -5,15 +5,20 @@
 
 The tool expects the same shared DRS YAML config used by E2E tests. Pass it
 with `--drs-config`, or set `DRS_E2E_CONFIG_FILE` or `DRS_CONFIG_FILE`.
+The config must include iRODS connection settings, the admin credentials used
+to create the corpus, and the primary test user credentials used for Basic-auth
+compliance checks.
+
+The suggested certification report path is `CERTIFICATION.md` at the repository
+root. The GitHub certification workflow checks that file and fails if the report
+is missing or its `**Overall status:**` summary is not passing.
 
 ## Prepare
 
 ```bash
-go run ./tools/drs-certification prepare \
+run ./tools/drs-certification/drscert.go prepare \
   --drs-config ./e2e/drs-config.e2e.sample.yaml \
-  --server-base-url http://localhost:8888/ga4gh/drs/v1 \
-  --output-dir .certification/drs \
-  --report-path CERTFICATION.md
+  --output-dir .certification/drs
 ```
 
 `prepare` creates a corpus under:
@@ -26,6 +31,9 @@ It writes:
 
 - `corpus.json`
 - `drs-compliance-config.json`
+
+`corpus.json` records the generated compliance config path, corpus root,
+effective iRODS user, and generated DRS object IDs.
 
 The generated compliance-suite config includes:
 
@@ -45,32 +53,69 @@ Without `--bearer-token-file`, the generated config only exercises Basic auth.
 The generated compliance-suite config contains the bearer token, so write it to
 an ignored artifact directory.
 
+Example with Bearer-auth coverage:
+
+```bash
+run ./tools/drs-certification/drscert.go prepare \
+  --drs-config ./e2e/drs-config.e2e.sample.yaml \
+  --output-dir .certification/drs \
+  --bearer-token-file .certification/bearer-token.txt
+```
+
+## Compliance Suite Environment - Running with Python
+
+Create a Python virtual environment for the sibling `drs-compliance-suite`
+checkout and install its requirements before running certification.
+
+```bash
+cd ../drs-compliance-suite
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e .
+cd ../irods-go-drs
+```
+
+The installed executable is:
+
+```text
+../drs-compliance-suite/.venv/bin/drs-compliance-suite
+```
+
 ## Run
 
 ```bash
-go run ./tools/drs-certification run \
+go run ./tools/drs-certification/drscert.go run \
   --output-dir .certification/drs \
+  --server-base-url http://localhost:8888/ga4gh/drs/v1 \
   --suite-bin ../drs-compliance-suite/.venv/bin/drs-compliance-suite \
-  --report-path CERTFICATION.md
+  --report-path CERTIFICATION.md
 ```
 
 `run` writes:
 
-- `CERTFICATION.md`
+- `CERTIFICATION.md`
 - `run.json`
 
+The DRS server base URL and report path are run-phase settings. They are taken
+from `--server-base-url` and `--report-path`; neither is stored in `corpus.json`
+or `run.json`.
+
 When commands are run from the repository root, the default report path is
-`CERTFICATION.md`, which places the compliance summary at the top level for CI.
-When running from `tools/`, pass `--report-path ../CERTFICATION.md`.
+`CERTIFICATION.md`, which places the compliance summary at the top level for CI.
+When running from `tools/`, pass `--report-path ../CERTIFICATION.md`. When
+running from `tools/drs-certification/`, pass
+`--report-path ../../CERTIFICATION.md`.
 
 ## All
 
 ```bash
-go run ./tools/drs-certification all \
+run ./tools/drs-certification/drscert.go all \
   --drs-config ./e2e/drs-config.e2e.sample.yaml \
   --server-base-url http://localhost:8888/ga4gh/drs/v1 \
   --suite-bin ../drs-compliance-suite/.venv/bin/drs-compliance-suite \
-  --report-path CERTFICATION.md
+  --report-path CERTIFICATION.md
 ```
 
 `all` runs `prepare` and `run`. It does not clean up the corpus.
@@ -81,7 +126,7 @@ Bearer-auth coverage described above.
 ## Cleanup
 
 ```bash
-go run ./tools/drs-certification cleanup \
+run ./tools/drs-certification/drscert.go cleanup \
   --corpus .certification/drs/corpus.json
 ```
 

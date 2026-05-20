@@ -26,7 +26,7 @@ import (
 
 const (
 	defaultOutputDir     = ".certification/drs"
-	defaultReportPath    = "CERTFICATION.md"
+	defaultReportPath    = "CERTIFICATION.md"
 	defaultSuiteBin      = "drs-compliance-suite"
 	corpusSchemaVersion  = "1"
 	complianceDRSVersion = "1.5.0"
@@ -54,10 +54,8 @@ func (f *certificationFS) EnsureDataObjectChecksum(irodsPath string) (*irodstype
 
 type prepareOptions struct {
 	configFile      string
-	serverBaseURL   string
 	outputDir       string
 	runID           string
-	reportPath      string
 	bearerTokenFile string
 }
 
@@ -83,11 +81,9 @@ type Corpus struct {
 	RunID                string         `json:"runId"`
 	CreatedAt            time.Time      `json:"createdAt"`
 	ConfigFile           string         `json:"configFile,omitempty"`
-	ServerBaseURL        string         `json:"serverBaseUrl"`
 	RootPath             string         `json:"rootPath"`
 	EffectiveUser        string         `json:"effectiveUser"`
 	ComplianceConfigPath string         `json:"complianceConfigPath"`
-	ReportPath           string         `json:"reportPath"`
 	BearerAuthEnabled    bool           `json:"bearerAuthEnabled,omitempty"`
 	Objects              []CorpusObject `json:"objects"`
 }
@@ -152,9 +148,7 @@ type ComplianceInvalidAccess struct {
 type runRecord struct {
 	StartedAt   time.Time `json:"startedAt"`
 	CompletedAt time.Time `json:"completedAt"`
-	Command     []string  `json:"command"`
 	ExitCode    int       `json:"exitCode"`
-	ReportPath  string    `json:"reportPath"`
 }
 
 func main() {
@@ -205,10 +199,6 @@ func runCLI(ctx context.Context, args []string) error {
 		runOpts.outputDir = prepareOpts.outputDir
 		runOpts.corpusFile = filepath.Join(prepareOpts.outputDir, "corpus.json")
 		runOpts.configFile = corpus.ComplianceConfigPath
-		runOpts.reportPath = corpus.ReportPath
-		if strings.TrimSpace(runOpts.serverBaseURL) == "" {
-			runOpts.serverBaseURL = corpus.ServerBaseURL
-		}
 		return runComplianceSuite(ctx, runOpts)
 	case "-h", "--help", "help":
 		writeUsage(os.Stdout)
@@ -223,10 +213,8 @@ func parsePrepareOptions(args []string) (prepareOptions, error) {
 	opts := prepareOptions{}
 	fs := flag.NewFlagSet("prepare", flag.ContinueOnError)
 	fs.StringVar(&opts.configFile, "drs-config", "", "DRS YAML config path; defaults to DRS_E2E_CONFIG_FILE or DRS_CONFIG_FILE")
-	fs.StringVar(&opts.serverBaseURL, "server-base-url", "", "DRS API base URL; defaults to http://localhost:<DrsListenPort>/ga4gh/drs/v1")
 	fs.StringVar(&opts.outputDir, "output-dir", defaultOutputDir, "directory for corpus and compliance-suite config artifacts")
 	fs.StringVar(&opts.runID, "run-id", "", "stable run id for the corpus root; defaults to a timestamp")
-	fs.StringVar(&opts.reportPath, "report-path", defaultReportPath, "Markdown report path recorded for the compliance run")
 	fs.StringVar(&opts.bearerTokenFile, "bearer-token-file", "", "file containing a bearer auth token; enables bearer-auth object checks")
 	if err := fs.Parse(args); err != nil {
 		return opts, err
@@ -240,9 +228,9 @@ func parseRunOptions(args []string) (runOptions, error) {
 	fs.StringVar(&opts.outputDir, "output-dir", defaultOutputDir, "directory containing prepared corpus artifacts")
 	fs.StringVar(&opts.corpusFile, "corpus", "", "corpus JSON path; defaults to <output-dir>/corpus.json")
 	fs.StringVar(&opts.configFile, "config-file", "", "compliance-suite JSON config path; defaults to corpus value")
-	fs.StringVar(&opts.reportPath, "report-path", "", "Markdown report path; defaults to corpus value")
+	fs.StringVar(&opts.reportPath, "report-path", defaultReportPath, "Markdown report path for the compliance run")
 	fs.StringVar(&opts.suiteBin, "suite-bin", defaultSuiteBin, "drs-compliance-suite executable")
-	fs.StringVar(&opts.serverBaseURL, "server-base-url", "", "DRS API base URL; defaults to corpus value")
+	fs.StringVar(&opts.serverBaseURL, "server-base-url", "", "DRS API base URL for the compliance run")
 	fs.StringVar(&opts.platformName, "platform-name", "irods-go-drs", "platform name for compliance report")
 	fs.StringVar(&opts.platformDesc, "platform-description", "iRODS-backed GA4GH DRS implementation", "platform description for compliance report")
 	fs.StringVar(&opts.complianceVers, "version", complianceDRSVersion, "DRS specification version to test")
@@ -267,25 +255,25 @@ func parseAllOptions(args []string) (prepareOptions, runOptions, error) {
 	prepareOpts := prepareOptions{}
 	runOpts := runOptions{
 		suiteBin:       defaultSuiteBin,
+		reportPath:     defaultReportPath,
 		platformName:   "irods-go-drs",
 		platformDesc:   "iRODS-backed GA4GH DRS implementation",
 		complianceVers: complianceDRSVersion,
 	}
 	fs := flag.NewFlagSet("all", flag.ContinueOnError)
 	fs.StringVar(&prepareOpts.configFile, "drs-config", "", "DRS YAML config path; defaults to DRS_E2E_CONFIG_FILE or DRS_CONFIG_FILE")
-	fs.StringVar(&prepareOpts.serverBaseURL, "server-base-url", "", "DRS API base URL; defaults to http://localhost:<DrsListenPort>/ga4gh/drs/v1")
 	fs.StringVar(&prepareOpts.outputDir, "output-dir", defaultOutputDir, "directory for corpus and compliance-suite artifacts")
 	fs.StringVar(&prepareOpts.runID, "run-id", "", "stable run id for the corpus root; defaults to a timestamp")
-	fs.StringVar(&prepareOpts.reportPath, "report-path", defaultReportPath, "Markdown report path recorded for the compliance run")
 	fs.StringVar(&prepareOpts.bearerTokenFile, "bearer-token-file", "", "file containing a bearer auth token; enables bearer-auth object checks")
+	fs.StringVar(&runOpts.reportPath, "report-path", defaultReportPath, "Markdown report path for the compliance run")
 	fs.StringVar(&runOpts.suiteBin, "suite-bin", defaultSuiteBin, "drs-compliance-suite executable")
+	fs.StringVar(&runOpts.serverBaseURL, "server-base-url", "", "DRS API base URL for the compliance run")
 	fs.StringVar(&runOpts.platformName, "platform-name", runOpts.platformName, "platform name for compliance report")
 	fs.StringVar(&runOpts.platformDesc, "platform-description", runOpts.platformDesc, "platform description for compliance report")
 	fs.StringVar(&runOpts.complianceVers, "version", complianceDRSVersion, "DRS specification version to test")
 	if err := fs.Parse(args); err != nil {
 		return prepareOpts, runOpts, err
 	}
-	runOpts.serverBaseURL = prepareOpts.serverBaseURL
 	return prepareOpts, runOpts, nil
 }
 
@@ -313,12 +301,6 @@ func prepareCorpus(opts prepareOptions) (*Corpus, error) {
 	}
 	if strings.TrimSpace(opts.outputDir) == "" {
 		opts.outputDir = defaultOutputDir
-	}
-	if opts.serverBaseURL == "" {
-		opts.serverBaseURL = defaultServerBaseURL(config)
-	}
-	if strings.TrimSpace(opts.reportPath) == "" {
-		opts.reportPath = defaultReportPath
 	}
 
 	if err := os.MkdirAll(opts.outputDir, 0o755); err != nil {
@@ -355,11 +337,9 @@ func prepareCorpus(opts prepareOptions) (*Corpus, error) {
 		RunID:                opts.runID,
 		CreatedAt:            time.Now().UTC(),
 		ConfigFile:           resolvedConfigFile,
-		ServerBaseURL:        opts.serverBaseURL,
 		RootPath:             rootPath,
 		EffectiveUser:        config.IrodsPrimaryTestUser,
 		ComplianceConfigPath: complianceConfigPath,
-		ReportPath:           opts.reportPath,
 		BearerAuthEnabled:    bearerToken != "",
 		Objects:              objects,
 	}
@@ -411,6 +391,11 @@ func createCertificationObjects(filesystem *certificationFS, rootPath string) ([
 }
 
 func createDataObjectFixture(filesystem *certificationFS, objectPath string, content string, description string, aliases []string) (CorpusObject, error) {
+	objectParentPath := path.Dir(objectPath)
+	if err := filesystem.MakeDir(objectParentPath, true); err != nil {
+		return CorpusObject{}, fmt.Errorf("create object parent collection %q: %w", objectParentPath, err)
+	}
+
 	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBufferString(content), objectPath, "", false, true, nil); err != nil {
 		return CorpusObject{}, fmt.Errorf("upload object %q: %w", objectPath, err)
 	}
@@ -431,6 +416,9 @@ func createCompoundFixture(filesystem *certificationFS, rootPath string) (Corpus
 	includedCollectionPath := path.Join(compoundPath, "included")
 	ignoredCollectionPath := path.Join(compoundPath, "ignored")
 
+	if err := filesystem.MakeDir(compoundPath, true); err != nil {
+		return CorpusObject{}, fmt.Errorf("create compound root collection %q: %w", compoundPath, err)
+	}
 	if err := filesystem.MakeDir(includedCollectionPath, true); err != nil {
 		return CorpusObject{}, fmt.Errorf("create compound included collection %q: %w", includedCollectionPath, err)
 	}
@@ -547,8 +535,8 @@ func buildComplianceConfig(objects []CorpusObject, username string, password str
 
 	return &ComplianceConfig{
 		ServiceInfo: ComplianceAuthObject{
-			AuthType:  "none",
-			AuthToken: "",
+			AuthType:  "basic",
+			AuthToken: validBasicToken,
 		},
 		DRSObjectInfo:   objectInfo,
 		DRSObjectAccess: objectAccess,
@@ -626,8 +614,8 @@ func runComplianceSuite(ctx context.Context, opts runOptions) error {
 	}
 
 	configFile := firstNonEmpty(opts.configFile, corpus.ComplianceConfigPath)
-	reportPath := firstNonEmpty(opts.reportPath, corpus.ReportPath)
-	serverBaseURL := firstNonEmpty(opts.serverBaseURL, corpus.ServerBaseURL)
+	reportPath := firstNonEmpty(opts.reportPath)
+	serverBaseURL := firstNonEmpty(opts.serverBaseURL)
 	if configFile == "" {
 		return fmt.Errorf("compliance config file is required")
 	}
@@ -678,9 +666,7 @@ func runComplianceSuite(ctx context.Context, opts runOptions) error {
 	record := runRecord{
 		StartedAt:   startedAt,
 		CompletedAt: completedAt,
-		Command:     append([]string{opts.suiteBin}, args...),
 		ExitCode:    exitCode,
-		ReportPath:  reportPath,
 	}
 	if writeErr := writeJSONFile(filepath.Join(filepath.Dir(corpusPath), "run.json"), record); writeErr != nil && err == nil {
 		return writeErr
@@ -819,14 +805,6 @@ func connectCertificationFS(cfg *drs_support.DrsConfig, effectiveUser string) (*
 	return &certificationFS{FileSystem: filesystem}, nil
 }
 
-func defaultServerBaseURL(cfg *drs_support.DrsConfig) string {
-	port := 8080
-	if cfg != nil && cfg.DrsListenPort > 0 {
-		port = cfg.DrsListenPort
-	}
-	return fmt.Sprintf("http://localhost:%d/ga4gh/drs/v1", port)
-}
-
 func readCorpus(corpusPath string) (*Corpus, error) {
 	corpusPath = strings.TrimSpace(corpusPath)
 	if corpusPath == "" {
@@ -913,8 +891,8 @@ func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "drscert prepares an iRODS-backed corpus and compliance-suite config for irods-go-drs self-testing.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  drscert prepare --drs-config <config.yaml> --server-base-url <url> --output-dir .certification/drs [--bearer-token-file token.txt]")
-	fmt.Fprintln(w, "  drscert run --output-dir .certification/drs --suite-bin drs-compliance-suite [--report-path CERTFICATION.md]")
+	fmt.Fprintln(w, "  drscert prepare --drs-config <config.yaml> --output-dir .certification/drs [--bearer-token-file token.txt]")
+	fmt.Fprintln(w, "  drscert run --output-dir .certification/drs --server-base-url <url> --suite-bin drs-compliance-suite [--report-path CERTIFICATION.md]")
 	fmt.Fprintln(w, "  drscert cleanup --corpus .certification/drs/corpus.json")
-	fmt.Fprintln(w, "  drscert all --drs-config <config.yaml> --server-base-url <url> --suite-bin drs-compliance-suite [--bearer-token-file token.txt]")
+	fmt.Fprintln(w, "  drscert all --drs-config <config.yaml> --server-base-url <url> --suite-bin drs-compliance-suite [--report-path CERTIFICATION.md] [--bearer-token-file token.txt]")
 }

@@ -1103,6 +1103,14 @@ func drsObjectFromEntryWithMetadata(filesystem IRODSFilesystem, entry *irodsfs.E
 		return nil, nil
 	}
 
+	if object.IsManifest && entry.IsDir() {
+		checksum, err := BuildCompoundRuntimeManifestChecksum(filesystem, object.AbsolutePath)
+		if err != nil {
+			return nil, fmt.Errorf("build compound runtime manifest checksum for %q: %w", object.AbsolutePath, err)
+		}
+		object.Checksum = checksum
+	}
+
 	return object, nil
 }
 

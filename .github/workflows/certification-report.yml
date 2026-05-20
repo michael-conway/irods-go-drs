@@ -19,7 +19,7 @@ jobs:
     - name: Check certification summary status
       shell: bash
       run: |
-        report="CERTFICATION.md"
+        report="CERTIFICATION.md"
 
         if [[ ! -f "$report" ]]; then
           echo "::error file=${report}::Certification report is missing"

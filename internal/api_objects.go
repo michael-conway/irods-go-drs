@@ -68,6 +68,61 @@ var readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
 	return readDrsConfigNoPanic(drs_support.DefaultConfigName, drs_support.DefaultConfigType, nil)
 }
 
+func writeRouteFileSystemError(w http.ResponseWriter, r *http.Request, err error) {
+	status := routeErrorStatus(r, err)
+	message := fmt.Sprintf("failed to connect to iRODS: %v", err)
+	if status == http.StatusUnauthorized {
+		message = fmt.Sprintf("iRODS authentication failed: %v", err)
+	}
+	writeJSONError(w, status, message)
+}
+
+func routeErrorStatus(r *http.Request, err error) int {
+	if isBasicIRODSAuthFailure(r, err) {
+		return http.StatusUnauthorized
+	}
+	if err == nil {
+		return http.StatusInternalServerError
+	}
+
+	message := err.Error()
+	if strings.Contains(message, "not found") {
+		return http.StatusNotFound
+	}
+	if strings.Contains(message, "required") {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+func isBasicIRODSAuthFailure(r *http.Request, err error) bool {
+	if err == nil || r == nil || !isIRODSAuthFailure(err) {
+		return false
+	}
+
+	scheme, ok := AuthSchemeFromContext(r.Context())
+	return ok && strings.EqualFold(scheme, "basic")
+}
+
+func isIRODSAuthFailure(err error) bool {
+	if types.IsAuthError(err) {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"authentication error",
+		"cat_invalid_authentication",
+		"pam_auth_password_failed",
+		"remote_server_authentication_failure",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 	serviceContext, ok := DrsServiceContextFromContext(r.Context())
 	if !ok || serviceContext == nil {
@@ -96,26 +151,22 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 
 	filesystem, err := createRouteFileSystem(serviceContext.IrodsAccount, "irods-go-drs-get-access-url")
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		writeRouteFileSystemError(w, r, err)
 		return
 	}
 	defer filesystem.Release()
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		} else if strings.Contains(err.Error(), "required") {
-			status = http.StatusBadRequest
-		}
-
-		writeJSONError(w, status, err.Error())
+		writeJSONError(w, routeErrorStatus(r, err), err.Error())
 		return
 	}
 
 	response, status, err := accessURLForObject(r, filesystem, serviceContext.DrsConfig, objectID, accessID, object)
 	if err != nil {
+		if status == http.StatusInternalServerError {
+			status = routeErrorStatus(r, err)
+		}
 		writeJSONError(w, status, err.Error())
 		return
 	}
@@ -340,21 +391,14 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 
 	filesystem, err := createRouteFileSystem(serviceContext.IrodsAccount, "irods-go-drs-get-object")
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		writeRouteFileSystemError(w, r, err)
 		return
 	}
 	defer filesystem.Release()
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		} else if strings.Contains(err.Error(), "required") {
-			status = http.StatusBadRequest
-		}
-
-		writeJSONError(w, status, err.Error())
+		writeJSONError(w, routeErrorStatus(r, err), err.Error())
 		return
 	}
 	if !object.IsManifest {
@@ -388,20 +432,14 @@ func GetCompoundManifestExt(w http.ResponseWriter, r *http.Request) {
 
 	filesystem, err := createRouteFileSystem(serviceContext.IrodsAccount, "irods-go-drs-get-compound-manifest-ext")
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		writeRouteFileSystemError(w, r, err)
 		return
 	}
 	defer filesystem.Release()
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		} else if strings.Contains(err.Error(), "required") {
-			status = http.StatusBadRequest
-		}
-		writeJSONError(w, status, err.Error())
+		writeJSONError(w, routeErrorStatus(r, err), err.Error())
 		return
 	}
 
@@ -415,10 +453,15 @@ func GetCompoundManifestExt(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	manifestJSON, err := drs_support.MarshalCompoundRuntimeManifest(manifest)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(manifest)
+	_, _ = w.Write(manifestJSON)
 }
 
 func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {

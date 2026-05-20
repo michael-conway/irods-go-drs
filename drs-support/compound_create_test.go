@@ -1,6 +1,8 @@
 package drs_support
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +19,34 @@ type compoundTestFilesystem struct {
 	entriesByPath  map[string]*irodsfs.Entry
 	metadataByPath map[string][]*irodstypes.IRODSMeta
 	fileContents   map[string][]byte
+}
+
+func TestCompoundRuntimeManifestChecksumUsesCanonicalMD5(t *testing.T) {
+	manifest := &CompoundRuntimeManifest{
+		RootPath:  "/tempZone/home/test1/compound",
+		RootDrsID: "compound-id",
+		Manifest: &CompoundManifestNode{
+			Path:         "/tempZone/home/test1/compound",
+			RelativePath: ".",
+			NodeType:     "collection",
+			DrsID:        "compound-id",
+		},
+	}
+
+	checksum, err := CompoundRuntimeManifestChecksum(manifest)
+	if err != nil {
+		t.Fatalf("checksum runtime manifest: %v", err)
+	}
+
+	manifestJSON, err := MarshalCompoundRuntimeManifest(manifest)
+	if err != nil {
+		t.Fatalf("marshal runtime manifest: %v", err)
+	}
+	sum := md5.Sum(manifestJSON)
+	expected := hex.EncodeToString(sum[:])
+	if checksum.Type != "md5" || checksum.Value != expected {
+		t.Fatalf("expected md5 checksum %q, got %+v", expected, checksum)
+	}
 }
 
 func newCompoundTestFilesystem(root string) *compoundTestFilesystem {

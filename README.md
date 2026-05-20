@@ -7,7 +7,7 @@
 
 A Go implementation of the GA4GH Data Repository Service (DRS) for iRODS.
 
-Note that the DRS certification as described in the CERTFICATION.md is based on proposed self-certification test based
+Note that the DRS certification as described in the CERTIFICATION.md is based on proposed self-certification test based
 on the [GA4GH DRS Test Suite](https://github.com/ga4gh/data-repository-service-tests) and does not reflect any official GA4GH DRS certification.
 
 ## Overview

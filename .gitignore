@@ -27,4 +27,7 @@ go.work.sum
 .idea
 .gocache
 .run
+
+# DRS certification generated artifacts
 .certification/
+tools/drs-certification/drscert

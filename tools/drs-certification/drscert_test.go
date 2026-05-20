@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildComplianceConfigDefaultsToBasicOnly(t *testing.T) {
@@ -15,15 +18,16 @@ func TestBuildComplianceConfigDefaultsToBasicOnly(t *testing.T) {
 		t.Fatalf("build compliance config: %v", err)
 	}
 
-	if config.ServiceInfo.AuthType != "none" {
-		t.Fatalf("expected unauthenticated service-info config, got %+v", config.ServiceInfo)
+	expectedBasicToken := base64.StdEncoding.EncodeToString([]byte("test1:test-password"))
+	if config.ServiceInfo.AuthType != "basic" || config.ServiceInfo.AuthToken != expectedBasicToken {
+		t.Fatalf("expected Basic-auth service-info config, got %+v", config.ServiceInfo)
 	}
 	if len(config.DRSObjectInfo) != len(objects) {
 		t.Fatalf("expected %d object info entries, got %+v", len(objects), config.DRSObjectInfo)
 	}
 	for _, entry := range config.DRSObjectInfo {
-		if entry.AuthType != "basic" {
-			t.Fatalf("expected only basic object info entries without bearer token, got %+v", config.DRSObjectInfo)
+		if entry.AuthType != "basic" || entry.AuthToken != expectedBasicToken {
+			t.Fatalf("expected only Basic-auth object info entries without bearer token, got %+v", config.DRSObjectInfo)
 		}
 	}
 	if !config.DRSObjectInfo[2].IsCompound {
@@ -111,6 +115,39 @@ func TestReadBearerTokenFileTrimsTokenAndPrefix(t *testing.T) {
 	}
 }
 
+func TestPrepareOptionsDoNotAcceptRunPhaseOptions(t *testing.T) {
+	if _, err := parsePrepareOptions([]string{"--server-base-url", "http://localhost:8888/ga4gh/drs/v1"}); err == nil {
+		t.Fatal("expected prepare to reject --server-base-url")
+	}
+	if _, err := parsePrepareOptions([]string{"--report-path", "CERTIFICATION.md"}); err == nil {
+		t.Fatal("expected prepare to reject --report-path")
+	}
+}
+
+func TestJSONArtifactsDoNotSerializeRunPhaseOptions(t *testing.T) {
+	corpusData, err := json.Marshal(Corpus{
+		SchemaVersion:        corpusSchemaVersion,
+		RunID:                "run-1",
+		RootPath:             "/tempZone/home/test1/drs-certification/run-1",
+		EffectiveUser:        "test1",
+		ComplianceConfigPath: ".certification/drs/drs-compliance-config.json",
+	})
+	if err != nil {
+		t.Fatalf("marshal corpus: %v", err)
+	}
+	assertNoRunPhaseOptions(t, corpusData)
+
+	recordData, err := json.Marshal(runRecord{
+		StartedAt:   testTime(),
+		CompletedAt: testTime(),
+		ExitCode:    0,
+	})
+	if err != nil {
+		t.Fatalf("marshal run record: %v", err)
+	}
+	assertNoRunPhaseOptions(t, recordData)
+}
+
 func TestSanitizeRunID(t *testing.T) {
 	if actual := sanitizeRunID(" run/id 1 "); actual != "run-id-1" {
 		t.Fatalf("expected sanitized run id %q, got %q", "run-id-1", actual)
@@ -122,6 +159,20 @@ func testCorpusObjects() []CorpusObject {
 		{Role: "primary", DRSID: "object-1", Path: "/tempZone/home/test1/drs-certification/run/basic-object.txt"},
 		{Role: "bulk-1", DRSID: "object-2", Path: "/tempZone/home/test1/drs-certification/run/bulk-1.txt"},
 		{Role: "compound", DRSID: "compound-1", Path: "/tempZone/home/test1/drs-certification/run/compound-root", IsCompound: true},
+	}
+}
+
+func testTime() time.Time {
+	return time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
+}
+
+func assertNoRunPhaseOptions(t *testing.T, data []byte) {
+	t.Helper()
+	text := string(data)
+	for _, forbidden := range []string{"reportPath", "CERTIFICATION.md", "serverBaseUrl", "localhost:8888"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("expected no run-phase option %q in JSON artifact, got %s", forbidden, text)
+		}
 	}
 }
 
