@@ -30,7 +30,7 @@ func TestServiceInfoEndpointIntegration(t *testing.T) {
 		IrodsHost:                        "localhost",
 		IrodsPort:                        1247,
 		IrodsZone:                        "tempZone",
-	})
+	}, internal.WithServiceInfoSummaryProvider(fixedServiceInfoSummaryProvider(5, 8192)))
 	if err != nil {
 		t.Fatalf("create sampler: %v", err)
 	}
@@ -82,11 +82,11 @@ func TestServiceInfoEndpointIntegration(t *testing.T) {
 		t.Fatalf("expected drs section in response, got %#v", response["drs"])
 	}
 
-	if drsSection["objectCount"] != float64(0) {
-		t.Fatalf("expected placeholder objectCount 0, got %v", drsSection["objectCount"])
+	if drsSection["objectCount"] != float64(5) {
+		t.Fatalf("expected sampled objectCount 5, got %v", drsSection["objectCount"])
 	}
 
-	if drsSection["totalObjectSize"] != float64(0) {
-		t.Fatalf("expected placeholder totalObjectSize 0, got %v", drsSection["totalObjectSize"])
+	if drsSection["totalObjectSize"] != float64(8192) {
+		t.Fatalf("expected sampled totalObjectSize 8192, got %v", drsSection["totalObjectSize"])
 	}
 }

@@ -162,6 +162,9 @@ func TestGetDrsObjectByIDForCompoundCollection(t *testing.T) {
 	if !object.IsManifest {
 		t.Fatalf("expected compound object to be marked manifest")
 	}
+	if object.Checksum == nil || object.Checksum.Type != "md5" || len(object.Checksum.Value) != 32 {
+		t.Fatalf("expected generated compound manifest md5 checksum, got %+v", object.Checksum)
+	}
 }
 
 func TestGetDrsObjectByIDReturnsNotFound(t *testing.T) {

@@ -1,0 +1,49 @@
+name: Certification Report
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+permissions:
+  contents: read
+
+jobs:
+  certification-report:
+    name: Validate Certification Report
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check certification summary status
+      shell: bash
+      run: |
+        report="CERTIFICATION.md"
+
+        if [[ ! -f "$report" ]]; then
+          echo "::error file=${report}::Certification report is missing"
+          exit 1
+        fi
+
+        status_line="$(grep -m 1 -E '^\*\*Overall status:\*\*' "$report" || true)"
+        if [[ -z "$status_line" ]]; then
+          echo "::error file=${report}::Certification report is missing an Overall status summary line"
+          exit 1
+        fi
+
+        status="$(
+          printf '%s\n' "$status_line" |
+            sed -nE 's/^\*\*Overall status:\*\*[[:space:]]*`([^`]+)`.*/\1/p' |
+            tr '[:lower:]' '[:upper:]'
+        )"
+
+        case "$status" in
+          PASS|PASSED|PASSING)
+            echo "Certification report status is ${status}"
+            ;;
+          *)
+            echo "::error file=${report}::Certification report status is '${status:-unknown}', expected PASS"
+            exit 1
+            ;;
+        esac

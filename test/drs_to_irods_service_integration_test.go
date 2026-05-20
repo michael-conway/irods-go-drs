@@ -90,6 +90,58 @@ func TestCreateDrsObjectFromDataObjectIntegration(t *testing.T) {
 	}
 }
 
+func TestQueryDrsDataObjectSummaryIntegration(t *testing.T) {
+	filesystem := newIntegrationIRODSFilesystem(t)
+	defer filesystem.Release()
+
+	before, err := drs_support.QueryDrsDataObjectSummary(filesystem)
+	if err != nil {
+		t.Fatalf("query initial DRS data object summary: %v", err)
+	}
+
+	testDir := makeIntegrationTestDir(t, filesystem)
+	fixtures := []struct {
+		name    string
+		content string
+	}{
+		{name: "summary-a.txt", content: "summary object a\n"},
+		{name: "summary-b.txt", content: "summary object b with more bytes\n"},
+	}
+
+	var expectedSize int64
+	for _, fixture := range fixtures {
+		objectPath := testDir + "/" + fixture.name
+		content := []byte(fixture.content)
+		expectedSize += int64(len(content))
+		if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer(content), objectPath, "", false, true, nil); err != nil {
+			t.Fatalf("upload summary object %q: %v", objectPath, err)
+		}
+		requireIntegrationObjectChecksum(t, filesystem, objectPath)
+		if _, err := drs_support.CreateDrsObjectFromDataObject(filesystem, objectPath, "", "", nil); err != nil {
+			t.Fatalf("create summary DRS object %q: %v", objectPath, err)
+		}
+		defer func(path string) {
+			if err := drs_support.RemoveSingleDrsObjectFromDataObject(filesystem, path); err != nil {
+				t.Logf("cleanup DRS metadata on %q: %v", path, err)
+			}
+		}(objectPath)
+	}
+
+	after, err := drs_support.QueryDrsDataObjectSummary(filesystem)
+	if err != nil {
+		t.Fatalf("query final DRS data object summary: %v", err)
+	}
+
+	expectedCount := before.DataObjectCount + int64(len(fixtures))
+	if after.DataObjectCount != expectedCount {
+		t.Fatalf("expected DRS data object count %d, got %d (before %+v, after %+v)", expectedCount, after.DataObjectCount, before, after)
+	}
+	expectedTotalSize := before.TotalSize + expectedSize
+	if after.TotalSize != expectedTotalSize {
+		t.Fatalf("expected DRS total size %d, got %d (before %+v, after %+v)", expectedTotalSize, after.TotalSize, before, after)
+	}
+}
+
 func TestBuildS3AccessMethodFromBucketAVUIntegration(t *testing.T) {
 	cfg := requireIntegrationDrsConfig(t)
 	if !cfg.S3AccessMethodSupported {

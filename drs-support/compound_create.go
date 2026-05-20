@@ -1,6 +1,9 @@
 package drs_support
 
 import (
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -299,6 +302,36 @@ func BuildCompoundRuntimeManifest(filesystem IRODSFilesystem, collectionPath str
 	}
 
 	return result, nil
+}
+
+// MarshalCompoundRuntimeManifest returns the canonical JSON bytes used when serving a runtime manifest.
+func MarshalCompoundRuntimeManifest(manifest *CompoundRuntimeManifest) ([]byte, error) {
+	if manifest == nil {
+		return nil, fmt.Errorf("compound runtime manifest is nil")
+	}
+	return json.Marshal(manifest)
+}
+
+// CompoundRuntimeManifestChecksum returns an MD5 checksum over the generated runtime manifest JSON.
+func CompoundRuntimeManifestChecksum(manifest *CompoundRuntimeManifest) (*InternalChecksum, error) {
+	manifestJSON, err := MarshalCompoundRuntimeManifest(manifest)
+	if err != nil {
+		return nil, err
+	}
+	sum := md5.Sum(manifestJSON)
+	return &InternalChecksum{
+		Type:  "md5",
+		Value: hex.EncodeToString(sum[:]),
+	}, nil
+}
+
+// BuildCompoundRuntimeManifestChecksum generates the runtime manifest and returns its MD5 checksum.
+func BuildCompoundRuntimeManifestChecksum(filesystem IRODSFilesystem, collectionPath string) (*InternalChecksum, error) {
+	manifest, err := BuildCompoundRuntimeManifest(filesystem, collectionPath)
+	if err != nil {
+		return nil, err
+	}
+	return CompoundRuntimeManifestChecksum(manifest)
 }
 
 // CreateCompoundDrsObjectFromCollection bootstraps a collection hierarchy as a compound DRS object.

@@ -2,9 +2,13 @@
 
 [![Go](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/go.yml)
 [![CodeQL Advanced](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/codeql.yml)
-[![Container Build](https://github.com/michael-conway/irods-go-drs/actions/workflows/container-build.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/container-build.yml)
+[![Certification Report](https://github.com/michael-conway/irods-go-drs/actions/workflows/certification-report.yml/badge.svg)](https://github.com/michael-conway/irods-go-drs/actions/workflows/certification-report.yml)
+
 
 A Go implementation of the GA4GH Data Repository Service (DRS) for iRODS.
+
+Note that the DRS certification as described in the CERTIFICATION.md is based on proposed self-certification test based
+on the [GA4GH DRS Test Suite](https://github.com/ga4gh/data-repository-service-tests) and does not reflect any official GA4GH DRS certification.
 
 ## Overview
 
@@ -34,9 +38,11 @@ It includes:
 
 ## Master Index
 
-* [DRS Console User Guide](./tools/drs-console/USERGUIDE.md)
-* [Configuration Notes](./CONFIGURATION_NOTES.md)
-* [Development Notes](./DEVELOPER_NOTES.md)
+* [Documentation Directory](./docs/)
+* [Configuration Notes](./docs/CONFIGURATION_NOTES.md)
+* [Development Notes](./docs/DEVELOPER_NOTES.md)
+* [`drscmd` Tool User Guide](./tools/drs-console/USERGUIDE.md)
+* [DRS Certification Tool User Guide](./tools/drs-certification/USERGUIDE.md)
 
 ## Project Structure
 
@@ -47,7 +53,9 @@ The repository follows a conventional Go layout centered around a generated-and-
 | `main.go` | Service entrypoint for the DRS REST API |
 | `internal/` | HTTP handlers, routing, generated models, OpenAPI-serving endpoints, and service implementation details |
 | `drs-support/` | DRS-to-iRODS mapping logic, manifest support, validation helpers, and configuration support |
-| `tools/drs-console/` | `drscmd` command-line tool for DRS administration |
+| [`docs/`](./docs/) | Project notes, design docs, release checklist, and DRS ignore documentation |
+| [`tools/drs-console/`](./tools/drs-console/) | [`drscmd`](./tools/drs-console/USERGUIDE.md) command-line tool for DRS administration |
+| [`tools/drs-certification/`](./tools/drs-certification/) | [DRS certification tool](./tools/drs-certification/USERGUIDE.md) for preparing a compliance-test corpus and report |
 | `api/` | OpenAPI source documents embedded and served by the service |
 | `config/` | Sample runtime configuration including `drs-config.yaml` and `service-info.json` |
 | `test/` | Broader integration tests that span packages and run against a reachable iRODS test grid |

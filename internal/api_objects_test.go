@@ -2,6 +2,8 @@ package internal
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -121,8 +123,9 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 
 func TestGetObjectReturnsCompoundObjectWithOnlyHTTPSAccessMethod(t *testing.T) {
 	oldFactory := createRouteFileSystem
+	fs := newRouteTestFileSystem()
 	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
-		return newRouteTestFileSystem(), nil
+		return fs, nil
 	}
 	defer func() { createRouteFileSystem = oldFactory }()
 
@@ -178,6 +181,20 @@ func TestGetObjectReturnsCompoundObjectWithOnlyHTTPSAccessMethod(t *testing.T) {
 	}
 	if method.Authorizations.SupportedTypes[0] != "BasicAuth" || method.Authorizations.SupportedTypes[1] != "BearerAuth" {
 		t.Fatalf("expected supported auth types basic/bearer, got %+v", method.Authorizations)
+	}
+
+	manifest, err := drs_support.BuildCompoundRuntimeManifest(fs, "/tempZone/home/test1/compound")
+	if err != nil {
+		t.Fatalf("build expected compound manifest: %v", err)
+	}
+	manifestJSON, err := drs_support.MarshalCompoundRuntimeManifest(manifest)
+	if err != nil {
+		t.Fatalf("marshal expected compound manifest: %v", err)
+	}
+	sum := md5.Sum(manifestJSON)
+	expectedChecksum := hex.EncodeToString(sum[:])
+	if len(response.Checksums) != 1 || response.Checksums[0].Type_ != "md5" || response.Checksums[0].Checksum != expectedChecksum {
+		t.Fatalf("expected generated manifest md5 checksum %q, got %+v", expectedChecksum, response.Checksums)
 	}
 }
 
@@ -521,6 +538,84 @@ func TestGetObjectReturnsNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestGetObjectReturnsUnauthorizedForBasicIRODSAuthFailure(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return nil, irodstypes.NewAuthError(account)
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	account := &irodstypes.IRODSAccount{ClientUser: "test1", ClientZone: "tempZone"}
+	ctx := context.WithValue(context.Background(), authSchemeContextKey, "basic")
+	ctx = context.WithValue(ctx, drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: account,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(ctx)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for Basic iRODS auth failure, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetObjectReturnsServerErrorForBearerIRODSAuthFailure(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return nil, irodstypes.NewAuthError(account)
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	account := &irodstypes.IRODSAccount{ClientUser: "test1", ClientZone: "tempZone"}
+	ctx := context.WithValue(context.Background(), authSchemeContextKey, "bearer")
+	ctx = context.WithValue(ctx, drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: account,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(ctx)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for bearer-backed iRODS auth failure, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetObjectReturnsUnauthorizedForBasicIRODSAuthFailureDuringLookup(t *testing.T) {
+	account := &irodstypes.IRODSAccount{ClientUser: "test1", ClientZone: "tempZone"}
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return &queryErrorRouteFileSystem{
+			routeTestFileSystem: newRouteTestFileSystem(),
+			err:                 irodstypes.NewAuthError(account),
+		}, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	ctx := context.WithValue(context.Background(), authSchemeContextKey, "basic")
+	ctx = context.WithValue(ctx, drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: account,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(ctx)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for Basic iRODS auth failure during lookup, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -1273,6 +1368,15 @@ type routeTestFileSystem struct {
 	createdTickets    []routeCreatedTicket
 	ticketUseLimits   map[string]int64
 	ticketExpiryTimes map[string]time.Time
+}
+
+type queryErrorRouteFileSystem struct {
+	*routeTestFileSystem
+	err error
+}
+
+func (f *queryErrorRouteFileSystem) QueryMetadataEntries(query extmetadata.EntryQuery) (extmetadata.EntryQueryResult, error) {
+	return extmetadata.EntryQueryResult{}, f.err
 }
 
 type routeCreatedTicket struct {
