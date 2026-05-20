@@ -11,7 +11,7 @@ move to the shared grid stack.
 These tests are intended to exercise the full stack:
 
 * HTTP routing and middleware
-* authentication
+* authentication 
 * service context creation
 * iRODS integration
 * docker-compose-managed runtime dependencies
