@@ -26,13 +26,13 @@ This checklist defines the minimum hardening, API alignment, and operational rea
   - Remove placeholder metadata (`Current Version`, `License`).
   - Fix stale/broken links and naming mismatches.
   - Acceptance: docs are internally consistent and accurate for current commands and routes.
-  - Status: replaced README placeholders, set license metadata to BSD-2-Clause, and fixed stale `DEV_NOTES.md` references to `DEVELOPER_NOTES.md`.
+  - Status: replaced README placeholders, set license metadata to BSD-2-Clause, and fixed stale `DEV_NOTES.md` references to `docs/DEVELOPER_NOTES.md`.
 
 - [x] Developer notes refresh.
   - Update compound model statements to match current collection-backed behavior.
   - Update access method semantics to match current code behavior.
-  - Acceptance: `DEVELOPER_NOTES.md` is authoritative for current architecture.
-  - Status: `DEVELOPER_NOTES.md` updated for collection-backed compound model, AVU-derived runtime manifest behavior, direct compound `access_url`, and current alpha endpoint support.
+  - Acceptance: `docs/DEVELOPER_NOTES.md` is authoritative for current architecture.
+  - Status: `docs/DEVELOPER_NOTES.md` updated for collection-backed compound model, AVU-derived runtime manifest behavior, direct compound `access_url`, and current alpha endpoint support.
 
 - [ ] S3 access method hardening.
   - Resolve current TODOs around S3 access method behavior (including affinity expectations).

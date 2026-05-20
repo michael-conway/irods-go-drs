@@ -127,4 +127,4 @@ The legacy in-repository compose stack remains under:
 It should not receive new feature work unless a short-term compatibility fix is
 needed.
 
-Use [`DEVELOPER_NOTES.md`](/Users/conwaymc/Documents/workspace-gabble/irods-go-drs/DEVELOPER_NOTES.md) for the higher-level testing taxonomy and environment setup guidance.
+Use [`DEVELOPER_NOTES.md`](../docs/DEVELOPER_NOTES.md) for the higher-level testing taxonomy and environment setup guidance.
