@@ -64,6 +64,8 @@ github.com/mattn/go-colorable v0.1.14 h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHP
 github.com/mattn/go-colorable v0.1.14/go.mod h1:6LmQG8QLFO4G5z1gPvYEzlUgJ2wF+stgPZH1UqBm1s8=
 github.com/mattn/go-isatty v0.0.22 h1:j8l17JJ9i6VGPUFUYoTUKPSgKe/83EYU2zBC7YNKMw4=
 github.com/mattn/go-isatty v0.0.22/go.mod h1:ZXfXG4SQHsB/w3ZeOYbR0PrPwLy+n6xiMrJlRFqopa4=
+github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260430135522-b4e4d9a47ded h1:rb0PbXC3rkVcNEs0JL1qnu8yLP+5bWJjXaw8RdAIQ/I=
+github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260430135522-b4e4d9a47ded/go.mod h1:H2iOYvZ6A5/rrc0RsdLbJFaVy88+67HG2jQlG61LWn4=
 github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260508140730-f5af8c49b859 h1:pMO8Nbr+Sbp3BPalxA3EQavKeGZFL4SQqa6N0NTQnzM=
 github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260508140730-f5af8c49b859/go.mod h1:H2iOYvZ6A5/rrc0RsdLbJFaVy88+67HG2jQlG61LWn4=
 github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260518122643-42dfbc2fcba3 h1:Amt+P1zUmyRHqOpXcWzJG5+U29NTLb+BjiHH8sU/SL4=
