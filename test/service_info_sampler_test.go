@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	"github.com/michael-conway/irods-go-drs/internal"
@@ -113,7 +115,7 @@ func TestServiceInfoSamplerStartFailsWhenInitialSummaryQueryFails(t *testing.T) 
 		IrodsZone:                        "tempZone",
 	}, internal.WithServiceInfoSummaryProvider(func(context.Context, *drs_support.DrsConfig) (drs_support.DrsDataObjectSummary, error) {
 		return drs_support.DrsDataObjectSummary{}, fmt.Errorf("catalog unavailable")
-	}))
+	}), internal.WithServiceInfoStartupRetry(10*time.Millisecond, 35*time.Millisecond))
 	if err != nil {
 		t.Fatalf("create sampler: %v", err)
 	}
@@ -122,8 +124,49 @@ func TestServiceInfoSamplerStartFailsWhenInitialSummaryQueryFails(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected initial service info sample failure")
 	}
+	if !strings.Contains(err.Error(), "initial service info sample failed after") {
+		t.Fatalf("expected startup retry failure message, got %v", err)
+	}
 	if sampler.Snapshot() != nil {
 		t.Fatal("expected no snapshot after failed initial sample")
+	}
+}
+
+func TestServiceInfoSamplerStartRetriesInitialSummaryQuery(t *testing.T) {
+	serviceInfoPath := writeServiceInfoFixture(t, `{"name":"Configured DRS"}`)
+	attempts := 0
+
+	sampler, err := internal.NewServiceInfoSampler(&drs_support.DrsConfig{
+		ServiceInfoSampleIntervalMinutes: 1,
+		ServiceInfoFilePath:              serviceInfoPath,
+		IrodsHost:                        "localhost",
+		IrodsPort:                        1247,
+		IrodsZone:                        "tempZone",
+	}, internal.WithServiceInfoSummaryProvider(func(context.Context, *drs_support.DrsConfig) (drs_support.DrsDataObjectSummary, error) {
+		attempts++
+		if attempts < 3 {
+			return drs_support.DrsDataObjectSummary{}, fmt.Errorf("irods provider not started")
+		}
+		return drs_support.DrsDataObjectSummary{
+			DataObjectCount: 11,
+			TotalSize:       777,
+		}, nil
+	}), internal.WithServiceInfoStartupRetry(10*time.Millisecond, 200*time.Millisecond))
+	if err != nil {
+		t.Fatalf("create sampler: %v", err)
+	}
+
+	if err := sampler.Start(context.Background()); err != nil {
+		t.Fatalf("expected startup retry to recover, got %v", err)
+	}
+
+	if attempts != 3 {
+		t.Fatalf("expected 3 startup attempts, got %d", attempts)
+	}
+
+	snapshot := sampler.Snapshot()
+	if snapshot == nil {
+		t.Fatal("expected snapshot after successful retry")
 	}
 }
 

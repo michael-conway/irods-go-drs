@@ -2,6 +2,32 @@
 
 Use this file for the main working rules in `irods-go-drs`.
 
+## Alpha Release Gate (Open Issues)
+
+- [ ] Enforce bearer identity binding from trusted introspection claims.
+  - Reject bearer requests when no authoritative user identity is present.
+  - Do not derive effective user from unverified JWT payload parsing.
+  - Ensure bearer requests cannot fall back to admin proxy identity.
+
+- [ ] Normalize error exposure for security-sensitive paths.
+  - Replace raw upstream error bodies with sanitized client-safe messages.
+  - Keep detailed causes in structured logs only.
+
+- [ ] Harden HTTP server transport defaults.
+  - Replace bare `http.ListenAndServe` with an `http.Server` that sets read, header, write, and idle timeouts.
+
+- [ ] Prevent response URL poisoning.
+  - Do not build `self_uri`/extension `access_url` directly from untrusted `Host` and `X-Forwarded-Proto`.
+  - Add explicit trusted external base URL config or trusted-proxy validation.
+
+- [ ] Align auth failure status semantics.
+  - Return consistent `401/403` for authentication/authorization failures across basic and bearer flows.
+  - Avoid returning `500` for expected auth failures.
+
+- [ ] Tighten production config posture and docs.
+  - Ensure production docs default to TLS verification enabled and strict iRODS negotiation policy.
+  - Keep insecure development examples explicitly marked as local-only.
+
 ## Service shape
 
 `irods-go-drs` is the DRS-facing service for iRODS.

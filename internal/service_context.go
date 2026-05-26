@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/cyverse/go-irodsclient/irods/types"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
@@ -77,6 +78,10 @@ func NewDrsServiceContext(ctx context.Context, drsConfig *drs_support.DrsConfig)
 	userName, ok := UsernameFromContext(ctx)
 	if !ok {
 		return nil, fmt.Errorf("failed to determine user name")
+	}
+	userName = strings.TrimSpace(userName)
+	if authScheme == "bearer" && userName == "" {
+		return nil, fmt.Errorf("failed to determine trusted bearer user identity")
 	}
 
 	logger.Info(fmt.Sprintf("userName: %s", userName))

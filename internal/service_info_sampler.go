@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,6 +120,8 @@ func applyServiceInfoPlaceholders(serviceInfoData map[string]interface{}, now ti
 type ServiceInfoSampler struct {
 	drsConfig       *drs_support.DrsConfig
 	interval        time.Duration
+	startRetryWait  time.Duration
+	startRetryMax   time.Duration
 	summaryProvider ServiceInfoSummaryProvider
 
 	mu       sync.RWMutex
@@ -135,6 +138,17 @@ func WithServiceInfoSummaryProvider(provider ServiceInfoSummaryProvider) Service
 	}
 }
 
+func WithServiceInfoStartupRetry(wait time.Duration, maxDuration time.Duration) ServiceInfoSamplerOption {
+	return func(s *ServiceInfoSampler) {
+		if wait > 0 {
+			s.startRetryWait = wait
+		}
+		if maxDuration > 0 {
+			s.startRetryMax = maxDuration
+		}
+	}
+}
+
 func NewServiceInfoSampler(drsConfig *drs_support.DrsConfig, options ...ServiceInfoSamplerOption) (*ServiceInfoSampler, error) {
 	if drsConfig == nil {
 		return nil, fmt.Errorf("no drs config provided")
@@ -148,6 +162,8 @@ func NewServiceInfoSampler(drsConfig *drs_support.DrsConfig, options ...ServiceI
 	sampler := &ServiceInfoSampler{
 		drsConfig:       drsConfig,
 		interval:        time.Duration(intervalMinutes) * time.Minute,
+		startRetryWait:  30 * time.Second,
+		startRetryMax:   5 * time.Minute,
 		summaryProvider: queryServiceInfoDRSDataObjectSummary,
 	}
 
@@ -168,7 +184,7 @@ func (s *ServiceInfoSampler) Start(ctx context.Context) error {
 		return fmt.Errorf("no context provided")
 	}
 
-	if err := s.sample(ctx); err != nil {
+	if err := s.sampleWithStartupRetry(ctx); err != nil {
 		return err
 	}
 
@@ -215,6 +231,53 @@ func (s *ServiceInfoSampler) sample(ctx context.Context) error {
 	s.mu.Unlock()
 
 	return nil
+}
+
+func (s *ServiceInfoSampler) sampleWithStartupRetry(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(s.startRetryMax)
+	attempt := 0
+	var lastErr error
+
+	for {
+		attempt++
+		if err := s.sample(ctx); err == nil {
+			return nil
+		} else {
+			if !isStartupQueryRetryable(err) {
+				return err
+			}
+			lastErr = err
+		}
+
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if time.Now().Add(s.startRetryWait).After(deadline) {
+			break
+		}
+
+		timer := time.NewTimer(s.startRetryWait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return fmt.Errorf("initial service info sample failed after %d attempts over %s: %w", attempt, s.startRetryMax, lastErr)
+}
+
+func isStartupQueryRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return strings.Contains(err.Error(), "query service info DRS object summary")
 }
 
 func queryServiceInfoDRSDataObjectSummary(ctx context.Context, drsConfig *drs_support.DrsConfig) (drs_support.DrsDataObjectSummary, error) {

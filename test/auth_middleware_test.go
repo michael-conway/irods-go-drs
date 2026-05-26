@@ -17,12 +17,12 @@ import (
 
 type fakeAuthenticator struct {
 	called     bool
-	result     *gocloak.IntroSpectTokenResult
+	result     *internal.AuthenticatedToken
 	err        error
 	lastAccess string
 }
 
-func (f *fakeAuthenticator) AuthenticateToken(_ context.Context, accessToken string) (*gocloak.IntroSpectTokenResult, error) {
+func (f *fakeAuthenticator) AuthenticateToken(_ context.Context, accessToken string) (*internal.AuthenticatedToken, error) {
 	f.called = true
 	f.lastAccess = accessToken
 	return f.result, f.err
@@ -123,7 +123,10 @@ func TestRouteAuthMiddlewareRejectsInvalidBasicAuthorization(t *testing.T) {
 func TestRouteAuthMiddlewareCallsAuthenticator(t *testing.T) {
 	active := true
 	authenticator := &fakeAuthenticator{
-		result: &gocloak.IntroSpectTokenResult{Active: &active},
+		result: &internal.AuthenticatedToken{
+			Introspection: &gocloak.IntroSpectTokenResult{Active: &active},
+			Username:      "test1",
+		},
 	}
 
 	router := mux.NewRouter()
@@ -134,9 +137,9 @@ func TestRouteAuthMiddlewareCallsAuthenticator(t *testing.T) {
 		if scheme, ok := internal.AuthSchemeFromContext(r.Context()); !ok || scheme != "bearer" {
 			t.Fatalf("expected auth scheme bearer in context, got %q, ok=%t", scheme, ok)
 		}
-		if user, ok := internal.UsernameFromContext(r.Context()); !ok || user != "" {
-			t.Fatalf("expected username in context, got %q, ok=%t", user, ok)
-		}
+			if user, ok := internal.UsernameFromContext(r.Context()); !ok || user != "test1" {
+				t.Fatalf("expected username in context, got %q, ok=%t", user, ok)
+			}
 		if password, ok := internal.BasicPasswordFromContext(r.Context()); !ok || password != "" {
 			t.Fatalf("expected empty basic password in context for bearer auth, got %q, ok=%t", password, ok)
 		}
@@ -163,28 +166,16 @@ func TestRouteAuthMiddlewareCallsAuthenticator(t *testing.T) {
 	}
 }
 
-func TestRouteAuthMiddlewareStoresEmptyUsernameWhenMissing(t *testing.T) {
+func TestRouteAuthMiddlewareRejectsMissingTrustedBearerIdentity(t *testing.T) {
 	active := true
 	authenticator := &fakeAuthenticator{
-		result: &gocloak.IntroSpectTokenResult{Active: &active},
+		result: &internal.AuthenticatedToken{
+			Introspection: &gocloak.IntroSpectTokenResult{Active: &active},
+		},
 	}
 
 	router := mux.NewRouter()
 	router.Handle("/ga4gh/drs/v1/objects/{object_id}", internal.NewRouteAuthMiddleware(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := internal.UsernameFromContext(r.Context())
-		if !ok {
-			t.Fatal("expected username key in context")
-		}
-		if user != "" {
-			t.Fatalf("expected empty username when introspection has none, got %q", user)
-		}
-		password, ok := internal.BasicPasswordFromContext(r.Context())
-		if !ok {
-			t.Fatal("expected basic password key in context")
-		}
-		if password != "" {
-			t.Fatalf("expected empty basic password for bearer auth, got %q", password)
-		}
 		w.WriteHeader(http.StatusOK)
 	}))).Methods(http.MethodGet).Name("GetObject")
 
@@ -194,27 +185,22 @@ func TestRouteAuthMiddlewareStoresEmptyUsernameWhenMissing(t *testing.T) {
 
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200 for authenticated request, got %d", resp.Code)
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for missing trusted bearer identity, got %d", resp.Code)
 	}
 }
 
-func TestRouteAuthMiddlewareExtractsBearerUsernameFromJWTClaims(t *testing.T) {
+func TestRouteAuthMiddlewareDoesNotUseUnverifiedJWTClaims(t *testing.T) {
 	active := true
 	authenticator := &fakeAuthenticator{
-		result: &gocloak.IntroSpectTokenResult{Active: &active},
+		result: &internal.AuthenticatedToken{
+			Introspection: &gocloak.IntroSpectTokenResult{Active: &active},
+			Username:      "",
+		},
 	}
 
 	router := mux.NewRouter()
 	router.Handle("/ga4gh/drs/v1/objects/{object_id}", internal.NewRouteAuthMiddleware(authenticator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := internal.UsernameFromContext(r.Context())
-		if !ok {
-			t.Fatal("expected username key in context")
-		}
-		if user != "test1" {
-			t.Fatalf("expected bearer username from jwt claims, got %q", user)
-		}
-
 		w.WriteHeader(http.StatusOK)
 	}))).Methods(http.MethodGet).Name("GetObject")
 
@@ -227,8 +213,8 @@ func TestRouteAuthMiddlewareExtractsBearerUsernameFromJWTClaims(t *testing.T) {
 
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200 for authenticated request, got %d", resp.Code)
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when trusted bearer identity is missing, got %d", resp.Code)
 	}
 }
 
