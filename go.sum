@@ -72,6 +72,8 @@ github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260518122643-42dfbc
 github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260518122643-42dfbc2fcba3/go.mod h1:H2iOYvZ6A5/rrc0RsdLbJFaVy88+67HG2jQlG61LWn4=
 github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260521122528-e095120ea7f8 h1:j9TNOBE+dGAJel2CN3g6QpFQF7U5/lkUGTxCyRK+taY=
 github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260521122528-e095120ea7f8/go.mod h1:H2iOYvZ6A5/rrc0RsdLbJFaVy88+67HG2jQlG61LWn4=
+github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260526151807-0cc9932df7e1 h1:fV6sW/FpRTqS67gAOuC9glgUJWvhTWna74M+pXuqfyU=
+github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260526151807-0cc9932df7e1/go.mod h1:H2iOYvZ6A5/rrc0RsdLbJFaVy88+67HG2jQlG61LWn4=
 github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG+4E0Y=
 github.com/mitchellh/go-homedir v1.1.0/go.mod h1:SfyaCUpYCn1Vlf4IUYiD9fPX4A5wJrkLzIz1N1q0pr0=
 github.com/opentracing/opentracing-go v1.2.0 h1:uEJPy/1a5RIPAJ0Ov+OIO8OxWu77jEv+1B0VhjKrZUs=
