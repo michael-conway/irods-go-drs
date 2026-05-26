@@ -154,3 +154,9 @@ Workflow:
 2. keep each repo `go.mod` pinned to real module versions (no local replace)
 3. when shared changes are ready, push/tag in `go-irodsclient-extensions`
 4. bump dependent repos with `go get <module>@<tag-or-commit>` and `go mod tidy`
+
+Note that GOWORK should be turned off when updating go.mod 
+
+```shell
+GOWORK=off go get github.com/michael-conway/go-irodsclient-extensions@<tag-or-sha>
+```

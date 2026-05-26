@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -238,7 +237,17 @@ func (s *ServiceInfoSampler) sampleWithStartupRetry(ctx context.Context) error {
 		return err
 	}
 
-	deadline := time.Now().Add(s.startRetryMax)
+	retryWait := s.startRetryWait
+	if retryWait <= 0 {
+		retryWait = 30 * time.Second
+	}
+
+	retryMax := s.startRetryMax
+	if retryMax <= 0 {
+		retryMax = 5 * time.Minute
+	}
+
+	deadline := time.Now().Add(retryMax)
 	attempt := 0
 	var lastErr error
 
@@ -247,20 +256,25 @@ func (s *ServiceInfoSampler) sampleWithStartupRetry(ctx context.Context) error {
 		if err := s.sample(ctx); err == nil {
 			return nil
 		} else {
-			if !isStartupQueryRetryable(err) {
-				return err
-			}
 			lastErr = err
 		}
 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if time.Now().Add(s.startRetryWait).After(deadline) {
+		if time.Now().Add(retryWait).After(deadline) {
 			break
 		}
 
-		timer := time.NewTimer(s.startRetryWait)
+		logger.Warn(
+			"initial service info sample failed, retrying",
+			"attempt", attempt,
+			"retry_wait", retryWait.String(),
+			"retry_max", retryMax.String(),
+			"error", lastErr.Error(),
+		)
+
+		timer := time.NewTimer(retryWait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -269,15 +283,7 @@ func (s *ServiceInfoSampler) sampleWithStartupRetry(ctx context.Context) error {
 		}
 	}
 
-	return fmt.Errorf("initial service info sample failed after %d attempts over %s: %w", attempt, s.startRetryMax, lastErr)
-}
-
-func isStartupQueryRetryable(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	return strings.Contains(err.Error(), "query service info DRS object summary")
+	return fmt.Errorf("initial service info sample failed after %d attempts over %s: %w", attempt, retryMax, lastErr)
 }
 
 func queryServiceInfoDRSDataObjectSummary(ctx context.Context, drsConfig *drs_support.DrsConfig) (drs_support.DrsDataObjectSummary, error) {
