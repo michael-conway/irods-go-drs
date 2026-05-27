@@ -29,13 +29,13 @@ Pass was with warnings shown below.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Access ID URL resolution | `Supported` | /objects/cf293ba2-f8be-4dc0-9434-c4a9edf35f52/access/irods-go-rest-https-demoResc returned 200<br>/objects/cf293ba2-f8be-4dc0-9434-c4a9edf35f52/access/irods returned 200 |
+| Access ID URL resolution | `Supported` | /objects/d27ee250-b00c-4dee-9c8f-b75053616689/access/irods-go-rest-https-providerResc returned 200<br>/objects/d27ee250-b00c-4dee-9c8f-b75053616689/access/irods returned 200 |
 | Bulk access POST | `Not supported` | POST /objects/access returned 501<br>Deprecated or optional capability |
 | Bulk authorization OPTIONS | `Supported` | OPTIONS /objects returned 200 for 3 object IDs |
 | Bulk object POST | `Not supported` | POST /objects returned 501<br>Deprecated or optional capability |
 | Bundle expand | `No sample` | No configured DRS object was marked is_bundle = true<br>Deprecated or optional capability |
-| Compound manifest retrieval | `Supported` | Retrieved json compound manifest from http://localhost:8888/ga4gh/drs/v1/ext/compound/b5e243fb-ee87-4903-9bdf-6d6b6514a323 with status code 200 |
-| Object authorization OPTIONS | `Supported` | OPTIONS /objects/cf293ba2-f8be-4dc0-9434-c4a9edf35f52 returned 200<br>OPTIONS /objects/1538e5b3-3091-4ace-a2e7-27feb163d3fb returned 200<br>OPTIONS /objects/765a9eed-200b-4bf2-8eb5-fd9523616290 returned 200 |
+| Compound manifest retrieval | `Supported` | Retrieved json compound manifest from http://localhost:8888/ga4gh/drs/v1/ext/compound/d8a6df08-3afd-4298-8f61-417a26ae968b with status code 200 |
+| Object authorization OPTIONS | `Supported` | OPTIONS /objects/d27ee250-b00c-4dee-9c8f-b75053616689 returned 200<br>OPTIONS /objects/8c4b73fd-a21c-4e66-a366-194243c201c9 returned 200<br>OPTIONS /objects/37265394-d62e-4fce-8777-3c627cc0e7b3 returned 200 |
 | Passport access POST | `No sample` | No configured DRS access sample used auth_type passport with a discovered access_id |
 | Passport object POST | `No sample` | No configured DRS object used auth_type passport |
 
@@ -57,7 +57,7 @@ Sample manifest:
 ```json
 // Sample compound manifest returned by the DRS server
 {
-  "host": "localhost",
+  "host": "irods-provider",
   "manifest": {
     "alias": ".",
     "children": [
@@ -67,7 +67,7 @@ Sample manifest:
           {
             "drsId": "",
             "nodeType": "data_object",
-            "path": "/tempZone/home/test1/drs-certification/1779286500139847000/compound-root/ignored/ignored.txt",
+            "path": "/tempZone/home/test1/drs-certification/1779815235667264000/compound-root/ignored/ignored.txt",
             "relativePath": "ignored/ignored.txt",
             "willAssignDrsId": true
           }
@@ -75,35 +75,35 @@ Sample manifest:
         "description": "ignored",
         "drsId": "",
         "nodeType": "collection",
-        "path": "/tempZone/home/test1/drs-certification/1779286500139847000/compound-root/ignored",
+        "path": "/tempZone/home/test1/drs-certification/1779815235667264000/compound-root/ignored",
         "relativePath": "ignored"
       },
       {
         "alias": "included",
         "children": [
           {
-            "drsId": "24c860c4-5d91-4b3d-93bd-490150f09218",
+            "drsId": "5c1f9ab4-c2f6-4224-ad5b-3f799e1295e9",
             "nodeType": "data_object",
-            "path": "/tempZone/home/test1/drs-certification/1779286500139847000/compound-root/included/child.txt",
+            "path": "/tempZone/home/test1/drs-certification/1779815235667264000/compound-root/included/child.txt",
             "relativePath": "included/child.txt"
           }
         ],
         "description": "included",
         "drsId": "",
         "nodeType": "collection",
-        "path": "/tempZone/home/test1/drs-certification/1779286500139847000/compound-root/included",
+        "path": "/tempZone/home/test1/drs-certification/1779815235667264000/compound-root/included",
         "relativePath": "included"
       }
     ],
     "description": ".",
-    "drsId": "b5e243fb-ee87-4903-9bdf-6d6b6514a323",
+    "drsId": "d8a6df08-3afd-4298-8f61-417a26ae968b",
     "nodeType": "collection",
-    "path": "/tempZone/home/test1/drs-certification/1779286500139847000/compound-root",
+    "path": "/tempZone/home/test1/drs-certification/1779815235667264000/compound-root",
     "relativePath": ""
   },
   "port": 1247,
-  "rootDrsId": "b5e243fb-ee87-4903-9bdf-6d6b6514a323",
-  "rootPath": "/tempZone/home/test1/drs-certification/1779286500139847000/compound-root",
+  "rootDrsId": "d8a6df08-3afd-4298-8f61-417a26ae968b",
+  "rootPath": "/tempZone/home/test1/drs-certification/1779815235667264000/compound-root",
   "zone": "tempZone"
 }
 ```
@@ -165,7 +165,7 @@ run optional DRS 1.5.0 OPTIONS authorization discovery checks
 | --- | --- | --- | --- | --- |
 | 18 | 0 | 0 | 0 | 0 |
 
-#### Run DRS 1.5.0 authorization discovery for drs id = cf293ba2-f8be-4dc0-9434-c4a9edf35f52
+#### Run DRS 1.5.0 authorization discovery for drs id = d27ee250-b00c-4dee-9c8f-b75053616689
 
 **Status:** `PASS`
 
@@ -177,7 +177,7 @@ validate optional OPTIONS /objects/{object_id} authorization metadata
 | DRS Object Authorizations response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Authorizations response schema validation | `PASS` | Schema Validation Successful |
 
-#### Run DRS 1.5.0 authorization discovery for drs id = 1538e5b3-3091-4ace-a2e7-27feb163d3fb
+#### Run DRS 1.5.0 authorization discovery for drs id = 8c4b73fd-a21c-4e66-a366-194243c201c9
 
 **Status:** `PASS`
 
@@ -189,7 +189,7 @@ validate optional OPTIONS /objects/{object_id} authorization metadata
 | DRS Object Authorizations response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Authorizations response schema validation | `PASS` | Schema Validation Successful |
 
-#### Run DRS 1.5.0 authorization discovery for drs id = 765a9eed-200b-4bf2-8eb5-fd9523616290
+#### Run DRS 1.5.0 authorization discovery for drs id = 37265394-d62e-4fce-8777-3c627cc0e7b3
 
 **Status:** `PASS`
 
@@ -201,7 +201,7 @@ validate optional OPTIONS /objects/{object_id} authorization metadata
 | DRS Object Authorizations response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Authorizations response schema validation | `PASS` | Schema Validation Successful |
 
-#### Run DRS 1.5.0 authorization discovery for drs id = fdcc8c1b-4efd-440d-94a0-70c60651ae0f
+#### Run DRS 1.5.0 authorization discovery for drs id = fae3679b-9f41-41d6-b839-586d32a1a363
 
 **Status:** `PASS`
 
@@ -213,7 +213,7 @@ validate optional OPTIONS /objects/{object_id} authorization metadata
 | DRS Object Authorizations response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Authorizations response schema validation | `PASS` | Schema Validation Successful |
 
-#### Run DRS 1.5.0 authorization discovery for drs id = b5e243fb-ee87-4903-9bdf-6d6b6514a323
+#### Run DRS 1.5.0 authorization discovery for drs id = d8a6df08-3afd-4298-8f61-417a26ae968b
 
 **Status:** `PASS`
 
@@ -247,7 +247,7 @@ run DRS 1.5.0 tests for drs object info endpoint
 | --- | --- | --- | --- | --- |
 | 66 | 0 | 8 | 0 | 0 |
 
-#### Run DRS 1.5.0 object tests for drs id = cf293ba2-f8be-4dc0-9434-c4a9edf35f52; auth_type = basic
+#### Run DRS 1.5.0 object tests for drs id = d27ee250-b00c-4dee-9c8f-b75053616689; auth_type = basic
 
 **Status:** `WARN`
 
@@ -259,11 +259,11 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Info response schema validation | `PASS` | Schema Validation Successful |
 | DRS Object required fields | `PASS` | DRS object includes required fields |
-| DRS Object id | `PASS` | Returned id matches requested object_id cf293ba2-f8be-4dc0-9434-c4a9edf35f52 |
-| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/cf293ba2-f8be-4dc0-9434-c4a9edf35f52 |
+| DRS Object id | `PASS` | Returned id matches requested object_id d27ee250-b00c-4dee-9c8f-b75053616689 |
+| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/d27ee250-b00c-4dee-9c8f-b75053616689 |
 | DRS Object size | `PASS` | size is 33 |
-| DRS Object created_time | `PASS` | created_time is 2026-05-20T10:15:00-04:00 |
-| DRS Object updated_time | `PASS` | updated_time is 2026-05-20T10:15:00-04:00 |
+| DRS Object created_time | `PASS` | created_time is 2026-05-26T17:07:16Z |
+| DRS Object updated_time | `PASS` | updated_time is 2026-05-26T17:07:16Z |
 | DRS Object checksum fields | `PASS` | Each checksum includes type and checksum values |
 | DRS Object checksum encoding | `WARN` | Checksum values were not hex-like at indexes: 0 |
 | DRS Object alternative access methods | `WARN` | Alternative access method types present: irods |
@@ -271,7 +271,7 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info has access information | `PASS` | 'access_methods' is provided and it is non-empty. |
 | DRS Object Info has access information | `PASS` | At least 'access_url' or 'access_id' is provided in all access_methods |
 
-#### Run DRS 1.5.0 object tests for drs id = 1538e5b3-3091-4ace-a2e7-27feb163d3fb; auth_type = basic
+#### Run DRS 1.5.0 object tests for drs id = 8c4b73fd-a21c-4e66-a366-194243c201c9; auth_type = basic
 
 **Status:** `WARN`
 
@@ -283,11 +283,11 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Info response schema validation | `PASS` | Schema Validation Successful |
 | DRS Object required fields | `PASS` | DRS object includes required fields |
-| DRS Object id | `PASS` | Returned id matches requested object_id 1538e5b3-3091-4ace-a2e7-27feb163d3fb |
-| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/1538e5b3-3091-4ace-a2e7-27feb163d3fb |
+| DRS Object id | `PASS` | Returned id matches requested object_id 8c4b73fd-a21c-4e66-a366-194243c201c9 |
+| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/8c4b73fd-a21c-4e66-a366-194243c201c9 |
 | DRS Object size | `PASS` | size is 32 |
-| DRS Object created_time | `PASS` | created_time is 2026-05-20T10:15:00-04:00 |
-| DRS Object updated_time | `PASS` | updated_time is 2026-05-20T10:15:00-04:00 |
+| DRS Object created_time | `PASS` | created_time is 2026-05-26T17:07:16Z |
+| DRS Object updated_time | `PASS` | updated_time is 2026-05-26T17:07:16Z |
 | DRS Object checksum fields | `PASS` | Each checksum includes type and checksum values |
 | DRS Object checksum encoding | `WARN` | Checksum values were not hex-like at indexes: 0 |
 | DRS Object alternative access methods | `WARN` | Alternative access method types present: irods |
@@ -295,7 +295,7 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info has access information | `PASS` | 'access_methods' is provided and it is non-empty. |
 | DRS Object Info has access information | `PASS` | At least 'access_url' or 'access_id' is provided in all access_methods |
 
-#### Run DRS 1.5.0 object tests for drs id = 765a9eed-200b-4bf2-8eb5-fd9523616290; auth_type = basic
+#### Run DRS 1.5.0 object tests for drs id = 37265394-d62e-4fce-8777-3c627cc0e7b3; auth_type = basic
 
 **Status:** `WARN`
 
@@ -307,11 +307,11 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Info response schema validation | `PASS` | Schema Validation Successful |
 | DRS Object required fields | `PASS` | DRS object includes required fields |
-| DRS Object id | `PASS` | Returned id matches requested object_id 765a9eed-200b-4bf2-8eb5-fd9523616290 |
-| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/765a9eed-200b-4bf2-8eb5-fd9523616290 |
+| DRS Object id | `PASS` | Returned id matches requested object_id 37265394-d62e-4fce-8777-3c627cc0e7b3 |
+| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/37265394-d62e-4fce-8777-3c627cc0e7b3 |
 | DRS Object size | `PASS` | size is 32 |
-| DRS Object created_time | `PASS` | created_time is 2026-05-20T10:15:00-04:00 |
-| DRS Object updated_time | `PASS` | updated_time is 2026-05-20T10:15:00-04:00 |
+| DRS Object created_time | `PASS` | created_time is 2026-05-26T17:07:16Z |
+| DRS Object updated_time | `PASS` | updated_time is 2026-05-26T17:07:16Z |
 | DRS Object checksum fields | `PASS` | Each checksum includes type and checksum values |
 | DRS Object checksum encoding | `WARN` | Checksum values were not hex-like at indexes: 0 |
 | DRS Object alternative access methods | `WARN` | Alternative access method types present: irods |
@@ -319,7 +319,7 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info has access information | `PASS` | 'access_methods' is provided and it is non-empty. |
 | DRS Object Info has access information | `PASS` | At least 'access_url' or 'access_id' is provided in all access_methods |
 
-#### Run DRS 1.5.0 object tests for drs id = fdcc8c1b-4efd-440d-94a0-70c60651ae0f; auth_type = basic
+#### Run DRS 1.5.0 object tests for drs id = fae3679b-9f41-41d6-b839-586d32a1a363; auth_type = basic
 
 **Status:** `WARN`
 
@@ -331,11 +331,11 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Info response schema validation | `PASS` | Schema Validation Successful |
 | DRS Object required fields | `PASS` | DRS object includes required fields |
-| DRS Object id | `PASS` | Returned id matches requested object_id fdcc8c1b-4efd-440d-94a0-70c60651ae0f |
-| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/fdcc8c1b-4efd-440d-94a0-70c60651ae0f |
+| DRS Object id | `PASS` | Returned id matches requested object_id fae3679b-9f41-41d6-b839-586d32a1a363 |
+| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/fae3679b-9f41-41d6-b839-586d32a1a363 |
 | DRS Object size | `PASS` | size is 32 |
-| DRS Object created_time | `PASS` | created_time is 2026-05-20T10:15:00-04:00 |
-| DRS Object updated_time | `PASS` | updated_time is 2026-05-20T10:15:00-04:00 |
+| DRS Object created_time | `PASS` | created_time is 2026-05-26T17:07:16Z |
+| DRS Object updated_time | `PASS` | updated_time is 2026-05-26T17:07:16Z |
 | DRS Object checksum fields | `PASS` | Each checksum includes type and checksum values |
 | DRS Object checksum encoding | `WARN` | Checksum values were not hex-like at indexes: 0 |
 | DRS Object alternative access methods | `WARN` | Alternative access method types present: irods |
@@ -343,7 +343,7 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info has access information | `PASS` | 'access_methods' is provided and it is non-empty. |
 | DRS Object Info has access information | `PASS` | At least 'access_url' or 'access_id' is provided in all access_methods |
 
-#### Run DRS 1.5.0 object tests for drs id = b5e243fb-ee87-4903-9bdf-6d6b6514a323; auth_type = basic
+#### Run DRS 1.5.0 object tests for drs id = d8a6df08-3afd-4298-8f61-417a26ae968b; auth_type = basic
 
 **Status:** `PASS`
 
@@ -355,11 +355,11 @@ validate DRS object status, schema, required fields, and access methods
 | DRS Object Info response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Object Info response schema validation | `PASS` | Schema Validation Successful |
 | DRS Object required fields | `PASS` | DRS object includes required fields |
-| DRS Object id | `PASS` | Returned id matches requested object_id b5e243fb-ee87-4903-9bdf-6d6b6514a323 |
-| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/b5e243fb-ee87-4903-9bdf-6d6b6514a323 |
+| DRS Object id | `PASS` | Returned id matches requested object_id d8a6df08-3afd-4298-8f61-417a26ae968b |
+| DRS Object self_uri | `PASS` | self_uri is drs://localhost:8888/d8a6df08-3afd-4298-8f61-417a26ae968b |
 | DRS Object size | `PASS` | size is 0 |
-| DRS Object created_time | `PASS` | created_time is 2026-05-20T10:15:00-04:00 |
-| DRS Object updated_time | `PASS` | updated_time is 2026-05-20T10:15:00-04:00 |
+| DRS Object created_time | `PASS` | created_time is 2026-05-26T17:07:16Z |
+| DRS Object updated_time | `PASS` | updated_time is 2026-05-26T17:07:16Z |
 | DRS Object checksum fields | `PASS` | Each checksum includes type and checksum values |
 | DRS Object checksum encoding | `PASS` | Checksum values were hex-like |
 | DRS Object direct access_url | `PASS` | Found 1 direct access_url values |
@@ -376,7 +376,7 @@ run DRS 1.5.0 tests for drs access endpoint
 | --- | --- | --- | --- | --- |
 | 6 | 0 | 0 | 0 | 0 |
 
-#### Run DRS 1.5.0 access URL tests for drs id = cf293ba2-f8be-4dc0-9434-c4a9edf35f52 and access id = irods-go-rest-https-demoResc; auth_type = basic
+#### Run DRS 1.5.0 access URL tests for drs id = d27ee250-b00c-4dee-9c8f-b75053616689 and access id = irods-go-rest-https-providerResc; auth_type = basic
 
 **Status:** `PASS`
 
@@ -388,7 +388,7 @@ validate DRS access URL status, Retry-After behavior, and response schema
 | DRS Access response content-type validation | `PASS` | Content-Type matches expected type |
 | DRS Access response schema validation | `PASS` | Schema Validation Successful |
 
-#### Run DRS 1.5.0 access URL tests for drs id = cf293ba2-f8be-4dc0-9434-c4a9edf35f52 and access id = irods; auth_type = basic
+#### Run DRS 1.5.0 access URL tests for drs id = d27ee250-b00c-4dee-9c8f-b75053616689 and access id = irods; auth_type = basic
 
 **Status:** `PASS`
 
@@ -450,7 +450,7 @@ retrieve HTTP(S) manifests for configured DRS 1.5.0 compound objects
 | --- | --- | --- | --- | --- |
 | 4 | 0 | 0 | 0 | 0 |
 
-#### Run DRS 1.5.0 compound manifest tests for drs id = b5e243fb-ee87-4903-9bdf-6d6b6514a323
+#### Run DRS 1.5.0 compound manifest tests for drs id = d8a6df08-3afd-4298-8f61-417a26ae968b
 
 **Status:** `PASS`
 
@@ -459,7 +459,7 @@ resolve an HTTP(S) access URL and validate the returned compound manifest
 | Case | Status | Message |
 | --- | --- | --- |
 | Compound DRS Object response status code validation | `PASS` | Response status code is 200 |
-| Compound HTTP(S) access_url advertised | `PASS` | Found direct HTTP(S) access_url: http://localhost:8888/ga4gh/drs/v1/ext/compound/b5e243fb-ee87-4903-9bdf-6d6b6514a323 |
+| Compound HTTP(S) access_url advertised | `PASS` | Found direct HTTP(S) access_url: http://localhost:8888/ga4gh/drs/v1/ext/compound/d8a6df08-3afd-4298-8f61-417a26ae968b |
 | Compound HTTP(S) manifest retrieval | `PASS` | Retrieved compound manifest with status code 200 |
 | Compound JSON manifest payload | `PASS` | Compound manifest payload was valid JSON |
 
@@ -473,7 +473,7 @@ run configured DRS 1.5.0 negative tests for documented error responses
 | --- | --- | --- | --- | --- |
 | 9 | 0 | 0 | 0 | 0 |
 
-#### Run DRS 1.5.0 invalid object ID test for drs id = __drs_certification_missing_object_1779286500139847000
+#### Run DRS 1.5.0 invalid object ID test for drs id = __drs_certification_missing_object_1779815235667264000
 
 **Status:** `PASS`
 
@@ -485,7 +485,7 @@ validate GET /objects/{object_id} returns a documented error for a known invalid
 | Invalid DRS Object error response content-type validation | `PASS` | Content-Type matches expected type |
 | Invalid DRS Object error response schema validation | `PASS` | Schema Validation Successful |
 
-#### Run DRS 1.5.0 invalid auth test for drs id = cf293ba2-f8be-4dc0-9434-c4a9edf35f52
+#### Run DRS 1.5.0 invalid auth test for drs id = d27ee250-b00c-4dee-9c8f-b75053616689
 
 **Status:** `PASS`
 
@@ -497,7 +497,7 @@ validate GET /objects/{object_id} rejects known invalid credentials
 | Invalid DRS Auth error response content-type validation | `PASS` | Content-Type matches expected type |
 | Invalid DRS Auth error response schema validation | `PASS` | Schema Validation Successful |
 
-#### Run DRS 1.5.0 invalid access ID test for drs id = cf293ba2-f8be-4dc0-9434-c4a9edf35f52 and access id = __drs_certification_missing_access__
+#### Run DRS 1.5.0 invalid access ID test for drs id = d27ee250-b00c-4dee-9c8f-b75053616689 and access id = __drs_certification_missing_access__
 
 **Status:** `PASS`
 
