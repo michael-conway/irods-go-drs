@@ -140,7 +140,7 @@ func TestReadDrsConfigSecretFileSupport(t *testing.T) {
 
 func TestReadDrsConfigIRODSSSLConfigYAML(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "ssl-drs-config.yaml")
+	configPath := filepath.Join(dir, "ssl-drs-config-old.yaml")
 	configBody := "" +
 		"DrsIdAvuValue: ssl-config\n" +
 		"IrodsHost: localhost\n" +
@@ -236,7 +236,7 @@ func TestReadDrsConfigIRODSSSLConfigEnvOverride(t *testing.T) {
 
 func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "custom-drs-config.yaml")
+	configPath := filepath.Join(dir, "custom-drs-config-old.yaml")
 	configBody := "" +
 		"DrsIdAvuValue: env-config\n" +
 		"DrsListenPort: 9191\n" +
@@ -317,7 +317,7 @@ func TestReadDrsConfigConfigFileEnvOverride(t *testing.T) {
 
 func TestReadDrsConfigTrimsWhitespaceFromInputs(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "custom-drs-config.yaml")
+	configPath := filepath.Join(dir, "custom-drs-config-old.yaml")
 	configBody := "" +
 		"DrsIdAvuValue: trimmed-config\n" +
 		"DrsListenPort: 8181\n" +
@@ -356,7 +356,7 @@ func TestReadDrsConfigTrimsWhitespaceFromInputs(t *testing.T) {
 
 func TestReadDrsConfigSupportsOidcInsecureSkipVerifyKey(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "custom-drs-config.yaml")
+	configPath := filepath.Join(dir, "custom-drs-config-old.yaml")
 	configBody := "" +
 		"DrsIdAvuValue: oidc-insecure\n" +
 		"IrodsHost: localhost\n" +

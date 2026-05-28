@@ -22,7 +22,7 @@ IrodsAdminLoginType: native
 IrodsAuthScheme: native
 # Production default: require iRODS SSL negotiation.
 # Local-only override: CS_NEG_DONT_CARE
-IrodsNegotiationPolicy: CS_NEG_REQUIRE
+IrodsNegotiationPolicy: CS_NEG_DONT_CARE
 IrodsSSLConfig:
   CACertificateFile:
   CACertificatePath:
@@ -38,7 +38,7 @@ IrodsDefaultResource:
 # For host-run DRS against grid-stack, override to https://localhost:8443.
 OidcUrl: https://keycloak:8443
 OidcClientId: drs-api
-OidcClientSecretFile: ./resources/oidc-client-secret.txt
+OidcClientSecretFile: ./resources/oidc-client-secret-drs.txt
 OidcRealm: drs
 OidcScope: openid profile email
 # Production default: verify Keycloak TLS certificates.

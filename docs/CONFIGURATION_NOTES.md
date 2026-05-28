@@ -13,7 +13,7 @@ The service reads configuration in this order:
 To use one exact config file, set:
 
 ```bash
-DRS_CONFIG_FILE=/path/to/drs-config.yaml
+DRS_CONFIG_FILE=/path/to/drs-config-old.yaml
 ```
 
 ## Main runtime settings
