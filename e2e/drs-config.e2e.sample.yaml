@@ -1,5 +1,9 @@
 DrsLogLevel: info
 DrsListenPort: 8888
+HTTPReadTimeoutSeconds: 30
+HTTPReadHeaderTimeoutSeconds: 30
+HTTPWriteTimeoutSeconds: 60
+HTTPIdleTimeoutSeconds: 120
 
 IrodsHost: localhost
 IrodsPort: 1247
@@ -15,6 +19,8 @@ IrodsAdminLoginType: native
 IrodsNegotiationPolicy: CS_NEG_DONT_CARE
 IrodsDefaultResource: providerResc
 
+# Host-facing OIDC issuer URL for host-run DRS/E2E against irods-grid-stack.
+# This corresponds to the Keycloak host port and grid-stack OIDC_WEB_URL value.
 OidcUrl: https://localhost:8443
 OidcClientId: irods-go-drs
 OidcClientSecret: change-me

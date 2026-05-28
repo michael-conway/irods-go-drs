@@ -9,7 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cyverse/go-irodsclient/irods/types"
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+	irodsauth "github.com/michael-conway/go-irodsclient-extensions/irodsauth"
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 )
 
@@ -25,7 +26,7 @@ const drsServiceContextKey contextKey = "drsServiceContext"
 
 type DrsServiceContext struct {
 	DrsConfig    *drs_support.DrsConfig
-	IrodsAccount *types.IRODSAccount
+	IrodsAccount *irodstypes.IRODSAccount
 }
 
 func NewRouteServiceContextMiddleware(drsConfig *drs_support.DrsConfig) func(next http.Handler) http.Handler {
@@ -33,7 +34,13 @@ func NewRouteServiceContextMiddleware(drsConfig *drs_support.DrsConfig) func(nex
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			serviceContext, err := NewDrsServiceContext(r.Context(), drsConfig)
 			if err != nil {
-				writeJSONError(w, http.StatusUnauthorized, fmt.Sprintf("failed to build service context: %v", err))
+				requestLogger.Warn(
+					"failed to build DRS service context",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"error", err.Error(),
+				)
+				writeJSONError(w, http.StatusUnauthorized, "request authentication failed")
 				return
 			}
 
@@ -86,49 +93,33 @@ func NewDrsServiceContext(ctx context.Context, drsConfig *drs_support.DrsConfig)
 
 	logger.Info(fmt.Sprintf("userName: %s", userName))
 
-	var (
-		irodsAccount *types.IRODSAccount
-		err          error
-	)
-	switch authScheme {
-	case "bearer":
-		irodsAccount, err = types.CreateIRODSProxyAccount(
-			drsConfig.IrodsHost,
-			drsConfig.IrodsPort,
-			userName,
-			drsConfig.IrodsZone,
-			drsConfig.IrodsAdminUser,
-			drsConfig.IrodsZone,
-			drsConfig.AdminAuthScheme(),
-			drsConfig.IrodsAdminPassword,
-			drsConfig.IrodsDefaultResource,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create iRODS proxy account: %w", err)
-		}
-	case "basic":
-		password, ok := BasicPasswordFromContext(ctx)
+	password := ""
+	if authScheme == irodsauth.AuthSchemeBasic {
+		var ok bool
+		password, ok = BasicPasswordFromContext(ctx)
 		if !ok {
 			return nil, fmt.Errorf("failed to determine basic password")
 		}
-
-		irodsAccount, err = types.CreateIRODSAccount(
-			drsConfig.IrodsHost,
-			drsConfig.IrodsPort,
-			userName,
-			drsConfig.IrodsZone,
-			drsConfig.RequestAuthScheme(),
-			password,
-			drsConfig.IrodsDefaultResource,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create iRODS account: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("unsupported auth scheme %q", authScheme)
 	}
 
-	drsConfig.ApplyIRODSConnectionConfig(irodsAccount)
+	irodsAccount, err := irodsauth.CreateAccount(irodsauth.Request{
+		AuthScheme:    authScheme,
+		Username:      userName,
+		BasicPassword: password,
+	}, irodsauth.Config{
+		Host:                  drsConfig.IrodsHost,
+		Port:                  drsConfig.IrodsPort,
+		Zone:                  drsConfig.IrodsZone,
+		DefaultResource:       drsConfig.IrodsDefaultResource,
+		AdminUser:             drsConfig.IrodsAdminUser,
+		AdminPassword:         drsConfig.IrodsAdminPassword,
+		RequestAuthScheme:     drsConfig.RequestAuthScheme(),
+		AdminAuthScheme:       drsConfig.AdminAuthScheme(),
+		ApplyConnectionConfig: drsConfig.ApplyIRODSConnectionConfig,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	return &DrsServiceContext{
 		DrsConfig:    drsConfig,

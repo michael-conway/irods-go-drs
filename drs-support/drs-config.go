@@ -20,6 +20,10 @@ type DrsConfig struct {
 	DrsAvuUnit                       string
 	DrsLogLevel                      string //info, debug
 	DrsListenPort                    int
+	HTTPReadTimeoutSeconds           int
+	HTTPReadHeaderTimeoutSeconds     int
+	HTTPWriteTimeoutSeconds          int
+	HTTPIdleTimeoutSeconds           int
 	ServiceInfoSampleIntervalMinutes int
 	ServiceInfoFilePath              string
 	IrodsAccessMethodSupported       bool
@@ -207,6 +211,10 @@ func bindEnvVars(v *viper.Viper) error {
 		"DrsAvuUnit":                             {"DRS_DRS_AVU_UNIT", "DRS_DRSAVUUNIT"},
 		"DrsLogLevel":                            {"DRS_DRS_LOG_LEVEL", "DRS_DRSLOGLEVEL"},
 		"DrsListenPort":                          {"DRS_LISTEN_PORT", "DRS_DRSLISTENPORT"},
+		"HTTPReadTimeoutSeconds":                 {"DRS_HTTP_READ_TIMEOUT_SECONDS", "DRS_HTTPREADTIMEOUTSECONDS"},
+		"HTTPReadHeaderTimeoutSeconds":           {"DRS_HTTP_READ_HEADER_TIMEOUT_SECONDS", "DRS_HTTPREADHEADERTIMEOUTSECONDS"},
+		"HTTPWriteTimeoutSeconds":                {"DRS_HTTP_WRITE_TIMEOUT_SECONDS", "DRS_HTTPWRITETIMEOUTSECONDS"},
+		"HTTPIdleTimeoutSeconds":                 {"DRS_HTTP_IDLE_TIMEOUT_SECONDS", "DRS_HTTPIDLETIMEOUTSECONDS"},
 		"ServiceInfoSampleIntervalMinutes":       {"DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES", "DRS_SERVICEINFOSAMPLEINTERVALMINUTES"},
 		"ServiceInfoFilePath":                    {"DRS_SERVICE_INFO_FILE_PATH", "DRS_SERVICEINFOFILEPATH"},
 		"IrodsAccessMethodSupported":             {"DRS_IRODS_ACCESS_METHOD_SUPPORTED", "DRS_IRODSACCESSMETHODSUPPORTED"},

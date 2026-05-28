@@ -2,6 +2,10 @@ DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
 DrsListenPort: 8888
+HTTPReadTimeoutSeconds: 30
+HTTPReadHeaderTimeoutSeconds: 30
+HTTPWriteTimeoutSeconds: 60
+HTTPIdleTimeoutSeconds: 120
 ServiceInfoSampleIntervalMinutes: 420
 ServiceInfoFilePath: service-info.json
 IRODSAccessHost: localhost
@@ -25,7 +29,9 @@ IrodsSSLConfig:
   DHParamsFile:
   ServerName:
 IrodsDefaultResource:
-OidcUrl: https://localhost:8443
+# Container-to-container OIDC issuer URL (matches irods-grid-stack OIDC_INTERNAL_URL).
+# For host-run DRS against grid-stack, override to https://localhost:8443.
+OidcUrl: https://keycloak:8443
 OidcClientId: drs-api
 OidcClientSecretFile: ./resources/oidc-client-secret.txt
 OidcRealm: drs

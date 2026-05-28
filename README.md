@@ -93,6 +93,11 @@ For host-run `irods-go-drs` integration or E2E tests, point
 That sample is aligned with the default `irods-grid-stack` ports and resource
 names.
 
+For OIDC, keep URL context consistent with where DRS runs:
+
+* containerized DRS in `irods-grid-stack`: `DRS_OIDC_URL=https://keycloak:8443`
+* host-run DRS against grid-stack: `DRS_OIDC_URL=https://localhost:8443`
+
 For CLI-centered development, `gocmd` should be installed and on `PATH` so that `drscmd` can consume the saved iCommands-compatible environment and session state.
 
 ## DRS Console

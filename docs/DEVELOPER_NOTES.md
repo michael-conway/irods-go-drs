@@ -4,16 +4,12 @@ Use this file for the main working rules in `irods-go-drs`.
 
 ## Alpha Release Gate (Open Issues)
 
-- [ ] Enforce bearer identity binding from trusted introspection claims.
-  - Reject bearer requests when no authoritative user identity is present.
-  - Do not derive effective user from unverified JWT payload parsing.
-  - Ensure bearer requests cannot fall back to admin proxy identity.
 
-- [ ] Normalize error exposure for security-sensitive paths.
+- [x] Normalize error exposure for security-sensitive paths.
   - Replace raw upstream error bodies with sanitized client-safe messages.
   - Keep detailed causes in structured logs only.
 
-- [ ] Harden HTTP server transport defaults.
+- [x] Harden HTTP server transport defaults.
   - Replace bare `http.ListenAndServe` with an `http.Server` that sets read, header, write, and idle timeouts.
 
 - [ ] Prevent response URL poisoning.

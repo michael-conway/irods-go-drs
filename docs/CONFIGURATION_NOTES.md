@@ -23,6 +23,10 @@ These are the settings you will usually care about:
 ```bash
 DRS_LISTEN_PORT=8080
 DRS_DRS_LOG_LEVEL=info
+DRS_HTTP_READ_TIMEOUT_SECONDS=30
+DRS_HTTP_READ_HEADER_TIMEOUT_SECONDS=30
+DRS_HTTP_WRITE_TIMEOUT_SECONDS=60
+DRS_HTTP_IDLE_TIMEOUT_SECONDS=120
 
 DRS_IRODS_HOST=irods-provider
 DRS_IRODS_PORT=1247
@@ -33,11 +37,34 @@ DRS_IRODS_PRIMARY_TEST_PASSWORD=test1
 DRS_IRODS_SECONDARY_TEST_USER=test2
 DRS_IRODS_SECONDARY_TEST_PASSWORD=test2
 
-DRS_OIDC_URL=https://localhost:8443
+# Containerized DRS in irods-grid-stack:
+DRS_OIDC_URL=https://keycloak:8443
+# Host-run DRS against irods-grid-stack host ports:
+# DRS_OIDC_URL=https://localhost:8443
 DRS_OIDC_REALM=drs
 DRS_OIDC_CLIENT_ID=irods-go-drs
 DRS_OIDC_INSECURE_SKIP_VERIFY=false
 ```
+
+When using `irods-grid-stack`, align DRS OIDC settings with the stack split:
+
+- `OIDC_INTERNAL_URL` (`https://keycloak:8443`) for container-to-container calls
+- `OIDC_WEB_URL` (`https://localhost:8443`) for browser redirects used by REST `/web/*`
+
+`irods-go-drs` only uses `DRS_OIDC_URL`/`OidcUrl` and should point at the
+internal issuer URL when DRS runs in the compose network.
+
+HTTP server transport timeout config keys:
+
+```yaml
+HTTPReadTimeoutSeconds: 30
+HTTPReadHeaderTimeoutSeconds: 30
+HTTPWriteTimeoutSeconds: 60
+HTTPIdleTimeoutSeconds: 120
+```
+
+If any of these values are unset or `<= 0`, DRS falls back to the defaults shown
+above.
 
 If your local Keycloak uses a self-signed certificate, you can temporarily use:
 

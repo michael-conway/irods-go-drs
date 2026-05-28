@@ -70,11 +70,11 @@ var readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
 
 func writeRouteFileSystemError(w http.ResponseWriter, r *http.Request, err error) {
 	status := routeErrorStatus(r, err)
-	message := fmt.Sprintf("failed to connect to iRODS: %v", err)
+	message := "failed to connect to iRODS"
 	if status == http.StatusUnauthorized {
-		message = fmt.Sprintf("iRODS authentication failed: %v", err)
+		message = "iRODS authentication failed"
 	}
-	writeJSONError(w, status, message)
+	writeLoggedJSONError(w, r, status, message, "failed to create iRODS filesystem", err)
 }
 
 func routeErrorStatus(r *http.Request, err error) int {
@@ -93,6 +93,39 @@ func routeErrorStatus(r *http.Request, err error) int {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
+}
+
+func routeOperationClientMessage(status int, fallback string) string {
+	switch status {
+	case http.StatusUnauthorized:
+		return "iRODS authentication failed"
+	case http.StatusNotFound:
+		return "DRS object not found"
+	case http.StatusBadRequest:
+		return "invalid request"
+	case http.StatusInternalServerError:
+		return "internal server error"
+	default:
+		return fallback
+	}
+}
+
+func writeLoggedJSONError(w http.ResponseWriter, r *http.Request, status int, message string, logMessage string, err error, args ...any) {
+	logArgs := []any{
+		"status", status,
+		"method", "",
+		"path", "",
+	}
+	if r != nil {
+		logArgs[3] = r.Method
+		logArgs[5] = r.URL.Path
+	}
+	if err != nil {
+		logArgs = append(logArgs, "error", err.Error())
+	}
+	logArgs = append(logArgs, args...)
+	requestLogger.Error(logMessage, logArgs...)
+	writeJSONError(w, status, message)
 }
 
 func isBasicIRODSAuthFailure(r *http.Request, err error) bool {
@@ -144,7 +177,7 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 	}
 	if accessID != compoundManifestHTTPSAccessID {
 		if err := validateConfiguredHTTPSProvider(serviceContext.DrsConfig); err != nil {
-			writeJSONError(w, http.StatusNotImplemented, err.Error())
+			writeLoggedJSONError(w, r, http.StatusNotImplemented, "https access provider is not supported in this deployment", "https access provider is not supported", err)
 			return
 		}
 	}
@@ -158,7 +191,8 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		writeJSONError(w, routeErrorStatus(r, err), err.Error())
+		status := routeErrorStatus(r, err)
+		writeLoggedJSONError(w, r, status, routeOperationClientMessage(status, "failed to resolve DRS object"), "failed to resolve DRS object", err, "object_id", objectID)
 		return
 	}
 
@@ -167,7 +201,11 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 		if status == http.StatusInternalServerError {
 			status = routeErrorStatus(r, err)
 		}
-		writeJSONError(w, status, err.Error())
+		clientMessage := err.Error()
+		if status == http.StatusInternalServerError || status == http.StatusUnauthorized || status == http.StatusBadRequest || status == http.StatusNotFound {
+			clientMessage = routeOperationClientMessage(status, "failed to resolve access URL")
+		}
+		writeLoggedJSONError(w, r, status, clientMessage, "failed to resolve access URL", err, "object_id", objectID, "access_id", accessID)
 		return
 	}
 
@@ -398,12 +436,13 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		writeJSONError(w, routeErrorStatus(r, err), err.Error())
+		status := routeErrorStatus(r, err)
+		writeLoggedJSONError(w, r, status, routeOperationClientMessage(status, "failed to resolve DRS object"), "failed to resolve DRS object", err, "object_id", objectID)
 		return
 	}
 	if !object.IsManifest {
 		if err := validateConfiguredHTTPSProvider(serviceContext.DrsConfig); err != nil {
-			writeJSONError(w, http.StatusNotImplemented, err.Error())
+			writeLoggedJSONError(w, r, http.StatusNotImplemented, "https access provider is not supported in this deployment", "https access provider is not supported", err)
 			return
 		}
 	}
@@ -439,7 +478,8 @@ func GetCompoundManifestExt(w http.ResponseWriter, r *http.Request) {
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		writeJSONError(w, routeErrorStatus(r, err), err.Error())
+		status := routeErrorStatus(r, err)
+		writeLoggedJSONError(w, r, status, routeOperationClientMessage(status, "failed to resolve DRS object"), "failed to resolve DRS object", err, "object_id", objectID)
 		return
 	}
 
@@ -450,12 +490,12 @@ func GetCompoundManifestExt(w http.ResponseWriter, r *http.Request) {
 
 	manifest, err := drs_support.BuildCompoundRuntimeManifest(filesystem, object.AbsolutePath)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeLoggedJSONError(w, r, http.StatusInternalServerError, "failed to build compound manifest", "failed to build compound manifest", err, "object_id", objectID)
 		return
 	}
 	manifestJSON, err := drs_support.MarshalCompoundRuntimeManifest(manifest)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeLoggedJSONError(w, r, http.StatusInternalServerError, "failed to serialize compound manifest", "failed to serialize compound manifest", err, "object_id", objectID)
 		return
 	}
 
@@ -467,18 +507,18 @@ func GetCompoundManifestExt(w http.ResponseWriter, r *http.Request) {
 func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {
 	drsConfig, err := readRouteDrsConfig()
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read DRS config: %v", err))
+		writeLoggedJSONError(w, r, http.StatusInternalServerError, "failed to read DRS configuration", "failed to read DRS configuration", err)
 		return
 	}
 
 	if err := validateConfiguredHTTPSProvider(drsConfig); err != nil {
-		writeJSONError(w, http.StatusNotImplemented, err.Error())
+		writeLoggedJSONError(w, r, http.StatusNotImplemented, "https access provider is not supported in this deployment", "https access provider is not supported", err)
 		return
 	}
 
 	var request BulkObjectIdNoPassport
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
+		writeLoggedJSONError(w, r, http.StatusBadRequest, "invalid request body", "invalid request body", err)
 		return
 	}
 
@@ -490,14 +530,14 @@ func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {
 
 	filesystem, err := createAdminRouteFileSystem(drsConfig, "irods-go-drs-options-bulk-object")
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		writeLoggedJSONError(w, r, http.StatusInternalServerError, "failed to connect to iRODS", "failed to create iRODS filesystem", err)
 		return
 	}
 	defer filesystem.Release()
 
 	response, err := bulkAuthorizationsFromIDs(filesystem, drsConfig, objectIDs)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeLoggedJSONError(w, r, http.StatusInternalServerError, "failed to resolve DRS object authorizations", "failed to resolve DRS object authorizations", err)
 		return
 	}
 
@@ -509,12 +549,12 @@ func OptionsBulkObject(w http.ResponseWriter, r *http.Request) {
 func OptionsObject(w http.ResponseWriter, r *http.Request) {
 	drsConfig, err := readRouteDrsConfig()
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read DRS config: %v", err))
+		writeLoggedJSONError(w, r, http.StatusInternalServerError, "failed to read DRS configuration", "failed to read DRS configuration", err)
 		return
 	}
 
 	if err := validateConfiguredHTTPSProvider(drsConfig); err != nil {
-		writeJSONError(w, http.StatusNotImplemented, err.Error())
+		writeLoggedJSONError(w, r, http.StatusNotImplemented, "https access provider is not supported in this deployment", "https access provider is not supported", err)
 		return
 	}
 
@@ -527,7 +567,7 @@ func OptionsObject(w http.ResponseWriter, r *http.Request) {
 
 	filesystem, err := createAdminRouteFileSystem(drsConfig, "irods-go-drs-options-object")
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect to iRODS: %v", err))
+		writeLoggedJSONError(w, r, http.StatusInternalServerError, "failed to connect to iRODS", "failed to create iRODS filesystem", err)
 		return
 	}
 	defer filesystem.Release()
@@ -540,7 +580,7 @@ func OptionsObject(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusBadRequest
 		}
 
-		writeJSONError(w, status, err.Error())
+		writeLoggedJSONError(w, r, status, routeOperationClientMessage(status, "failed to resolve DRS object"), "failed to resolve DRS object", err, "object_id", objectID)
 		return
 	}
 
