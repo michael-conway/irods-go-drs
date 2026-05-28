@@ -12,11 +12,11 @@ Use this file for the main working rules in `irods-go-drs`.
 - [x] Harden HTTP server transport defaults.
   - Replace bare `http.ListenAndServe` with an `http.Server` that sets read, header, write, and idle timeouts.
 
-- [ ] Prevent response URL poisoning.
+- [x] Prevent response URL poisoning.
   - Do not build `self_uri`/extension `access_url` directly from untrusted `Host` and `X-Forwarded-Proto`.
   - Add explicit trusted external base URL config or trusted-proxy validation.
 
-- [ ] Align auth failure status semantics.
+- [x] Align auth failure status semantics.
   - Return consistent `401/403` for authentication/authorization failures across basic and bearer flows.
   - Avoid returning `500` for expected auth failures.
 

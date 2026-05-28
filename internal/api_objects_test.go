@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
@@ -29,9 +30,10 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	defer func() { createRouteFileSystem = oldFactory }()
 
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
-	req.Host = "drs.example.org"
+	req.Host = "poisoned-host.example.org"
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
+			PublicURL:                  "https://drs.example.org",
 			IrodsAccessMethodSupported: false,
 			FileAccessMethodSupported:  false,
 			HttpsAccessMethodSupported: true,
@@ -65,7 +67,7 @@ func TestGetObjectReturnsMappedDrsObject(t *testing.T) {
 	}
 
 	if response.SelfUri != "drs://drs.example.org/object-123" {
-		t.Fatalf("expected self_uri to be built from request host, got %q", response.SelfUri)
+		t.Fatalf("expected self_uri to be built from configured PublicURL, got %q", response.SelfUri)
 	}
 
 	if response.Description != "test description" {
@@ -130,9 +132,10 @@ func TestGetObjectReturnsCompoundObjectWithOnlyHTTPSAccessMethod(t *testing.T) {
 	defer func() { createRouteFileSystem = oldFactory }()
 
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-compound", nil)
-	req.Host = "drs.example.org"
+	req.Host = "poisoned-host.example.org"
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
+			PublicURL:                  "https://drs.example.org",
 			IrodsAccessMethodSupported: true,
 			HttpsAccessMethodSupported: true,
 			HttpsAccessImplementation:  "irods-go-rest",
@@ -172,7 +175,7 @@ func TestGetObjectReturnsCompoundObjectWithOnlyHTTPSAccessMethod(t *testing.T) {
 	if method.AccessUrl == nil {
 		t.Fatalf("expected direct access_url for compound https access method, got %+v", method)
 	}
-	expectedURL := "http://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
+	expectedURL := "https://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
 	if method.AccessUrl.Url != expectedURL {
 		t.Fatalf("expected compound access_url %q, got %+v", expectedURL, method)
 	}
@@ -216,6 +219,7 @@ func TestGetObjectReturnsHTTPSAccessMethodPerReplicaResource(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
+			PublicURL:                  "https://drs.example.org",
 			HttpsAccessMethodSupported: true,
 			HttpsAccessImplementation:  "irods-go-rest",
 			HttpsAccessMethodBaseURL:   "/api/v1/path/contents?irods_path=",
@@ -261,6 +265,7 @@ func TestGetObjectSkipsS3AccessMethodWithoutBucketAVU(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
+			PublicURL:               "https://drs.example.org",
 			S3AccessMethodSupported: true,
 			S3AccessMethodBaseURL:   "s3://",
 		},
@@ -342,9 +347,9 @@ func TestGetAccessURLReturnsCompoundManifestExtURL(t *testing.T) {
 	defer func() { createRouteFileSystem = oldFactory }()
 
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-compound/access/"+compoundManifestHTTPSAccessID, nil)
-	req.Host = "drs.example.org"
+	req.Host = "poisoned-host.example.org"
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
-		DrsConfig:    &drs_support.DrsConfig{},
+		DrsConfig:    &drs_support.DrsConfig{PublicURL: "https://drs.example.org"},
 		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
 	}))
 	req = mux.SetURLVars(req, map[string]string{
@@ -364,12 +369,63 @@ func TestGetAccessURLReturnsCompoundManifestExtURL(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	expectedURL := "http://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
+	expectedURL := "https://drs.example.org/ga4gh/drs/v1/ext/compound/object-compound"
 	if response.Url != expectedURL {
 		t.Fatalf("expected compound ext url %q, got %q", expectedURL, response.Url)
 	}
 	if len(response.Headers) != 0 {
 		t.Fatalf("expected no headers for compound manifest ext url, got %+v", response.Headers)
+	}
+}
+
+func TestGetObjectReturnsServerErrorWhenPublicURLMissing(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			HttpsAccessMethodSupported: true,
+			HttpsAccessImplementation:  "irods-go-rest",
+			HttpsAccessMethodBaseURL:   "https://download.example.org/api/v1/path/contents?irods_path=",
+		},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when PublicURL is missing, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetAccessURLReturnsServerErrorWhenPublicURLMissingForCompoundAccess(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return newRouteTestFileSystem(), nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-compound/access/"+compoundManifestHTTPSAccessID, nil)
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: &irodstypes.IRODSAccount{ClientZone: "tempZone"},
+	}))
+	req = mux.SetURLVars(req, map[string]string{
+		"object_id": "object-compound",
+		"access_id": compoundManifestHTTPSAccessID,
+	})
+
+	rec := httptest.NewRecorder()
+	GetAccessURL(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when PublicURL is missing for compound access, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -422,6 +478,7 @@ func TestGetObjectReturnsMappedDrsObjectWithIRODSAccessMethod(t *testing.T) {
 	req.Host = "drs.example.org"
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
+			PublicURL:                  "https://drs.example.org",
 			IrodsAccessMethodSupported: true,
 			IRODSAccessHost:            "icat.example.org",
 			IRODSAccessPort:            1247,
@@ -476,6 +533,7 @@ func TestGetObjectReturnsBucketAVUMappedDrsObjectWithS3AccessMethod(t *testing.T
 	req.Host = "drs.example.org"
 	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
 		DrsConfig: &drs_support.DrsConfig{
+			PublicURL:               "https://drs.example.org",
 			S3AccessMethodSupported: true,
 			S3AccessMethodBaseURL:   "s3://",
 		},
@@ -566,7 +624,7 @@ func TestGetObjectReturnsUnauthorizedForBasicIRODSAuthFailure(t *testing.T) {
 	}
 }
 
-func TestGetObjectReturnsServerErrorForBearerIRODSAuthFailure(t *testing.T) {
+func TestGetObjectReturnsUnauthorizedForBearerIRODSAuthFailure(t *testing.T) {
 	oldFactory := createRouteFileSystem
 	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
 		return nil, irodstypes.NewAuthError(account)
@@ -586,8 +644,8 @@ func TestGetObjectReturnsServerErrorForBearerIRODSAuthFailure(t *testing.T) {
 	rec := httptest.NewRecorder()
 	GetObject(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for bearer-backed iRODS auth failure, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for bearer-backed iRODS auth failure, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -616,6 +674,84 @@ func TestGetObjectReturnsUnauthorizedForBasicIRODSAuthFailureDuringLookup(t *tes
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for Basic iRODS auth failure during lookup, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetObjectReturnsUnauthorizedForBearerIRODSAuthFailureDuringLookup(t *testing.T) {
+	account := &irodstypes.IRODSAccount{ClientUser: "test1", ClientZone: "tempZone"}
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return &queryErrorRouteFileSystem{
+			routeTestFileSystem: newRouteTestFileSystem(),
+			err:                 irodstypes.NewAuthError(account),
+		}, nil
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	ctx := context.WithValue(context.Background(), authSchemeContextKey, "bearer")
+	ctx = context.WithValue(ctx, drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: account,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(ctx)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for bearer-backed iRODS auth failure during lookup, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetObjectReturnsForbiddenForIRODSAuthorizationFailure(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return nil, fmt.Errorf("CAT_NO_ACCESS_PERMISSION")
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	account := &irodstypes.IRODSAccount{ClientUser: "test1", ClientZone: "tempZone"}
+	ctx := context.WithValue(context.Background(), authSchemeContextKey, "bearer")
+	ctx = context.WithValue(ctx, drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: account,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(ctx)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for iRODS authorization failure, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetObjectReturnsForbiddenForIRODSAuthorizationFailureBasicAuth(t *testing.T) {
+	oldFactory := createRouteFileSystem
+	createRouteFileSystem = func(account *irodstypes.IRODSAccount, applicationName string) (RouteFileSystem, error) {
+		return nil, fmt.Errorf("CAT_NO_ACCESS_PERMISSION")
+	}
+	defer func() { createRouteFileSystem = oldFactory }()
+
+	account := &irodstypes.IRODSAccount{ClientUser: "test1", ClientZone: "tempZone"}
+	ctx := context.WithValue(context.Background(), authSchemeContextKey, "basic")
+	ctx = context.WithValue(ctx, drsServiceContextKey, &DrsServiceContext{
+		DrsConfig:    &drs_support.DrsConfig{},
+		IrodsAccount: account,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/object-123", nil)
+	req = req.WithContext(ctx)
+	req = mux.SetURLVars(req, map[string]string{"object_id": "object-123"})
+
+	rec := httptest.NewRecorder()
+	GetObject(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for basic-auth iRODS authorization failure, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -1295,9 +1431,16 @@ func TestDrsObjectFromInternalIncludesExpandedContents(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/ga4gh/drs/v1/objects/bundle-1?expand=true", nil)
-	req.Host = "drs.example.org"
+	req = req.WithContext(context.WithValue(context.Background(), drsServiceContextKey, &DrsServiceContext{
+		DrsConfig: &drs_support.DrsConfig{
+			PublicURL: "https://drs.example.org",
+		},
+	}))
 
-	response := drsObjectFromInternal(req, object, true, nil)
+	response, err := drsObjectFromInternal(req, object, true, nil)
+	if err != nil {
+		t.Fatalf("drsObjectFromInternal returned error: %v", err)
+	}
 	if len(response.Contents) != 2 {
 		t.Fatalf("expected 2 contents entries, got %d", len(response.Contents))
 	}

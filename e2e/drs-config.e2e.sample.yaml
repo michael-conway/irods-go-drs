@@ -1,5 +1,6 @@
 DrsLogLevel: info
 DrsListenPort: 8888
+PublicURL: http://localhost:8888
 HTTPReadTimeoutSeconds: 30
 HTTPReadHeaderTimeoutSeconds: 30
 HTTPWriteTimeoutSeconds: 60
@@ -37,21 +38,21 @@ FileAccessMethodSupported: false
 HttpsAccessMethodSupported: true
 HttpsAccessUseTicket: true
 HttpsAccessImplementation: irods-go-rest
-HttpsAccessMethodBaseURL: http://127.0.0.1:8080/api/v1/path/contents?irods_path=
+HttpsAccessMethodBaseURL: http://localhost:8080/api/v1/path/contents?irods_path=
 HttpsResourceAffinity:
-  - Host: http://127.0.0.1:8080
+  - Host: http://localhost:8080
     Resources:
       - providerResc
-  - Host: http://127.0.0.1:8082
+  - Host: http://localhost:8082
     Resources:
       - resourceResc
 
 S3AccessMethodSupported: true
 S3AccessMethodBaseURL: s3://
 S3ResourceAffinity:
-  - Host: http://127.0.0.1:9001
+  - Host: http://localhost:9001
     Resources:
       - providerResc
-  - Host: http://127.0.0.1:9002
+  - Host: http://localhost:9002
     Resources:
       - resourceResc

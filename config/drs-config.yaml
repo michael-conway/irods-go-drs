@@ -2,6 +2,9 @@ DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
 DrsListenPort: 8888
+# Public origin used for response URL generation (`self_uri`, compound extension `access_url`).
+# Must be an http/https origin with no path, query, or fragment.
+PublicURL: http://localhost:8888
 HTTPReadTimeoutSeconds: 30
 HTTPReadHeaderTimeoutSeconds: 30
 HTTPWriteTimeoutSeconds: 60

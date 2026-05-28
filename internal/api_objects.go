@@ -69,17 +69,22 @@ var readRouteDrsConfig = func() (*drs_support.DrsConfig, error) {
 }
 
 func writeRouteFileSystemError(w http.ResponseWriter, r *http.Request, err error) {
-	status := routeErrorStatus(r, err)
+	status := routeErrorStatus(err)
 	message := "failed to connect to iRODS"
 	if status == http.StatusUnauthorized {
 		message = "iRODS authentication failed"
+	} else if status == http.StatusForbidden {
+		message = "iRODS authorization failed"
 	}
 	writeLoggedJSONError(w, r, status, message, "failed to create iRODS filesystem", err)
 }
 
-func routeErrorStatus(r *http.Request, err error) int {
-	if isBasicIRODSAuthFailure(r, err) {
+func routeErrorStatus(err error) int {
+	if isIRODSAuthFailure(err) {
 		return http.StatusUnauthorized
+	}
+	if isIRODSAuthorizationFailure(err) {
+		return http.StatusForbidden
 	}
 	if err == nil {
 		return http.StatusInternalServerError
@@ -99,6 +104,8 @@ func routeOperationClientMessage(status int, fallback string) string {
 	switch status {
 	case http.StatusUnauthorized:
 		return "iRODS authentication failed"
+	case http.StatusForbidden:
+		return "iRODS authorization failed"
 	case http.StatusNotFound:
 		return "DRS object not found"
 	case http.StatusBadRequest:
@@ -128,13 +135,23 @@ func writeLoggedJSONError(w http.ResponseWriter, r *http.Request, status int, me
 	writeJSONError(w, status, message)
 }
 
-func isBasicIRODSAuthFailure(r *http.Request, err error) bool {
-	if err == nil || r == nil || !isIRODSAuthFailure(err) {
+func isIRODSAuthorizationFailure(err error) bool {
+	if err == nil {
 		return false
 	}
 
-	scheme, ok := AuthSchemeFromContext(r.Context())
-	return ok && strings.EqualFold(scheme, "basic")
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"cat_no_access_permission",
+		"cat_insufficient_privilege_level",
+		"permission denied",
+		"authorization error",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func isIRODSAuthFailure(err error) bool {
@@ -191,15 +208,15 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		status := routeErrorStatus(r, err)
+		status := routeErrorStatus(err)
 		writeLoggedJSONError(w, r, status, routeOperationClientMessage(status, "failed to resolve DRS object"), "failed to resolve DRS object", err, "object_id", objectID)
 		return
 	}
 
-	response, status, err := accessURLForObject(r, filesystem, serviceContext.DrsConfig, objectID, accessID, object)
+	response, status, err := accessURLForObject(filesystem, serviceContext.DrsConfig, objectID, accessID, object)
 	if err != nil {
 		if status == http.StatusInternalServerError {
-			status = routeErrorStatus(r, err)
+			status = routeErrorStatus(err)
 		}
 		clientMessage := err.Error()
 		if status == http.StatusInternalServerError || status == http.StatusUnauthorized || status == http.StatusBadRequest || status == http.StatusNotFound {
@@ -214,7 +231,7 @@ func GetAccessURL(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-func accessURLForObject(r *http.Request, filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, accessID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
+func accessURLForObject(filesystem RouteFileSystem, drsConfig *drs_support.DrsConfig, objectID string, accessID string, object *drs_support.InternalDrsObject) (*AccessUrl, int, error) {
 	if filesystem == nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("missing iRODS filesystem")
 	}
@@ -230,9 +247,9 @@ func accessURLForObject(r *http.Request, filesystem RouteFileSystem, drsConfig *
 		if !object.IsManifest {
 			return nil, http.StatusNotFound, fmt.Errorf("access id %q not found for object %q", accessID, objectID)
 		}
-		url := buildAbsoluteRequestURL(r, "/ga4gh/drs/v1/ext/compound/"+neturl.PathEscape(strings.TrimSpace(objectID)))
-		if strings.TrimSpace(url) == "" {
-			return nil, http.StatusInternalServerError, fmt.Errorf("failed to build compound manifest access URL for object %q", objectID)
+		url, err := buildPublicAbsoluteURL(drsConfig, "/ga4gh/drs/v1/ext/compound/"+neturl.PathEscape(strings.TrimSpace(objectID)))
+		if err != nil {
+			return nil, http.StatusInternalServerError, fmt.Errorf("build compound manifest access URL for object %q: %w", objectID, err)
 		}
 		return &AccessUrl{Url: url}, http.StatusOK, nil
 	case "irods":
@@ -436,7 +453,7 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		status := routeErrorStatus(r, err)
+		status := routeErrorStatus(err)
 		writeLoggedJSONError(w, r, status, routeOperationClientMessage(status, "failed to resolve DRS object"), "failed to resolve DRS object", err, "object_id", objectID)
 		return
 	}
@@ -448,7 +465,11 @@ func GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	expand := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("expand")), "true")
-	response := drsObjectFromInternal(r, object, expand, filesystem)
+	response, err := drsObjectFromInternal(r, object, expand, filesystem)
+	if err != nil {
+		writeLoggedJSONError(w, r, http.StatusInternalServerError, "failed to build DRS object response", "failed to build DRS object response", err, "object_id", objectID)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
@@ -478,7 +499,7 @@ func GetCompoundManifestExt(w http.ResponseWriter, r *http.Request) {
 
 	object, err := drs_support.GetDrsObjectByID(filesystem, filesystem, objectID)
 	if err != nil {
-		status := routeErrorStatus(r, err)
+		status := routeErrorStatus(err)
 		writeLoggedJSONError(w, r, status, routeOperationClientMessage(status, "failed to resolve DRS object"), "failed to resolve DRS object", err, "object_id", objectID)
 		return
 	}
@@ -612,11 +633,17 @@ func writeUnsupportedOperation(w http.ResponseWriter, endpoint string) {
 	)
 }
 
-func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool, filesystem drs_support.IRODSFilesystem) DrsObject {
+func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObject, expand bool, filesystem drs_support.IRODSFilesystem) (DrsObject, error) {
 	var accessMethods []AccessMethod
+	var drsConfig *drs_support.DrsConfig
 	if serviceContext, ok := DrsServiceContextFromContext(r.Context()); ok && serviceContext != nil {
+		drsConfig = serviceContext.DrsConfig
 		if object != nil && object.IsManifest {
-			accessMethods = []AccessMethod{buildCompoundManifestAccessMethod(r, serviceContext.DrsConfig, object)}
+			accessMethod, err := buildCompoundManifestAccessMethod(serviceContext.DrsConfig, object)
+			if err != nil {
+				return DrsObject{}, err
+			}
+			accessMethods = []AccessMethod{accessMethod}
 		} else {
 			accessMethods = accessMethodsFromInternal(drs_support.BuildAccessMethodsWithFilesystem(serviceContext.DrsConfig, object, filesystem))
 		}
@@ -636,10 +663,15 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 		}
 	}
 
+	selfURI, err := buildSelfURI(drsConfig, object.Id)
+	if err != nil {
+		return DrsObject{}, fmt.Errorf("build self_uri for object %q: %w", strings.TrimSpace(object.Id), err)
+	}
+
 	response := DrsObject{
 		Id:            object.Id,
 		Name:          object.AbsolutePath,
-		SelfUri:       buildSelfURI(r, object.Id),
+		SelfUri:       selfURI,
 		Size:          object.Size,
 		CreatedTime:   object.CreatedTime,
 		UpdatedTime:   object.UpdatedTime,
@@ -662,15 +694,20 @@ func drsObjectFromInternal(r *http.Request, object *drs_support.InternalDrsObjec
 	if expand && len(object.Contents) > 0 {
 		response.Contents = make([]ContentsObject, 0, len(object.Contents))
 		for _, entry := range object.Contents {
+			drsURIs, err := buildContentsDrsURIs(drsConfig, entry.ID)
+			if err != nil {
+				return DrsObject{}, fmt.Errorf("build content drs_uri for object %q: %w", strings.TrimSpace(entry.ID), err)
+			}
+
 			response.Contents = append(response.Contents, ContentsObject{
 				Name:   entry.Name,
 				Id:     entry.ID,
-				DrsUri: buildContentsDrsURIs(r, entry.ID),
+				DrsUri: drsURIs,
 			})
 		}
 	}
 
-	return response
+	return response, nil
 }
 
 func buildAnonymousIRODSAliasURI(filesystem drs_support.IRODSFilesystem, object *drs_support.InternalDrsObject) string {
@@ -729,7 +766,7 @@ func accessMethodsFromInternal(methods []drs_support.DrsAccessMethod) []AccessMe
 	return response
 }
 
-func buildCompoundManifestAccessMethod(r *http.Request, drsConfig *drs_support.DrsConfig, object *drs_support.InternalDrsObject) AccessMethod {
+func buildCompoundManifestAccessMethod(drsConfig *drs_support.DrsConfig, object *drs_support.InternalDrsObject) (AccessMethod, error) {
 	region := ""
 	zone := ""
 	if object != nil {
@@ -745,9 +782,14 @@ func buildCompoundManifestAccessMethod(r *http.Request, drsConfig *drs_support.D
 		compoundPath = compoundPath + neturl.PathEscape(strings.TrimSpace(object.Id))
 	}
 
+	compoundURL, err := buildPublicAbsoluteURL(drsConfig, compoundPath)
+	if err != nil {
+		return AccessMethod{}, fmt.Errorf("build compound manifest access_url: %w", err)
+	}
+
 	return AccessMethod{
 		Type_:     "https",
-		AccessUrl: &AllOfAccessMethodAccessUrl{Url: buildAbsoluteRequestURL(r, compoundPath)},
+		AccessUrl: &AllOfAccessMethodAccessUrl{Url: compoundURL},
 		Cloud:     "irods:" + zone,
 		Region:    region,
 		Available: false,
@@ -755,53 +797,95 @@ func buildCompoundManifestAccessMethod(r *http.Request, drsConfig *drs_support.D
 			SupportedTypes:    []string{"BasicAuth", "BearerAuth"},
 			BearerAuthIssuers: issuers,
 		},
-	}
+	}, nil
 }
 
-func buildSelfURI(r *http.Request, objectID string) string {
-	host := strings.TrimSpace(r.Host)
-	if host == "" {
-		return ""
-	}
-
-	return fmt.Sprintf("drs://%s/%s", host, objectID)
-}
-
-func buildAbsoluteRequestURL(r *http.Request, targetPath string) string {
-	targetPath = "/" + strings.TrimPrefix(strings.TrimSpace(targetPath), "/")
-	if r == nil {
-		return targetPath
-	}
-
-	host := strings.TrimSpace(r.Host)
-	if host == "" {
-		return targetPath
-	}
-
-	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
-	if scheme == "" {
-		if r.TLS != nil {
-			scheme = "https"
-		} else {
-			scheme = "http"
-		}
-	}
-
-	return scheme + "://" + host + targetPath
-}
-
-func buildContentsDrsURIs(r *http.Request, objectID string) []string {
+func buildSelfURI(drsConfig *drs_support.DrsConfig, objectID string) (string, error) {
 	objectID = strings.TrimSpace(objectID)
 	if objectID == "" {
-		return nil
+		return "", fmt.Errorf("missing object id")
 	}
 
-	selfURI := buildSelfURI(r, objectID)
-	if selfURI == "" {
-		return nil
+	baseURL, err := publicBaseURLFromConfig(drsConfig)
+	if err != nil {
+		return "", err
 	}
 
-	return []string{selfURI}
+	return fmt.Sprintf("drs://%s/%s", baseURL.Host, objectID), nil
+}
+
+func buildPublicAbsoluteURL(drsConfig *drs_support.DrsConfig, targetPath string) (string, error) {
+	targetPath = "/" + strings.TrimPrefix(strings.TrimSpace(targetPath), "/")
+	if strings.TrimSpace(targetPath) == "/" {
+		return "", fmt.Errorf("missing target path")
+	}
+
+	baseURL, err := publicBaseURLFromConfig(drsConfig)
+	if err != nil {
+		return "", err
+	}
+
+	resolvedTarget, err := neturl.Parse(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid target path %q: %w", targetPath, err)
+	}
+	if resolvedTarget.Scheme != "" || resolvedTarget.Host != "" {
+		return "", fmt.Errorf("target path must be relative to configured public URL")
+	}
+
+	return baseURL.ResolveReference(resolvedTarget).String(), nil
+}
+
+func publicBaseURLFromConfig(drsConfig *drs_support.DrsConfig) (*neturl.URL, error) {
+	if drsConfig == nil {
+		return nil, fmt.Errorf("missing DRS config")
+	}
+
+	rawPublicURL := strings.TrimSpace(drsConfig.PublicURL)
+	if rawPublicURL == "" {
+		return nil, fmt.Errorf("PublicURL must be configured")
+	}
+
+	parsed, err := neturl.Parse(rawPublicURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PublicURL %q: %w", rawPublicURL, err)
+	}
+
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return nil, fmt.Errorf("PublicURL must use http or https scheme")
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return nil, fmt.Errorf("PublicURL must include host")
+	}
+	if parsed.User != nil {
+		return nil, fmt.Errorf("PublicURL must not include user info")
+	}
+	if strings.TrimSpace(parsed.RawQuery) != "" || strings.TrimSpace(parsed.Fragment) != "" {
+		return nil, fmt.Errorf("PublicURL must not include query or fragment")
+	}
+	if path := strings.TrimSpace(parsed.Path); path != "" && path != "/" {
+		return nil, fmt.Errorf("PublicURL must not include a path")
+	}
+
+	return &neturl.URL{
+		Scheme: scheme,
+		Host:   strings.TrimSpace(parsed.Host),
+	}, nil
+}
+
+func buildContentsDrsURIs(drsConfig *drs_support.DrsConfig, objectID string) ([]string, error) {
+	objectID = strings.TrimSpace(objectID)
+	if objectID == "" {
+		return nil, nil
+	}
+
+	selfURI, err := buildSelfURI(drsConfig, objectID)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{selfURI}, nil
 }
 
 func authorizationsFromConfig(objectID string, drsConfig *drs_support.DrsConfig) Authorizations {

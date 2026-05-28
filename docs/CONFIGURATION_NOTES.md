@@ -23,6 +23,7 @@ These are the settings you will usually care about:
 ```bash
 DRS_LISTEN_PORT=8080
 DRS_DRS_LOG_LEVEL=info
+DRS_PUBLIC_URL=http://localhost:8080
 DRS_HTTP_READ_TIMEOUT_SECONDS=30
 DRS_HTTP_READ_HEADER_TIMEOUT_SECONDS=30
 DRS_HTTP_WRITE_TIMEOUT_SECONDS=60
@@ -53,6 +54,11 @@ When using `irods-grid-stack`, align DRS OIDC settings with the stack split:
 
 `irods-go-drs` only uses `DRS_OIDC_URL`/`OidcUrl` and should point at the
 internal issuer URL when DRS runs in the compose network.
+
+`DRS_PUBLIC_URL` (`PublicURL` in YAML) controls externally visible URL
+generation for `self_uri` and compound extension `access_url` values. It must
+be an `http`/`https` origin (scheme + host[:port]) and must not include path,
+query, or fragment components.
 
 HTTP server transport timeout config keys:
 
