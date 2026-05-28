@@ -45,6 +45,7 @@ DRS_OIDC_URL=https://keycloak:8443
 DRS_OIDC_REALM=drs
 DRS_OIDC_CLIENT_ID=irods-go-drs
 DRS_OIDC_INSECURE_SKIP_VERIFY=false
+DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_REQUIRE
 ```
 
 When using `irods-grid-stack`, align DRS OIDC settings with the stack split:
@@ -72,6 +73,17 @@ HTTPIdleTimeoutSeconds: 120
 If any of these values are unset or `<= 0`, DRS falls back to the defaults shown
 above.
 
+## Production baseline
+
+Use this minimum baseline for production posture:
+
+```bash
+DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_REQUIRE
+DRS_OIDC_INSECURE_SKIP_VERIFY=false
+```
+
+## Local-only insecure overrides
+
 If your local Keycloak uses a self-signed certificate, you can temporarily use:
 
 ```bash
@@ -79,6 +91,15 @@ DRS_OIDC_INSECURE_SKIP_VERIFY=true
 ```
 
 Use that only for local development.
+
+If you are running a local-only test stack that does not enforce SSL
+negotiation end-to-end, you can temporarily use:
+
+```bash
+DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_DONT_CARE
+```
+
+Use that only for local development and test harnesses.
 
 In YAML config files, use:
 

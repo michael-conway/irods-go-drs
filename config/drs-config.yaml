@@ -20,7 +20,9 @@ IrodsAdminUser: rods
 IrodsAdminPasswordFile: ./resources/irods-admin-password.txt
 IrodsAdminLoginType: native
 IrodsAuthScheme: native
-IrodsNegotiationPolicy: CS_NEG_DONT_CARE
+# Production default: require iRODS SSL negotiation.
+# Local-only override: CS_NEG_DONT_CARE
+IrodsNegotiationPolicy: CS_NEG_REQUIRE
 IrodsSSLConfig:
   CACertificateFile:
   CACertificatePath:
@@ -39,7 +41,9 @@ OidcClientId: drs-api
 OidcClientSecretFile: ./resources/oidc-client-secret.txt
 OidcRealm: drs
 OidcScope: openid profile email
-OidcInsecureSkipVerify: true
+# Production default: verify Keycloak TLS certificates.
+# Local-only override for self-signed certs: true
+OidcInsecureSkipVerify: false
 
 DefaultTicketLifetimeMinutes: 720
 DefaultTicketUseLimit: 50

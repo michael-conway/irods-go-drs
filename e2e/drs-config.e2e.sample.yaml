@@ -17,6 +17,7 @@ IrodsSecondaryTestUser: test2
 IrodsSecondaryTestPassword: test
 IrodsAuthScheme: native
 IrodsAdminLoginType: native
+# Local E2E/dev profile. Production deployments should use CS_NEG_REQUIRE.
 IrodsNegotiationPolicy: CS_NEG_DONT_CARE
 IrodsDefaultResource: providerResc
 
@@ -27,6 +28,7 @@ OidcClientId: irods-go-drs
 OidcClientSecret: change-me
 OidcRealm: drs
 OidcScope: openid profile email
+# Local E2E/dev profile for self-signed Keycloak TLS. Production should be false.
 OidcInsecureSkipVerify: true
 
 DefaultTicketLifetimeMinutes: 720

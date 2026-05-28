@@ -20,7 +20,7 @@ Use this file for the main working rules in `irods-go-drs`.
   - Return consistent `401/403` for authentication/authorization failures across basic and bearer flows.
   - Avoid returning `500` for expected auth failures.
 
-- [ ] Tighten production config posture and docs.
+- [x] Tighten production config posture and docs.
   - Ensure production docs default to TLS verification enabled and strict iRODS negotiation policy.
   - Keep insecure development examples explicitly marked as local-only.
 

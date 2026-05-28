@@ -88,6 +88,15 @@ For OIDC TLS settings in the shared config file, prefer:
 
 The older `OidcSkipTLSVerify` name is still accepted as a compatibility alias.
 
+For production posture, keep:
+
+* `OidcInsecureSkipVerify: false`
+* `IrodsNegotiationPolicy: CS_NEG_REQUIRE`
+
+The `e2e/drs-config.e2e.sample.yaml` values for
+`OidcInsecureSkipVerify: true` and `IrodsNegotiationPolicy: CS_NEG_DONT_CARE`
+are local-only test defaults.
+
 Example:
 
 ```bash

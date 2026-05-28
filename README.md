@@ -98,6 +98,16 @@ For OIDC, keep URL context consistent with where DRS runs:
 * containerized DRS in `irods-grid-stack`: `DRS_OIDC_URL=https://keycloak:8443`
 * host-run DRS against grid-stack: `DRS_OIDC_URL=https://localhost:8443`
 
+Production security baseline:
+
+* `DRS_OIDC_INSECURE_SKIP_VERIFY=false`
+* `DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_REQUIRE`
+
+Local-only development overrides (for self-signed/local test stacks) are:
+
+* `DRS_OIDC_INSECURE_SKIP_VERIFY=true`
+* `DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_DONT_CARE`
+
 For CLI-centered development, `gocmd` should be installed and on `PATH` so that `drscmd` can consume the saved iCommands-compatible environment and session state.
 
 ## DRS Console
