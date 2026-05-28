@@ -36,7 +36,7 @@ IrodsSSLConfig:
 IrodsDefaultResource:
 # Container-to-container OIDC issuer URL (matches irods-grid-stack OIDC_INTERNAL_URL).
 # For host-run DRS against grid-stack, override to https://localhost:8443.
-OidcUrl: https://keycloak:8443
+OidcUrl: https://localhost:8443
 OidcClientId: drs-api
 OidcClientSecretFile: ./resources/oidc-client-secret-drs.txt
 OidcRealm: drs
