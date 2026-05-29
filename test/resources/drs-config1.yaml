@@ -50,6 +50,6 @@ S3ResourceAffinity:
     Resources: []
 OidcUrl: https://localhost:8443
 OidcClientId:
-OidcClientSecretFile: oidc-client-secret-rest.txt
+OidcClientSecretFile: oidc-client-secret.txt
 OidcRealm:
 OidcScope: openid profile email

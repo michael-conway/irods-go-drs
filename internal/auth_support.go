@@ -18,6 +18,10 @@ type Keycloak struct {
 }
 
 func NewKeycloak(drsConfig *drs_support.DrsConfig) *Keycloak {
+	if drsConfig == nil {
+		drsConfig = &drs_support.DrsConfig{}
+	}
+
 	return &Keycloak{
 		verifier: oidcverify.NewVerifier(oidcverify.Config{
 			BaseURL:            drsConfig.OidcUrl,
