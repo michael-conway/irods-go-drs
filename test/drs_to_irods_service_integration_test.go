@@ -5,6 +5,8 @@ package test
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"testing"
@@ -238,11 +240,28 @@ func normalizedIntegrationChecksumValue(irodsChecksum string) string {
 	}
 
 	parts := strings.SplitN(trimmed, ":", 2)
+	checksumPart := trimmed
 	if len(parts) == 2 {
-		return parts[1]
+		checksumPart = parts[1]
 	}
 
-	return trimmed
+	if isIntegrationHexString(checksumPart) {
+		return strings.ToLower(checksumPart)
+	}
+
+	if decoded, err := base64.StdEncoding.DecodeString(checksumPart); err == nil {
+		return hex.EncodeToString(decoded)
+	}
+
+	return checksumPart
+}
+
+func isIntegrationHexString(value string) bool {
+	if value == "" {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func expectedIntegrationS3AccessURL(baseURL string, bucketName string, objectKey string) string {

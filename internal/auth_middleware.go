@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -23,7 +24,12 @@ const (
 )
 
 type RequestAuthenticator interface {
-	AuthenticateToken(ctx context.Context, accessToken string) (*gocloak.IntroSpectTokenResult, error)
+	AuthenticateToken(ctx context.Context, accessToken string) (*AuthenticatedToken, error)
+}
+
+type AuthenticatedToken struct {
+	Introspection *gocloak.IntroSpectTokenResult
+	Username      string
 }
 
 func NewRouteAuthMiddleware(authenticator RequestAuthenticator) mux.MiddlewareFunc {
@@ -31,26 +37,35 @@ func NewRouteAuthMiddleware(authenticator RequestAuthenticator) mux.MiddlewareFu
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			scheme, token, username, basicPassword, err := authorizationTokenFromRequest(r)
 			if err != nil {
-				writeJSONError(w, http.StatusUnauthorized, err.Error())
+				logAuthFailure("authorization header parse failed", r, err)
+				writeJSONError(w, http.StatusUnauthorized, "invalid authorization header")
 				return
 			}
 
 			var introspection *gocloak.IntroSpectTokenResult
 			if scheme == "bearer" {
 				if authenticator == nil {
-					writeJSONError(w, http.StatusInternalServerError, "auth middleware is enabled but no authenticator is configured")
+					logAuthFailure("authenticator is not configured", r, nil)
+					writeJSONError(w, http.StatusInternalServerError, "authentication is not configured")
 					return
 				}
 
-				introspection, err = authenticator.AuthenticateToken(r.Context(), token)
+				authenticatedToken, err := authenticator.AuthenticateToken(r.Context(), token)
 				if err != nil {
-					writeJSONError(w, http.StatusUnauthorized, fmt.Sprintf("authentication failed: %v", err))
+					logAuthFailure("bearer authentication failed", r, err)
+					writeJSONError(w, http.StatusUnauthorized, "authentication failed")
 					return
 				}
-			}
 
-			if scheme == "bearer" && strings.TrimSpace(username) == "" {
-				username = usernameFromBearerToken(token)
+				if authenticatedToken != nil {
+					introspection = authenticatedToken.Introspection
+					username = strings.TrimSpace(authenticatedToken.Username)
+				}
+
+				if username == "" {
+					writeJSONError(w, http.StatusUnauthorized, "authentication failed: bearer token is missing authoritative user identity")
+					return
+				}
 			}
 
 			ctx := context.WithValue(r.Context(), authSchemeContextKey, scheme)
@@ -125,39 +140,6 @@ func tokenUsernameAndPasswordFromBasicAuthValue(authValue string) (string, strin
 	return credentials, "", "", nil
 }
 
-func usernameFromBearerToken(accessToken string) string {
-	accessToken = strings.TrimSpace(accessToken)
-	if accessToken == "" {
-		return ""
-	}
-
-	parts := strings.Split(accessToken, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return ""
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		return ""
-	}
-
-	for _, field := range []string{"preferred_username", "username", "sub"} {
-		if value, ok := payload[field].(string); ok {
-			value = strings.TrimSpace(value)
-			if value != "" {
-				return value
-			}
-		}
-	}
-
-	return ""
-}
-
 func TokenIntrospectionFromContext(ctx context.Context) (*gocloak.IntroSpectTokenResult, bool) {
 	introspection, ok := ctx.Value(tokenIntrospectionContextKey).(*gocloak.IntroSpectTokenResult)
 	return introspection, ok
@@ -182,4 +164,19 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
+}
+
+func logAuthFailure(msg string, r *http.Request, err error) {
+	args := []any{
+		"method", "",
+		"path", "",
+	}
+	if r != nil {
+		args[1] = r.Method
+		args[3] = r.URL.Path
+	}
+	if err != nil {
+		args = append(args, "error", err.Error())
+	}
+	slog.Warn(msg, args...)
 }

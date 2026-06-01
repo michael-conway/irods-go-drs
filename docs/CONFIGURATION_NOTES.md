@@ -1,74 +1,63 @@
 # Configuration Notes
 
-Use this file as the quick reference for `irods-go-drs` configuration.
+This is the runtime configuration reference for `irods-go-drs`.
 
-## Config sources
+## Sources And Precedence
 
-The service reads configuration in this order:
-
-1. `drs-config.yaml`
-2. `DRS_*` environment variable overrides
-3. Secret files for sensitive values
-
-To use one exact config file, set:
+The service reads `drs-config.yaml` by default. To use one exact file, set:
 
 ```bash
 DRS_CONFIG_FILE=/path/to/drs-config.yaml
 ```
 
-## Main runtime settings
+Search paths without `DRS_CONFIG_FILE`:
 
-These are the settings you will usually care about:
+1. paths passed by the caller
+2. `/etc/irods-ext/`
+3. `$HOME/.irods-drs`
+4. current working directory
+
+Environment variables override config-file values. Secret-file settings are used only when the corresponding explicit secret value is empty. Relative secret paths, service-info paths, and local access root paths resolve relative to the config file.
+
+## Common Runtime Settings
 
 ```bash
 DRS_LISTEN_PORT=8080
 DRS_DRS_LOG_LEVEL=info
+DRS_PUBLIC_URL=http://localhost:8080
+DRS_HTTP_READ_TIMEOUT_SECONDS=30
+DRS_HTTP_READ_HEADER_TIMEOUT_SECONDS=30
+DRS_HTTP_WRITE_TIMEOUT_SECONDS=60
+DRS_HTTP_IDLE_TIMEOUT_SECONDS=120
+```
 
+`DRS_PUBLIC_URL` is the externally visible origin used for `self_uri` and compound extension `access_url` generation. It must be an `http` or `https` origin without path, query, or fragment.
+
+Transport timeout defaults are applied when unset or non-positive.
+
+## iRODS Connection
+
+```bash
 DRS_IRODS_HOST=irods-provider
 DRS_IRODS_PORT=1247
 DRS_IRODS_ZONE=tempZone
 DRS_IRODS_ADMIN_USER=rods
-DRS_IRODS_PRIMARY_TEST_USER=test1
-DRS_IRODS_PRIMARY_TEST_PASSWORD=test1
-DRS_IRODS_SECONDARY_TEST_USER=test2
-DRS_IRODS_SECONDARY_TEST_PASSWORD=test2
-
-DRS_OIDC_URL=https://localhost:8443
-DRS_OIDC_REALM=drs
-DRS_OIDC_CLIENT_ID=irods-go-drs
-DRS_OIDC_INSECURE_SKIP_VERIFY=false
+DRS_IRODS_ADMIN_PASSWORD=rods
+DRS_IRODS_ADMIN_LOGIN_TYPE=native
+DRS_IRODS_AUTH_SCHEME=native
+DRS_IRODS_DEFAULT_RESOURCE=providerResc
+DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_REQUIRE
 ```
 
-If your local Keycloak uses a self-signed certificate, you can temporarily use:
+`IrodsAdminLoginType` controls the admin/proxy account used by bearer-token and ticket-backed requests. `IrodsAuthScheme` controls direct user credentials, including Basic auth requests.
 
-```bash
-DRS_OIDC_INSECURE_SKIP_VERIFY=true
-```
+PAM auth requires SSL in go-irodsclient. If the iRODS server returns `CS_NEG_REFUSE`, use native auth for that connection path or enable SSL negotiation on the iRODS server.
 
-Use that only for local development.
+## iRODS SSL
 
-In YAML config files, use:
+For SSL-configured zones:
 
 ```yaml
-OidcInsecureSkipVerify: true
-```
-
-`OidcSkipTLSVerify` is still accepted for compatibility, but
-`OidcInsecureSkipVerify` is the preferred config key.
-
-## iRODS authentication and SSL
-
-`IrodsAdminLoginType` controls the admin/proxy account used by bearer-token and
-ticket-backed requests. `IrodsAuthScheme` controls direct user credentials, such
-as Basic auth requests.
-
-For PAM Basic auth, set `IrodsAuthScheme: pam`. go-irodsclient requires SSL for
-PAM accounts, and DRS applies the same connection settings to Basic, bearer, and
-ticket accounts.
-
-```yaml
-IrodsAdminLoginType: native
-IrodsAuthScheme: pam
 IrodsNegotiationPolicy: CS_NEG_REQUIRE
 IrodsSSLConfig:
   CACertificateFile: /etc/irods/ca.pem
@@ -85,8 +74,6 @@ IrodsSSLConfig:
 Environment equivalents:
 
 ```bash
-DRS_IRODS_ADMIN_LOGIN_TYPE=native
-DRS_IRODS_AUTH_SCHEME=pam
 DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_REQUIRE
 DRS_IRODS_SSL_CA_CERTIFICATE_FILE=/etc/irods/ca.pem
 DRS_IRODS_SSL_CA_CERTIFICATE_PATH=
@@ -99,79 +86,124 @@ DRS_IRODS_SSL_DH_PARAMS_FILE=
 DRS_IRODS_SSL_SERVER_NAME=irods.example.org
 ```
 
-`VerifyServer` accepts `hostname`, `cert`, or `none`. Use `hostname` for normal
-production verification.
+`VerifyServer` accepts `hostname`, `cert`, or `none`. Use `hostname` for production verification.
 
-## Resource affinity
+## OIDC
 
-`HttpsResourceAffinity` is optional and maps iRODS storage resources to HTTPS DRS
-hosts that are proximate to those resources.
+```bash
+DRS_OIDC_URL=https://keycloak:8443
+DRS_OIDC_REALM=drs
+DRS_OIDC_CLIENT_ID=irods-go-drs
+DRS_OIDC_CLIENT_SECRET=secret
+DRS_OIDC_SCOPE="openid profile email"
+DRS_OIDC_INSECURE_SKIP_VERIFY=false
+```
 
-Supported forms:
+`DRS_OIDC_URL` is the issuer URL used by DRS for token validation. In `irods-grid-stack`, use `https://keycloak:8443` for containerized DRS and `https://localhost:8443` for host-run DRS.
+
+For self-signed local Keycloak certificates, use `DRS_OIDC_INSECURE_SKIP_VERIFY=true` only in development. `DRS_OIDC_SKIP_TLS_VERIFY` is still accepted for compatibility; `DRS_OIDC_INSECURE_SKIP_VERIFY` is preferred.
+
+## Access Methods
+
+```yaml
+IrodsAccessMethodSupported: true
+FileAccessMethodSupported: false
+HttpsAccessMethodSupported: true
+HttpsAccessImplementation: irods-go-rest
+HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
+HttpsAccessUseTicket: true
+DefaultTicketLifetimeMinutes: 720
+DefaultTicketUseLimit: 50
+LocalAccessRootPath: /mnt/irods
+S3AccessMethodSupported: true
+S3AccessMethodBaseURL: s3://
+```
+
+Current behavior:
+
+- `https` returns an `access_id` for atomic objects and a direct `access_url` for compound objects.
+- `irods` returns an `access_id`.
+- `local` returns a `local:///...` URL when enabled.
+- `s3` returns an inline `s3://bucket/key` URL for objects under an ancestor collection with an `iRODS:S3:Bucket` AVU.
+
+Supported HTTPS implementations:
+
+- `irods-go-rest`
+- `irods-https-api`
+
+## Resource Affinity
+
+`HttpsResourceAffinity` maps iRODS storage resources to HTTPS DRS hosts that are proximate to those resources:
 
 ```yaml
 HttpsResourceAffinity:
-  - Host: https://drs-resc-a.example.org
+  - Host: https://drs-provider.example.org
     Resources:
-      - demoResc
-      - cacheResc
+      - providerResc
   - Host: https://drs-default.example.org
     Resources: []
 ```
 
-Notes:
+Exact resource names are preferred for matching replicas. The first entry with an empty `Resources` list is the default for unmatched resources. `*` is accepted for backward compatibility.
 
-- `resources` entries with exact names are preferred for matching replicas.
-- The first entry with an empty `Resources` array is the default for unmatched resources.
-- `*` is still accepted for backward compatibility.
-- `HttpsAccessMethodBaseURL` is a path/query suffix appended to the matched
-  affinity host when constructing HTTPS access URLs.
+`S3ResourceAffinity` follows the same shape for S3 URL host selection when S3 access methods are enabled.
+
+## Service Info
+
+Keep service-info metadata in JSON and point DRS at it:
+
+```yaml
+ServiceInfoFilePath: service-info.json
+ServiceInfoSampleIntervalMinutes: 5
+```
+
+Environment equivalent:
+
+```bash
+DRS_SERVICE_INFO_FILE_PATH=/path/to/service-info.json
+DRS_SERVICE_INFO_SAMPLE_INTERVAL_MINUTES=5
+```
+
+If `ServiceInfoFilePath` is relative, it is resolved relative to `drs-config.yaml`.
 
 ## Secrets
 
-Prefer secret files over inline secrets.
-
-Supported file-backed secret settings:
+Prefer secret files over inline secrets in container deployments:
 
 ```yaml
 IrodsAdminPasswordFile: /run/secrets/irods_admin_password
 OidcClientSecretFile: /run/secrets/oidc_client_secret
 ```
 
-Environment variable equivalents:
+Environment equivalents:
 
 ```bash
 DRS_IRODS_ADMIN_PASSWORD_FILE=/run/secrets/irods_admin_password
 DRS_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc_client_secret
 ```
 
-Secret precedence is:
+Secret resolution order:
 
-1. explicit value
+1. explicit value, such as `IrodsAdminPassword` or `DRS_IRODS_ADMIN_PASSWORD`
 2. secret file
-3. empty
+3. empty value
 
-## Test user settings
+## Test Settings
 
-For integration and E2E work, keep the test users in the same config file:
+Integration and E2E tests share `DRS_E2E_CONFIG_FILE`.
+
+Useful test-only keys:
 
 ```yaml
-IrodsAdminUser: rods
-IrodsAdminPasswordFile: /run/secrets/irods_admin_password
 IrodsPrimaryTestUser: test1
-IrodsPrimaryTestPassword: test1
+IrodsPrimaryTestPassword: test
 IrodsSecondaryTestUser: test2
-IrodsSecondaryTestPassword: test2
+IrodsSecondaryTestPassword: test
 ```
 
-The test helpers use proxy authentication through `IrodsAdminUser` and
-`IrodsAdminPassword`, and they default the effective test user to
-`IrodsPrimaryTestUser`.
+Use [../e2e/drs-config.e2e.sample.yaml](../e2e/drs-config.e2e.sample.yaml) with `irods-grid-stack` as the starting point for host-run live tests.
 
-If you add Basic-authenticated E2E tests, use `IrodsPrimaryTestPassword` and
-`IrodsSecondaryTestPassword` as the source of truth for those user credentials.
-
-Do not use the old YAML keys:
+Do not use the legacy YAML keys:
 
 ```yaml
 IrodsDrsAdminUser:
@@ -187,92 +219,14 @@ IrodsAdminPassword:
 IrodsAdminPasswordFile:
 ```
 
-## Access methods
+## Container Pattern
 
-Configured access methods are now driven by structured booleans and provider
-settings in `drs-config.yaml`.
-
-Example:
-
-```yaml
-IrodsAccessMethodSupported: false
-FileAccessMethodSupported: false
-HttpsAccessMethodSupported: true
-HttpsAccessImplementation: irods-go-rest
-HttpsAccessMethodBaseURL: /api/v1/path/contents?irods_path=
-HttpsAccessUseTicket: true
-LocalAccessRootPath: /mnt/irods
-S3AccessMethodSupported: true
-S3AccessMethodBaseURL: s3://
-```
-
-Current behavior:
-
-- `https` returns an `access_id` for later resolution through `/access`
-- `irods` returns an `access_id`
-- `local` returns a `local:///...` path
-- `s3` returns an inline `s3://bucket/key` URL for objects under an ancestor
-  collection with an `iRODS:S3:Bucket` AVU; the object key is derived from the
-  path relative to that bucket-mapped collection
-
-Current `https` implementations:
-
-- `irods-go-rest` is supported
-- `irods-https-api` is supported
-
-## Service-info JSON
-
-You can keep service-info metadata in a separate JSON file:
-
-```yaml
-ServiceInfoFilePath: service-info.json
-ServiceInfoSampleIntervalMinutes: 5
-```
-
-Environment variable equivalent:
+Mount config and secrets separately:
 
 ```bash
-DRS_SERVICE_INFO_FILE_PATH=/path/to/service-info.json
+DRS_CONFIG_FILE=/config/drs-config.yaml
+DRS_IRODS_ADMIN_PASSWORD_FILE=/run/secrets/irods_admin_password
+DRS_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc_client_secret
 ```
 
-If the path is relative, it is resolved relative to `drs-config.yaml`.
-
-## Docker test framework
-
-The local Docker test stack is under:
-
-```text
-deployments/docker-test-framework/5-0
-```
-
-This is for development and testing, not production.
-
-If you keep a private `keycloak.env` outside the repo, point Compose at it with:
-
-```bash
-KEYCLOAK_ENV_FILE=/path/to/keycloak.env
-```
-
-The iRODS S3 API service reads its local-file bucket and user mappings from a
-shared directory mounted at `/shared-s3-config` inside the container. By
-default, Compose uses:
-
-```text
-deployments/docker-test-framework/5-0/shared-s3-config
-```
-
-To use an externally managed mapping directory, set:
-
-```bash
-ENV_SHARED_S3_CONFIG=/absolute/path/to/shared-s3-config
-```
-
-That directory must contain:
-
-```text
-irods-s3-bucket-mapping.json
-irods-s3-user-mapping.json
-```
-
-The directory mount allows the mapping files to be updated outside the S3 API
-container while the test framework continues to read the same paths.
+For `irods-grid-stack`, prefer setting DRS environment through that stack's `.env` and mounted config files rather than editing this repository's sample config for deployment-specific values.

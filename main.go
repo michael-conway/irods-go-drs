@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	drs_support "github.com/michael-conway/irods-go-drs/drs-support"
 	// WARNING!
@@ -25,6 +26,13 @@ import (
 	//
 	sw "github.com/michael-conway/irods-go-drs/internal"
 )
+
+func timeoutSecondsOrDefault(value int, fallback time.Duration) time.Duration {
+	if value <= 0 {
+		return fallback
+	}
+	return time.Duration(value) * time.Second
+}
 
 func main() {
 	cfg, err := drs_support.ReadDrsConfig("", "", nil)
@@ -48,5 +56,14 @@ func main() {
 
 	router := sw.NewRouter()
 
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", cfg.DrsListenPort), router))
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.DrsListenPort),
+		Handler:           router,
+		ReadTimeout:       timeoutSecondsOrDefault(cfg.HTTPReadTimeoutSeconds, 30*time.Second),
+		ReadHeaderTimeout: timeoutSecondsOrDefault(cfg.HTTPReadHeaderTimeoutSeconds, 30*time.Second),
+		WriteTimeout:      timeoutSecondsOrDefault(cfg.HTTPWriteTimeoutSeconds, 60*time.Second),
+		IdleTimeout:       timeoutSecondsOrDefault(cfg.HTTPIdleTimeoutSeconds, 120*time.Second),
+	}
+
+	log.Fatal(server.ListenAndServe())
 }

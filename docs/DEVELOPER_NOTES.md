@@ -1,31 +1,43 @@
-# Development Notes
+# Developer Notes
 
-Use this file for the main working rules in `irods-go-drs`.
+These notes capture maintainer rules for `irods-go-drs`. User-facing setup belongs in [../README.md](../README.md); runtime configuration belongs in [CONFIGURATION_NOTES.md](./CONFIGURATION_NOTES.md).
 
-## Service shape
+## Service Boundaries
 
 `irods-go-drs` is the DRS-facing service for iRODS.
 
-Monitor shared higher-level iRODS client logic against `go-irodsclient-extensions`.
+Keep responsibilities separated:
 
-If functionality here is also needed by `irods-go-rest` or other clients, consider refactoring it into `go-irodsclient-extensions` instead of duplicating it across service repositories.
+- `api/swagger.yaml` is the DRS OpenAPI contract source.
+- `internal/` owns HTTP routing, request parsing, auth middleware, and response mapping.
+- `drs-support/` owns DRS-to-iRODS behavior, AVU conventions, manifests, validation, and access-method construction.
+- `tools/drs-console/` owns DRS administration CLI behavior.
+- `tools/drs-certification/` owns certification corpus/report tooling.
 
-Keep the code split this way:
+If logic is not HTTP-specific, prefer adding it to `drs-support/` before `internal/`.
 
-- `internal/` handles HTTP, request parsing, and response mapping
-- `drs-support/` holds DRS and iRODS behavior
+## Shared Client Logic
 
-If you are adding logic, prefer to add it in `drs-support/` first and keep `internal/` thin.
+Monitor reusable iRODS workflows against `go-irodsclient-extensions`.
 
-## Core model
+Move logic into `go-irodsclient-extensions` when it is:
+
+- useful to both `irods-go-drs` and `irods-go-rest`
+- not DRS HTTP response shaping
+- stable enough to carry as shared client behavior
+
+Ticket parsing, ticket creation helpers, checksum helpers, and metadata workflows should be considered for extraction when they become cross-service concerns.
+
+## DRS Model Rules
 
 - Atomic DRS objects map to iRODS data objects.
 - Compound DRS objects map to iRODS collections marked with DRS AVUs.
-- DRS metadata is stored as AVUs on iRODS collections/data objects.
-- Compound manifest payloads are generated at request time from collection/data-object AVUs.
-- Checksum and version for data objects should come from real iRODS state when possible.
+- DRS metadata is stored as AVUs on iRODS collections and data objects.
+- Compound manifest payloads are generated at request time.
+- `.drsignore` is a creation/preflight control file and is excluded from compound bundles.
+- Checksum and version data should come from real iRODS state when possible.
 
-Current AVUs:
+Current DRS AVUs:
 
 - `iRODS:DRS:ID`
 - `iRODS:DRS:VERSION`
@@ -38,85 +50,62 @@ Metadata unit:
 
 - `iRODS:DRS`
 
-## Compound objects
-
-A compound object is a collection-backed DRS object.
-
-Keep these rules:
-
-- the root collection carries `iRODS:DRS:ID` and `iRODS:DRS:COMPOUND_MANIFEST`
-- included descendant data objects become DRS objects unless excluded by `.drsignore`
-- intermediate subcollections are represented in runtime manifest output and carry alias/description AVUs
-- runtime manifest JSON is served by `GET /ga4gh/drs/v1/ext/compound/{object_id}`
-- `.drsignore` is a creation/preflight control file and is excluded from the compound bundle
-
-## Access methods
+## Access Methods
 
 Access method generation belongs in `drs-support`.
 
-Ticket parsing, ticket creation helpers, and other reusable client workflows should be considered for extraction into `go-irodsclient-extensions` when they are not DRS-specific.
-
 Current behavior:
 
-- Atomic object `https` access methods are returned with `access_id`; clients call `/objects/{object_id}/access/{access_id}`.
-- Atomic object `irods` access method is returned with `access_id=irods`; clients call `/objects/{object_id}/access/irods`.
-- Compound object `https` access method is returned with a direct `access_url` to `/ga4gh/drs/v1/ext/compound/{object_id}` (no compound `access_id` hop).
-- `local` access method (when enabled) returns a direct mapped `local://` URL.
-- `s3` access method generation is active for objects under collections marked with `iRODS:S3:Bucket` AVUs and returns inline S3 URL data; affinity tuning remains an open TODO.
+- Atomic object `https` returns an `access_id`; clients resolve it through `/objects/{object_id}/access/{access_id}`.
+- Atomic object `irods` returns `access_id=irods`.
+- Compound object `https` returns a direct `access_url` to `/ga4gh/drs/v1/ext/compound/{object_id}`.
+- `local` returns a direct mapped `local://` URL when enabled.
+- `s3` returns inline `s3://bucket/key` data for objects under collections marked with `iRODS:S3:Bucket` AVUs.
 
-API status notes:
+Passport and bulk POST endpoints are intentionally unsupported in alpha and return `501 Not Implemented`.
 
-- Passport/bulk POST endpoints are intentionally unsupported in alpha and return `501 Not Implemented`.
+## Auth And Security
 
-## Local docs
+OIDC bearer validation is configured through Keycloak-compatible OIDC settings. Basic auth maps to iRODS user credentials. Ticket-backed access uses the configured iRODS account path and generated ticket policy.
 
-When the service is running:
+Production posture:
 
-- Swagger UI: `http://localhost:8080/swagger`
-- OpenAPI spec: `http://localhost:8080/openapi.yaml`
+- `DRS_OIDC_INSECURE_SKIP_VERIFY=false`
+- `DRS_IRODS_NEGOTIATION_POLICY=CS_NEG_REQUIRE`
+- explicit `DRS_PUBLIC_URL`
+- secret files instead of inline secrets
+
+Local-only test stacks may use self-signed OIDC TLS and relaxed iRODS negotiation, but docs and samples must clearly mark those values as development-only.
 
 ## Testing
 
 Use three layers:
 
-- unit tests next to the package, run with `go test ./...`
-- integration tests under `test/`, run with `go test -tags=integration ./test/...`
-- end-to-end tests under `e2e/`, run with `go test -tags=e2e ./e2e/...`
+```bash
+GOWORK=off go test ./...
+```
 
-Shared live-test variable:
+```bash
+GOWORK=off DRS_E2E_CONFIG_FILE=./e2e/drs-config.e2e.sample.yaml \
+  go test -tags=integration ./test/...
+```
 
-- `DRS_E2E_CONFIG_FILE`
+```bash
+GOWORK=off DRS_E2E_CONFIG_FILE=./e2e/drs-config.e2e.sample.yaml \
+  go test -tags=e2e ./e2e/...
+```
 
-E2E and integration tests read runtime parameters from that shared config file.
-For HTTP route tests, the base URL is derived from `DrsListenPort` as
-`http://localhost:<DrsListenPort>`.
-Bearer-authenticated route tests are currently skipped by default in this
-harness.
+Live-test settings come from `DRS_E2E_CONFIG_FILE`. HTTP route tests derive the base URL from `DrsListenPort` as `http://localhost:<DrsListenPort>`.
 
-For console and CLI-oriented workflows, assume `gocmd` is available on `PATH`.
+For CLI workflows, assume `gocmd` is available on `PATH`.
 
-### Test substrate
+Prefer `irods-grid-stack` for live-test infrastructure. The older in-repository Docker test framework under `deployments/docker-test-framework/` is a compatibility fixture only.
 
-Prefer `irods-grid-stack` for local live testing. Use the backend-only stack for
-direct iRODS integration tests and the full frontend profile when testing DRS
-through its HTTP surface alongside REST/Starbase.
+## Local Multi-Repo Development
 
-The legacy compose framework under `deployments/docker-test-framework/` is
-deprecated. Do not add new tests, fixtures, or sample configurations that depend
-on that DRS-local stack. Keep it only for historical reproduction while active
-development and sample config updates move to `irods-grid-stack`.
+Use a workspace `go.work` file for cross-repo development instead of committing local `replace` directives.
 
-## S3 API
-
-iRODS s3 api docker images - https://hub.docker.com/r/irods/irods_s3_api/tags
-iRODS s3 config - https://github.com/irods/irods_client_s3_api#configuration
-
-## Local multi-repo sync (`go.work`)
-
-Use a workspace `go.work` file for local cross-repo development instead of
-`replace ../...` directives in `go.mod`.
-
-Current workspace scaffold includes:
+Typical workspace at `workspace-gabble/go.work`:
 
 - `./go-irodsclient-extensions`
 - `./irods-go-rest`
@@ -124,7 +113,29 @@ Current workspace scaffold includes:
 
 Workflow:
 
-1. develop across repos with `go.work` active
-2. keep each repo `go.mod` pinned to real module versions (no local replace)
-3. when shared changes are ready, push/tag in `go-irodsclient-extensions`
-4. bump dependent repos with `go get <module>@<tag-or-commit>` and `go mod tidy`
+1. Develop with `go.work` active locally.
+2. Keep each repository `go.mod` pinned to real module versions.
+3. Tag shared changes in `go-irodsclient-extensions`.
+4. Bump dependent repositories with `GOWORK=off go get <module>@<tag-or-commit>`.
+5. Run `GOWORK=off go mod tidy` and tests in each dependent repository.
+
+## Release Checklist
+
+For `1.0.0-alpha`:
+
+1. Confirm `go.mod` points to released dependency versions, especially `go-irodsclient-extensions`.
+2. Run `GOWORK=off go test ./...`.
+3. Run integration and E2E tests against `irods-grid-stack` when the grid is available.
+4. Confirm [../CERTIFICATION.md](../CERTIFICATION.md) has `Overall status: PASS`.
+5. Review [../README.md](../README.md), [CONFIGURATION_NOTES.md](./CONFIGURATION_NOTES.md), and [../api/swagger.yaml](../api/swagger.yaml) for release alignment.
+6. Create a GitHub release tagged `1.0.0-alpha`.
+7. Confirm the workflow publishes `ghcr.io/michael-conway/irods-go-drs:1.0.0-alpha`.
+8. Update downstream stack defaults or deployment manifests that should consume the released image.
+
+If Go tooling should install this repository by semantic module version, also publish a leading-`v` tag such as `v1.0.0-alpha`. Container release tags may use `1.0.0-alpha` to match deployment naming.
+
+## Known Client Gaps
+
+- S3 access method affinity needs more deployment feedback.
+- Checksum and ticket helper workflows should continue moving toward shared extension code when they are not DRS-specific.
+- go-irodsclient caching does not yet provide a public no-cache or explicit fresh-read API for path existence/lookups.

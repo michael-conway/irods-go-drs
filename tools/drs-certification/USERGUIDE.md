@@ -15,8 +15,10 @@ is missing or its `**Overall status:**` summary is not passing.
 
 ## Prepare
 
+#### The following commands are set up from the top level directory of irods-go-drs.
+f
 ```bash
-run ./tools/drs-certification/drscert.go prepare \
+go run ./tools/drs-certification/drscert.go prepare \
   --drs-config ./e2e/drs-config.e2e.sample.yaml \
   --output-dir .certification/drs
 ```
@@ -56,7 +58,7 @@ an ignored artifact directory.
 Example with Bearer-auth coverage:
 
 ```bash
-run ./tools/drs-certification/drscert.go prepare \
+go run ./tools/drs-certification/drscert.go prepare \
   --drs-config ./e2e/drs-config.e2e.sample.yaml \
   --output-dir .certification/drs \
   --bearer-token-file .certification/bearer-token.txt
@@ -67,29 +69,48 @@ run ./tools/drs-certification/drscert.go prepare \
 Create a Python virtual environment for the sibling `drs-compliance-suite`
 checkout and install its requirements before running certification.
 
+Check out the drs-compliance suite from this location (this is currently a fork of the GA4GH compliance tool updated to 1.5):
+
+https://github.com/michael-conway/drs-compliance-suite
+
+The paths in the example below assume that irods-go-drs and the drs-compliance-suite are under the same parent directory,
+and that the user is running the commands from the parent directory.
+
 ```bash
-cd ../drs-compliance-suite
 python3 -m venv .venv
 source .venv/bin/activate
+cd ./drs-compliance-suite
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -e .
-cd ../irods-go-drs
+cd ..
+```
+
+`drscert` calls the compliance suite with the `--version` argument, so use the
+`drs-compliance-suite` fork/version that supports:
+
+```text
+--version {1.2.0,1.3.0,1.5.0}
 ```
 
 The installed executable is:
 
 ```text
-../drs-compliance-suite/.venv/bin/drs-compliance-suite
+./.venv/bin/drs-compliance-suite
 ```
 
 ## Run
 
+#### The following commands are set up from the parent directory of irods-go-drs and drs-compliance-suite.
+
 ```bash
+cd irods-go-drs 
+PYTHONPATH=../drs-compliance-suite  \
 go run ./tools/drs-certification/drscert.go run \
   --output-dir .certification/drs \
   --server-base-url http://localhost:8888/ga4gh/drs/v1 \
-  --suite-bin ../drs-compliance-suite/.venv/bin/drs-compliance-suite \
+  --suite-bin ../.venv/bin/drs-compliance-suite \
+  --version 1.5.0 \
   --report-path CERTIFICATION.md
 ```
 
@@ -111,10 +132,11 @@ running from `tools/drs-certification/`, pass
 ## All
 
 ```bash
-run ./tools/drs-certification/drscert.go all \
+go run ./tools/drs-certification/drscert.go all \
   --drs-config ./e2e/drs-config.e2e.sample.yaml \
   --server-base-url http://localhost:8888/ga4gh/drs/v1 \
-  --suite-bin ../drs-compliance-suite/.venv/bin/drs-compliance-suite \
+  --suite-bin ../.venv/bin/drs-compliance-suite \
+  --version 1.5.0 \
   --report-path CERTIFICATION.md
 ```
 
@@ -126,7 +148,7 @@ Bearer-auth coverage described above.
 ## Cleanup
 
 ```bash
-run ./tools/drs-certification/drscert.go cleanup \
+go run ./tools/drs-certification/drscert.go cleanup \
   --corpus .certification/drs/corpus.json
 ```
 

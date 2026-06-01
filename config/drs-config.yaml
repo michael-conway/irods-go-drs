@@ -2,6 +2,13 @@ DrsIdAvuValue: drs-id
 DrsAvuUnit: irods:drs
 DrsLogLevel: info
 DrsListenPort: 8888
+# Public origin used for response URL generation (`self_uri`, compound extension `access_url`).
+# Must be an http/https origin with no path, query, or fragment.
+PublicURL: http://localhost:8888
+HTTPReadTimeoutSeconds: 30
+HTTPReadHeaderTimeoutSeconds: 30
+HTTPWriteTimeoutSeconds: 60
+HTTPIdleTimeoutSeconds: 120
 ServiceInfoSampleIntervalMinutes: 420
 ServiceInfoFilePath: service-info.json
 IRODSAccessHost: localhost
@@ -13,6 +20,8 @@ IrodsAdminUser: rods
 IrodsAdminPasswordFile: ./resources/irods-admin-password.txt
 IrodsAdminLoginType: native
 IrodsAuthScheme: native
+# Production default: require iRODS SSL negotiation.
+# Local-only override: CS_NEG_DONT_CARE
 IrodsNegotiationPolicy: CS_NEG_DONT_CARE
 IrodsSSLConfig:
   CACertificateFile:
@@ -25,12 +34,16 @@ IrodsSSLConfig:
   DHParamsFile:
   ServerName:
 IrodsDefaultResource:
+# Container-to-container OIDC issuer URL (matches irods-grid-stack OIDC_INTERNAL_URL).
+# For host-run DRS against grid-stack, override to https://localhost:8443.
 OidcUrl: https://localhost:8443
 OidcClientId: drs-api
-OidcClientSecretFile: ./resources/oidc-client-secret.txt
+OidcClientSecretFile: ./resources/oidc-client-secret-drs.txt
 OidcRealm: drs
 OidcScope: openid profile email
-OidcInsecureSkipVerify: true
+# Production default: verify Keycloak TLS certificates.
+# Local-only override for self-signed certs: true
+OidcInsecureSkipVerify: false
 
 DefaultTicketLifetimeMinutes: 720
 DefaultTicketUseLimit: 50
