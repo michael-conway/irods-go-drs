@@ -16,7 +16,7 @@ is missing or its `**Overall status:**` summary is not passing.
 ## Prepare
 
 #### The following commands are set up from the top level directory of irods-go-drs.
-
+f
 ```bash
 go run ./tools/drs-certification/drscert.go prepare \
   --drs-config ./e2e/drs-config.e2e.sample.yaml \
