@@ -33,7 +33,8 @@ func TestChecksumFromReplicaPreservesTypeAndValue(t *testing.T) {
 	}
 }
 
-func TestChecksumFromReplicaNormalizesSHA256ValueAndType(t *testing.T) {
+func TestChecksumFromReplicaNormalizesSHA256ValueToHex(t *testing.T) {
+	// Base64 iRODS SHA256 checksum
 	checksum, err := irodstypes.CreateIRODSChecksum("sha2:JzZYwVeBDkKwp8dtxc6ZDZbe287HDy9NkS0+Let9UyQ=")
 	if err != nil {
 		t.Fatalf("create checksum: %v", err)
@@ -49,8 +50,33 @@ func TestChecksumFromReplicaNormalizesSHA256ValueAndType(t *testing.T) {
 		t.Fatalf("expected checksum type sha-256, got %q", internalChecksum.Type)
 	}
 
-	if internalChecksum.Value != "JzZYwVeBDkKwp8dtxc6ZDZbe287HDy9NkS0+Let9UyQ=" {
-		t.Fatalf("expected checksum value without irods prefix, got %q", internalChecksum.Value)
+	// JzZYwVeBDkKwp8dtxc6ZDZbe287HDy9NkS0+Let9UyQ= (base64)
+	// -> 273658c157810e42b0a7c76dc5ce990d96dedbcec70f2f4d912d3e2deb7d5324 (hex)
+	expectedHex := "273658c157810e42b0a7c76dc5ce990d96dedbcec70f2f4d912d3e2deb7d5324"
+	if internalChecksum.Value != expectedHex {
+		t.Fatalf("expected hex-normalized checksum, got %q", internalChecksum.Value)
+	}
+}
+
+func TestNormalizeChecksumValue(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"sha2:JzZYwVeBDkKwp8dtxc6ZDZbe287HDy9NkS0+Let9UyQ=", "273658c157810e42b0a7c76dc5ce990d96dedbcec70f2f4d912d3e2deb7d5324"},
+		{"JzZYwVeBDkKwp8dtxc6ZDZbe287HDy9NkS0+Let9UyQ=", "273658c157810e42b0a7c76dc5ce990d96dedbcec70f2f4d912d3e2deb7d5324"},
+		{"d41d8cd98f00b204e9800998ecf8427e", "d41d8cd98f00b204e9800998ecf8427e"},
+		{"sha2:273658c157810e42b0a7c76dc5ce990d96ded9dec70f2f4d912d3e2deb7d5324", "273658c157810e42b0a7c76dc5ce990d96ded9dec70f2f4d912d3e2deb7d5324"},
+		{"md5:d41d8cd98f00b204e9800998ecf8427e", "d41d8cd98f00b204e9800998ecf8427e"},
+		{"", ""},
+		{"random-string", "random-string"},
+	}
+
+	for _, tc := range tests {
+		got := normalizeChecksumValue(tc.input)
+		if got != tc.expected {
+			t.Errorf("normalizeChecksumValue(%q) = %q, expected %q", tc.input, got, tc.expected)
+		}
 	}
 }
 

@@ -2,6 +2,8 @@ package drs_support
 
 import (
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"path"
 	"sort"
@@ -964,12 +966,43 @@ func normalizeChecksumValue(irodsChecksum string) string {
 		return ""
 	}
 
+	// iRODS checksums often have algorithm prefixes like 'sha2:', 'md5:', etc.
+	// Strip the prefix if present.
 	parts := strings.SplitN(trimmed, ":", 2)
+	checksumPart := trimmed
 	if len(parts) == 2 {
-		return parts[1]
+		checksumPart = parts[1]
 	}
 
-	return trimmed
+	// GA4GH DRS expects hex-encoded checksums for many algorithms.
+	// iRODS typically uses base64 for SHA-256 and MD5.
+	// We try to decode as base64. If it works and it's not already hex-like,
+	// we convert it to hex.
+
+	// If it's already a valid hex string of common digest lengths (32, 64, etc),
+	// we assume it is already normalized.
+	if isHexString(checksumPart) {
+		return strings.ToLower(checksumPart)
+	}
+
+	// Attempt base64 decoding.
+	decoded, err := base64.StdEncoding.DecodeString(checksumPart)
+	if err == nil {
+		// Successfully decoded from base64. Re-encode as hex.
+		return hex.EncodeToString(decoded)
+	}
+
+	// Fallback to original stripped value if not base64 or hex.
+	return checksumPart
+}
+
+// isHexString reports whether a string represents a valid hex digest.
+func isHexString(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	_, err := hex.DecodeString(s)
+	return err == nil
 }
 
 func ensureDataObjectChecksum(filesystem IRODSFilesystem, absolutePath string, replicas []*irodstypes.IRODSReplica) (*InternalChecksum, error) {

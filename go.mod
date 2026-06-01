@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/cyverse/go-irodsclient v0.19.10
 	github.com/gorilla/mux v1.8.1
-	github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260528144303-c1c5b60de80d
+	github.com/michael-conway/go-irodsclient-extensions v0.0.0-20260601182914-cef793261f6a
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/viper v1.21.0
 	github.com/urfave/cli/v3 v3.9.0
