@@ -88,10 +88,10 @@ func queryDrsDataObjectSummaryWithConnection(conn *connection.IRODSConnection) (
 func newDrsDataObjectSummaryQuery(conn *connection.IRODSConnection, continueIndex int) *message.IRODSMessageQueryRequest {
 	query := message.NewIRODSMessageQueryRequest(common.MaxQueryRows, continueIndex, 0, 0)
 	query.AddKeyVal(common.ZONE_KW, conn.GetAccount().ClientZone)
-	query.AddSelect(common.ICAT_COLUMN_D_DATA_ID, 1)
-	query.AddSelect(common.ICAT_COLUMN_DATA_SIZE, 1)
-	query.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_VALUE, 1)
-	query.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_UNITS, 1)
+	query.AddSelect(common.ICAT_COLUMN_D_DATA_ID)
+	query.AddSelect(common.ICAT_COLUMN_DATA_SIZE)
+	query.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_VALUE)
+	query.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_UNITS)
 	query.AddEqualStringCondition(common.ICAT_COLUMN_META_DATA_ATTR_NAME, DrsIdAvuAttrib)
 	return query
 }
