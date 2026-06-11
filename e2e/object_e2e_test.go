@@ -378,10 +378,11 @@ func TestGetCompoundObjectBasicAuthE2E(t *testing.T) {
 	if !manifestContainsPathE2E(manifest.Manifest, fixture.childObjectPath) {
 		t.Fatalf("expected manifest to include child object path %q, got %+v", fixture.childObjectPath, manifest.Manifest)
 	}
-	// Runtime manifest generation is AVU/state-based and does not re-apply
-	// .drsignore. Paths excluded during compound creation can still appear here.
-	if !manifestContainsPathE2E(manifest.Manifest, fixture.ignoredPath) {
-		t.Fatalf("expected runtime manifest to include ignored path %q, got %+v", fixture.ignoredPath, manifest.Manifest)
+	// Runtime manifest membership is based on persisted DRS IDs. Ignored
+	// paths are excluded during compound creation and therefore should not
+	// appear in the runtime manifest.
+	if manifestContainsPathE2E(manifest.Manifest, fixture.ignoredPath) {
+		t.Fatalf("expected runtime manifest to exclude ignored path %q, got %+v", fixture.ignoredPath, manifest.Manifest)
 	}
 	if manifestContainsPathE2E(manifest.Manifest, fixture.ignoreFilePath) {
 		t.Fatalf("expected manifest to exclude ignore file path %q, got %+v", fixture.ignoreFilePath, manifest.Manifest)

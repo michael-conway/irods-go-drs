@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/schemas/compound-runtime-manifest.schema.json",
+  "title": "Compound Runtime Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rootPath",
+    "rootDrsId",
+    "manifest"
+  ],
+  "properties": {
+    "host": {
+      "type": "string"
+    },
+    "port": {
+      "type": "integer"
+    },
+    "zone": {
+      "type": "string"
+    },
+    "rootPath": {
+      "type": "string"
+    },
+    "rootDrsId": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "manifest": {
+      "$ref": "#/$defs/compoundManifestNode"
+    }
+  },
+  "$defs": {
+    "compoundManifestAVU": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attribute",
+        "value"
+      ],
+      "properties": {
+        "attribute": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "compoundManifestNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "relativePath",
+        "nodeType",
+        "drsId"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "relativePath": {
+          "type": "string"
+        },
+        "nodeType": {
+          "type": "string",
+          "enum": [
+            "collection",
+            "data_object"
+          ]
+        },
+        "drsId": {
+          "type": "string"
+        },
+        "alias": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "willAssignDrsId": {
+          "type": "boolean"
+        },
+        "metadata": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/compoundManifestAVU"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/compoundManifestNode"
+          }
+        }
+      }
+    }
+  }
+}
