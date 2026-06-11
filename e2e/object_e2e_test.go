@@ -378,6 +378,13 @@ func TestGetCompoundObjectBasicAuthE2E(t *testing.T) {
 	if !manifestContainsPathE2E(manifest.Manifest, fixture.childObjectPath) {
 		t.Fatalf("expected manifest to include child object path %q, got %+v", fixture.childObjectPath, manifest.Manifest)
 	}
+	childNode := manifestFindPathE2E(manifest.Manifest, fixture.childObjectPath)
+	if childNode == nil {
+		t.Fatalf("expected manifest child node for %q, got %+v", fixture.childObjectPath, manifest.Manifest)
+	}
+	if !manifestHasAVUE2E(childNode, fixture.childAVUName, fixture.childAVUValue, fixture.childAVUUnit) {
+		t.Fatalf("expected child manifest metadata %q=%q unit=%q, got %+v", fixture.childAVUName, fixture.childAVUValue, fixture.childAVUUnit, childNode)
+	}
 	// Runtime manifest membership is based on persisted DRS IDs. Ignored
 	// paths are excluded during compound creation and therefore should not
 	// appear in the runtime manifest.
@@ -640,6 +647,35 @@ func manifestContainsPathE2E(node *drs_support.CompoundManifestNode, targetPath 
 		}
 	}
 
+	return false
+}
+
+func manifestFindPathE2E(node *drs_support.CompoundManifestNode, targetPath string) *drs_support.CompoundManifestNode {
+	if node == nil {
+		return nil
+	}
+	if strings.TrimSpace(node.Path) == strings.TrimSpace(targetPath) {
+		return node
+	}
+	for idx := range node.Children {
+		child := &node.Children[idx]
+		found := manifestFindPathE2E(child, targetPath)
+		if found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func manifestHasAVUE2E(node *drs_support.CompoundManifestNode, attribute string, value string, unit string) bool {
+	if node == nil {
+		return false
+	}
+	for _, meta := range node.Metadata {
+		if meta.Attribute == attribute && meta.Value == value && meta.Unit == unit {
+			return true
+		}
+	}
 	return false
 }
 

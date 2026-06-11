@@ -389,9 +389,13 @@ func buildCompoundRuntimeTree(filesystem IRODSFilesystem, rootEntry *irodsfs.Ent
 
 		entryNode := &compoundTreeNode{
 			Entry:    listingEntry.Entry,
-			Metadata: irodsMetasFromAVUStats(listingEntry.MatchedAVUs),
 			Children: []*compoundTreeNode{},
 		}
+		entryMetas, err := filesystem.ListMetadata(entryPath)
+		if err != nil && !isFileNotFoundError(err) {
+			return nil, fmt.Errorf("list metadata for %q: %w", entryPath, err)
+		}
+		entryNode.Metadata = entryMetas
 		nodesByPath[entryPath] = entryNode
 
 		parentPath := parentRuntimeNodePath(rootPath, entryPath)

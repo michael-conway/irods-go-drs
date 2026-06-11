@@ -74,6 +74,9 @@ func TestBuildCompoundRuntimeManifestUsesDrsMembersAndInfersIntermediateCollecti
 	if err := filesystem.AddMetadata(rootPath+"/sub/deeper/registered.txt", DrsAvuDescriptionAttrib, "registered description", DrsAvuUnit); err != nil {
 		t.Fatalf("seed registered description: %v", err)
 	}
+	if err := filesystem.AddMetadata(rootPath+"/sub/deeper/registered.txt", "user:note", "keep me", "custom"); err != nil {
+		t.Fatalf("seed registered custom metadata: %v", err)
+	}
 
 	manifest, err := BuildCompoundRuntimeManifest(filesystem, rootPath)
 	if err != nil {
@@ -102,6 +105,9 @@ func TestBuildCompoundRuntimeManifestUsesDrsMembersAndInfersIntermediateCollecti
 	if registeredNode.DrsID != "registered-id" || registeredNode.Description != "registered description" {
 		t.Fatalf("unexpected registered runtime node %+v", registeredNode)
 	}
+	if !manifestHasAVU(registeredNode, "user:note", "keep me", "custom") {
+		t.Fatalf("expected registered runtime node to include custom metadata, got %+v", registeredNode)
+	}
 
 	if manifestContainsPath(manifest.Manifest, rootPath+"/sub/deeper/unregistered.txt") {
 		t.Fatalf("expected runtime manifest to exclude unregistered data object")
@@ -109,6 +115,18 @@ func TestBuildCompoundRuntimeManifestUsesDrsMembersAndInfersIntermediateCollecti
 	if manifestContainsPath(manifest.Manifest, rootPath+"/"+DrsIgnoreFileName) {
 		t.Fatalf("expected runtime manifest to exclude .drsignore")
 	}
+}
+
+func manifestHasAVU(node *CompoundManifestNode, attribute string, value string, unit string) bool {
+	if node == nil {
+		return false
+	}
+	for _, meta := range node.Metadata {
+		if meta.Attribute == attribute && meta.Value == value && meta.Unit == unit {
+			return true
+		}
+	}
+	return false
 }
 
 func newCompoundTestFilesystem(root string) *compoundTestFilesystem {
