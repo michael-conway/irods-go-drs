@@ -82,6 +82,13 @@ Passport and bulk POST flows are intentionally unsupported in alpha and return `
 
 See [api/swagger.yaml](./api/swagger.yaml) for the OpenAPI contract.
 
+Sample compound manifest payloads and standalone JSON Schemas are also provided in `api/`:
+
+- [api/compound-runtime-manifest.sample.json](./api/compound-runtime-manifest.sample.json)
+- [api/compound-runtime-manifest.schema.json](./api/compound-runtime-manifest.schema.json)
+- [api/compound-preflight-manifest.sample.json](./api/compound-preflight-manifest.sample.json)
+- [api/compound-preflight-manifest.schema.json](./api/compound-preflight-manifest.schema.json)
+
 ## DRS Console
 
 The `drscmd` tool in [tools/drs-console](./tools/drs-console) supports DRS administration workflows such as:

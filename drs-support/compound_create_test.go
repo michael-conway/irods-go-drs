@@ -19,6 +19,7 @@ type compoundTestFilesystem struct {
 	entriesByPath  map[string]*irodsfs.Entry
 	metadataByPath map[string][]*irodstypes.IRODSMeta
 	fileContents   map[string][]byte
+	failAddByPath  map[string]error
 }
 
 func TestCompoundRuntimeManifestChecksumUsesCanonicalMD5(t *testing.T) {
@@ -49,6 +50,85 @@ func TestCompoundRuntimeManifestChecksumUsesCanonicalMD5(t *testing.T) {
 	}
 }
 
+func TestBuildCompoundRuntimeManifestUsesDrsMembersAndInfersIntermediateCollections(t *testing.T) {
+	rootPath := "/tempZone/home/test1/compound"
+	filesystem := newCompoundTestFilesystem(rootPath)
+	filesystem.addCollection(rootPath + "/sub")
+	filesystem.addCollection(rootPath + "/sub/deeper")
+	filesystem.addDataObject(rootPath + "/sub/deeper/registered.txt")
+	filesystem.addDataObject(rootPath + "/sub/deeper/unregistered.txt")
+	filesystem.addDataObject(rootPath + "/" + DrsIgnoreFileName)
+
+	if err := filesystem.AddMetadata(rootPath, DrsIdAvuAttrib, "compound-id", DrsAvuUnit); err != nil {
+		t.Fatalf("seed root drs id: %v", err)
+	}
+	if err := filesystem.AddMetadata(rootPath, DrsAvuCompoundManifestAttrib, "true", DrsAvuUnit); err != nil {
+		t.Fatalf("seed root compound marker: %v", err)
+	}
+	if err := filesystem.AddMetadata(rootPath+"/sub", DrsAvuDescriptionAttrib, "sub description", DrsAvuUnit); err != nil {
+		t.Fatalf("seed sub description: %v", err)
+	}
+	if err := filesystem.AddMetadata(rootPath+"/sub/deeper/registered.txt", DrsIdAvuAttrib, "registered-id", DrsAvuUnit); err != nil {
+		t.Fatalf("seed registered drs id: %v", err)
+	}
+	if err := filesystem.AddMetadata(rootPath+"/sub/deeper/registered.txt", DrsAvuDescriptionAttrib, "registered description", DrsAvuUnit); err != nil {
+		t.Fatalf("seed registered description: %v", err)
+	}
+	if err := filesystem.AddMetadata(rootPath+"/sub/deeper/registered.txt", "user:note", "keep me", "custom"); err != nil {
+		t.Fatalf("seed registered custom metadata: %v", err)
+	}
+
+	manifest, err := BuildCompoundRuntimeManifest(filesystem, rootPath)
+	if err != nil {
+		t.Fatalf("build runtime manifest: %v", err)
+	}
+
+	if manifest == nil || manifest.Manifest == nil {
+		t.Fatalf("expected runtime manifest payload")
+	}
+	if manifest.RootDrsID != "compound-id" {
+		t.Fatalf("expected root drs id, got %+v", manifest)
+	}
+
+	subNode := manifestFindPath(manifest.Manifest, rootPath+"/sub")
+	if subNode == nil {
+		t.Fatalf("expected inferred intermediate collection in runtime manifest")
+	}
+	if subNode.Description != "sub description" {
+		t.Fatalf("expected subcollection metadata to be preserved, got %+v", subNode)
+	}
+
+	registeredNode := manifestFindPath(manifest.Manifest, rootPath+"/sub/deeper/registered.txt")
+	if registeredNode == nil {
+		t.Fatalf("expected drs-registered data object in runtime manifest")
+	}
+	if registeredNode.DrsID != "registered-id" || registeredNode.Description != "registered description" {
+		t.Fatalf("unexpected registered runtime node %+v", registeredNode)
+	}
+	if !manifestHasAVU(registeredNode, "user:note", "keep me", "custom") {
+		t.Fatalf("expected registered runtime node to include custom metadata, got %+v", registeredNode)
+	}
+
+	if manifestContainsPath(manifest.Manifest, rootPath+"/sub/deeper/unregistered.txt") {
+		t.Fatalf("expected runtime manifest to exclude unregistered data object")
+	}
+	if manifestContainsPath(manifest.Manifest, rootPath+"/"+DrsIgnoreFileName) {
+		t.Fatalf("expected runtime manifest to exclude .drsignore")
+	}
+}
+
+func manifestHasAVU(node *CompoundManifestNode, attribute string, value string, unit string) bool {
+	if node == nil {
+		return false
+	}
+	for _, meta := range node.Metadata {
+		if meta.Attribute == attribute && meta.Value == value && meta.Unit == unit {
+			return true
+		}
+	}
+	return false
+}
+
 func newCompoundTestFilesystem(root string) *compoundTestFilesystem {
 	return &compoundTestFilesystem{
 		account: &irodstypes.IRODSAccount{
@@ -67,7 +147,8 @@ func newCompoundTestFilesystem(root string) *compoundTestFilesystem {
 		metadataByPath: map[string][]*irodstypes.IRODSMeta{
 			root: {},
 		},
-		fileContents: map[string][]byte{},
+		fileContents:  map[string][]byte{},
+		failAddByPath: map[string]error{},
 	}
 }
 
@@ -119,6 +200,9 @@ func (f *compoundTestFilesystem) ListMetadata(irodsPath string) ([]*irodstypes.I
 }
 
 func (f *compoundTestFilesystem) AddMetadata(irodsPath string, attName string, attValue string, attUnits string) error {
+	if err, ok := f.failAddByPath[irodsPath]; ok {
+		return err
+	}
 	f.metadataByPath[irodsPath] = append(f.metadataByPath[irodsPath], &irodstypes.IRODSMeta{
 		Name:  attName,
 		Value: attValue,
@@ -456,6 +540,38 @@ func TestCreateCompoundDrsObjectAppliesIgnoreAndScaffolding(t *testing.T) {
 	}
 	if drsIDFromMetadata(ignoreObjectMetas) != "" {
 		t.Fatalf("expected .drsignore to remain outside compound bundle and without DRS id")
+	}
+}
+
+func TestCreateCompoundDrsObjectSkipsRootMarkerWhenNodeErrorsPresent(t *testing.T) {
+	rootPath := "/tempZone/home/test1/compound"
+	filesystem := newCompoundTestFilesystem(rootPath)
+	filesystem.addDataObject(rootPath + "/broken.txt")
+	filesystem.failAddByPath[rootPath+"/broken.txt"] = os.ErrPermission
+
+	result, err := CreateCompoundDrsObjectFromCollection(filesystem, rootPath)
+	if err != nil {
+		t.Fatalf("create compound object: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected compound create result")
+	}
+	if len(result.NodeErrors) != 1 {
+		t.Fatalf("expected one node error, got %+v", result.NodeErrors)
+	}
+	if result.NodeErrors[0].Path != rootPath+"/broken.txt" {
+		t.Fatalf("expected node error for broken child, got %+v", result.NodeErrors)
+	}
+
+	rootMetas, err := filesystem.ListMetadata(rootPath)
+	if err != nil {
+		t.Fatalf("list root metadata: %v", err)
+	}
+	if hasMetadataNameWithValue(rootMetas, DrsAvuCompoundManifestAttrib) {
+		t.Fatalf("expected root compound marker to be skipped on node errors, got %+v", rootMetas)
+	}
+	if hasMetadataNameWithValue(rootMetas, DrsIdAvuAttrib) {
+		t.Fatalf("expected root drs id metadata to be skipped on node errors, got %+v", rootMetas)
 	}
 }
 

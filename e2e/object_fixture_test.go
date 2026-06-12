@@ -53,6 +53,9 @@ type e2eCompoundObjectFixture struct {
 	ignoreFilePath  string
 	childObjectPath string
 	childObjectID   string
+	childAVUName    string
+	childAVUValue   string
+	childAVUUnit    string
 	ignoredPath     string
 	expectedUser    string
 }
@@ -289,6 +292,9 @@ func buildE2ECompoundObjectFixture(t *testing.T) (*e2eCompoundObjectFixture, err
 	childObjectPath := path.Join(subCollectionPath, "child.txt")
 	ignoredObjectPath := path.Join(ignoredCollectionPath, "ignored.txt")
 	ignoreFilePath := path.Join(compoundPath, drs_support.DrsIgnoreFileName)
+	childAVUName := "user:note"
+	childAVUValue := "compound child metadata"
+	childAVUUnit := "custom"
 
 	if err := filesystem.MakeDir(subCollectionPath, true); err != nil {
 		filesystem.Release()
@@ -302,6 +308,10 @@ func buildE2ECompoundObjectFixture(t *testing.T) (*e2eCompoundObjectFixture, err
 	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer([]byte("compound e2e child object\n")), childObjectPath, "", false, true, nil); err != nil {
 		filesystem.Release()
 		return nil, fmt.Errorf("upload compound fixture object %q: %w", childObjectPath, err)
+	}
+	if err := filesystem.AddMetadata(childObjectPath, childAVUName, childAVUValue, childAVUUnit); err != nil {
+		filesystem.Release()
+		return nil, fmt.Errorf("add custom metadata to child object %q: %w", childObjectPath, err)
 	}
 	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBuffer([]byte("compound e2e ignored object\n")), ignoredObjectPath, "", false, true, nil); err != nil {
 		filesystem.Release()
@@ -347,6 +357,9 @@ func buildE2ECompoundObjectFixture(t *testing.T) (*e2eCompoundObjectFixture, err
 		ignoreFilePath:  ignoreFilePath,
 		childObjectPath: childObjectPath,
 		childObjectID:   strings.TrimSpace(childObject.Id),
+		childAVUName:    childAVUName,
+		childAVUValue:   childAVUValue,
+		childAVUUnit:    childAVUUnit,
 		ignoredPath:     ignoredObjectPath,
 		expectedUser:    testUser,
 	}, nil

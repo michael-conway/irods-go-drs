@@ -269,7 +269,12 @@ func BuildCompoundRuntimeManifest(filesystem IRODSFilesystem, collectionPath str
 		return nil, fmt.Errorf("path %q is not a collection", rootPath)
 	}
 
-	root, err := buildCompoundTree(filesystem, rootPath)
+	rootMetas, err := filesystem.ListMetadata(rootPath)
+	if err != nil && !isFileNotFoundError(err) {
+		return nil, fmt.Errorf("list metadata for %q: %w", rootPath, err)
+	}
+
+	root, err := buildCompoundRuntimeTree(filesystem, rootEntry, rootMetas)
 	if err != nil {
 		return nil, err
 	}
@@ -302,6 +307,172 @@ func BuildCompoundRuntimeManifest(filesystem IRODSFilesystem, collectionPath str
 	}
 
 	return result, nil
+}
+
+func buildCompoundRuntimeTree(filesystem IRODSFilesystem, rootEntry *irodsfs.Entry, rootMetas []*irodstypes.IRODSMeta) (*compoundTreeNode, error) {
+	if filesystem == nil {
+		return nil, fmt.Errorf("no iRODS filesystem provided")
+	}
+	if rootEntry == nil {
+		return nil, fmt.Errorf("no root entry provided")
+	}
+
+	metadataQuerier, ok := filesystem.(EntryMetadataQuerier)
+	if !ok {
+		return nil, fmt.Errorf("filesystem does not support metadata queries needed for runtime manifest generation")
+	}
+
+	rootPath := path.Clean(rootEntry.Path)
+	if rootPath == "" || rootPath == "." {
+		rootPath = "/"
+	}
+
+	root := &compoundTreeNode{
+		Entry:    rootEntry,
+		Metadata: rootMetas,
+		Children: []*compoundTreeNode{},
+	}
+	nodesByPath := map[string]*compoundTreeNode{
+		rootPath: root,
+	}
+
+	drsEntries, err := queryDrsListingEntries(metadataQuerier, rootPath, true, DrsListingScopeAll)
+	if err != nil {
+		return nil, fmt.Errorf("query runtime manifest DRS entries under %q: %w", rootPath, err)
+	}
+
+	paths := make([]string, 0, len(drsEntries))
+	for entryPath := range drsEntries {
+		if strings.TrimSpace(entryPath) == "" {
+			continue
+		}
+		paths = append(paths, entryPath)
+	}
+	sort.Strings(paths)
+
+	for _, entryPath := range paths {
+		listingEntry := drsEntries[entryPath]
+		if listingEntry.Entry == nil {
+			continue
+		}
+
+		ancestors := ancestorCollectionPaths(rootPath, entryPath)
+		for _, ancestorPath := range ancestors {
+			if _, exists := nodesByPath[ancestorPath]; exists {
+				continue
+			}
+
+			ancestorEntry, err := statEntry(filesystem, ancestorPath)
+			if err != nil {
+				return nil, fmt.Errorf("stat runtime manifest collection %q: %w", ancestorPath, err)
+			}
+
+			ancestorMetas, err := filesystem.ListMetadata(ancestorPath)
+			if err != nil && !isFileNotFoundError(err) {
+				return nil, fmt.Errorf("list metadata for %q: %w", ancestorPath, err)
+			}
+
+			ancestorNode := &compoundTreeNode{
+				Entry:    ancestorEntry,
+				Metadata: ancestorMetas,
+				Children: []*compoundTreeNode{},
+			}
+			nodesByPath[ancestorPath] = ancestorNode
+
+			parentPath := parentRuntimeNodePath(rootPath, ancestorPath)
+			parentNode, exists := nodesByPath[parentPath]
+			if !exists {
+				return nil, fmt.Errorf("missing runtime manifest parent node %q for %q", parentPath, ancestorPath)
+			}
+			parentNode.Children = append(parentNode.Children, ancestorNode)
+		}
+
+		entryNode := &compoundTreeNode{
+			Entry:    listingEntry.Entry,
+			Children: []*compoundTreeNode{},
+		}
+		entryMetas, err := filesystem.ListMetadata(entryPath)
+		if err != nil && !isFileNotFoundError(err) {
+			return nil, fmt.Errorf("list metadata for %q: %w", entryPath, err)
+		}
+		entryNode.Metadata = entryMetas
+		nodesByPath[entryPath] = entryNode
+
+		parentPath := parentRuntimeNodePath(rootPath, entryPath)
+		parentNode, exists := nodesByPath[parentPath]
+		if !exists {
+			return nil, fmt.Errorf("missing runtime manifest parent node %q for %q", parentPath, entryPath)
+		}
+		parentNode.Children = append(parentNode.Children, entryNode)
+	}
+
+	sortCompoundTreeChildren(root)
+	return root, nil
+}
+
+func ancestorCollectionPaths(rootPath string, targetPath string) []string {
+	rootPath = path.Clean(rootPath)
+	targetPath = path.Clean(targetPath)
+	if rootPath == targetPath {
+		return nil
+	}
+
+	relativePath := relativePathFromRoot(rootPath, targetPath)
+	if relativePath == "" {
+		return nil
+	}
+
+	segments := strings.Split(relativePath, "/")
+	if len(segments) <= 1 {
+		return nil
+	}
+
+	ancestors := make([]string, 0, len(segments)-1)
+	currentPath := rootPath
+	for _, segment := range segments[:len(segments)-1] {
+		if strings.TrimSpace(segment) == "" {
+			continue
+		}
+		currentPath = path.Clean(path.Join(currentPath, segment))
+		ancestors = append(ancestors, currentPath)
+	}
+	return ancestors
+}
+
+func parentRuntimeNodePath(rootPath string, entryPath string) string {
+	rootPath = path.Clean(rootPath)
+	entryPath = path.Clean(entryPath)
+	if entryPath == rootPath {
+		return rootPath
+	}
+
+	parentPath := path.Dir(entryPath)
+	if parentPath == "." || parentPath == "" {
+		return rootPath
+	}
+	return path.Clean(parentPath)
+}
+
+func sortCompoundTreeChildren(node *compoundTreeNode) {
+	if node == nil || len(node.Children) == 0 {
+		return
+	}
+
+	sort.Slice(node.Children, func(i int, j int) bool {
+		left := ""
+		right := ""
+		if node.Children[i] != nil && node.Children[i].Entry != nil {
+			left = node.Children[i].Entry.Path
+		}
+		if node.Children[j] != nil && node.Children[j].Entry != nil {
+			right = node.Children[j].Entry.Path
+		}
+		return left < right
+	})
+
+	for _, child := range node.Children {
+		sortCompoundTreeChildren(child)
+	}
 }
 
 // MarshalCompoundRuntimeManifest returns the canonical JSON bytes used when serving a runtime manifest.
@@ -379,10 +550,7 @@ func CreateCompoundDrsObjectFromCollection(filesystem IRODSFilesystem, collectio
 		return nil, err
 	}
 
-	nodes := collectIncludedNodes(root, rootPath, ignores)
-	sort.Slice(nodes, func(i int, j int) bool {
-		return nodes[i].Entry.Path < nodes[j].Entry.Path
-	})
+	nodes := compoundCreationDataNodes(root, rootPath, ignores)
 
 	nodeErrors := make([]CompoundCreateNodeError, 0)
 	for _, node := range nodes {
@@ -407,6 +575,14 @@ func CreateCompoundDrsObjectFromCollection(filesystem IRODSFilesystem, collectio
 		}
 	}
 
+	if len(nodeErrors) > 0 {
+		return &CompoundCreateResult{
+			DrsID:      drsID,
+			RootPath:   rootPath,
+			NodeErrors: nodeErrors,
+		}, nil
+	}
+
 	if err := upsertDrsMetadata(filesystem, rootPath, DrsIdAvuAttrib, drsID); err != nil {
 		nodeErrors = append(nodeErrors, CompoundCreateNodeError{Path: rootPath, Message: err.Error()})
 	}
@@ -419,6 +595,23 @@ func CreateCompoundDrsObjectFromCollection(filesystem IRODSFilesystem, collectio
 		RootPath:   rootPath,
 		NodeErrors: nodeErrors,
 	}, nil
+}
+
+func compoundCreationDataNodes(root *compoundTreeNode, rootPath string, ignores *ignoreext.Ignores) []*compoundTreeNode {
+	nodes := collectIncludedNodes(root, rootPath, ignores)
+	dataNodes := make([]*compoundTreeNode, 0, len(nodes))
+	for _, node := range nodes {
+		if node == nil || node.Entry == nil || node.Entry.IsDir() {
+			continue
+		}
+		dataNodes = append(dataNodes, node)
+	}
+
+	sort.Slice(dataNodes, func(i int, j int) bool {
+		return dataNodes[i].Entry.Path < dataNodes[j].Entry.Path
+	})
+
+	return dataNodes
 }
 
 func buildCompoundTree(filesystem IRODSFilesystem, rootPath string) (*compoundTreeNode, error) {

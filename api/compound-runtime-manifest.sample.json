@@ -1,0 +1,41 @@
+   {
+  "host": "irods.example.org",
+  "port": 1247,
+  "zone": "tempZone",
+  "rootPath": "/tempZone/home/rods/projects/compound",
+  "rootDrsId": "compound-root-id",
+  "warnings": [],
+  "manifest": {
+    "path": "/tempZone/home/rods/projects/compound",
+    "relativePath": "",
+    "nodeType": "collection",
+    "drsId": "compound-root-id",
+    "alias": ".",
+    "description": ".",
+    "children": [
+      {
+        "path": "/tempZone/home/rods/projects/compound/data",
+        "relativePath": "data",
+        "nodeType": "collection",
+        "drsId": "",
+        "alias": "data",
+        "description": "project data",
+        "children": [
+          {
+            "path": "/tempZone/home/rods/projects/compound/data/sample1.bam",
+            "relativePath": "data/sample1.bam",
+            "nodeType": "data_object",
+            "drsId": "sample1-id",
+            "description": "aligned reads",
+            "metadata": [
+              {
+                "attribute": "project",
+                "value": "demo"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
